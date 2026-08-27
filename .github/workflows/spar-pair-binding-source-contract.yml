@@ -11,7 +11,6 @@ on:
   push:
     branches:
       - main
-      - ren/normalized-warm-start-pair-binding-v1
     paths:
       - openra_env/analysis/spar_pair_binding.py
       - openra_env/analysis/spar_pair_comparison.py
