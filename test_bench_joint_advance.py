@@ -84,6 +84,14 @@ class TerminalLedgerTests(unittest.TestCase):
         with self.assertRaises(bench.ContractError):
             ledger.finalize("c2-t8", "late_success", {})
 
+    def test_matrix_stops_after_any_non_success_terminal(self):
+        self.assertTrue(bench.matrix_may_continue("success"))
+        for terminal in ("timeout", "rpc_error", "teardown_error"):
+            with self.subTest(terminal=terminal):
+                self.assertFalse(bench.matrix_may_continue(terminal))
+        with self.assertRaises(bench.ContractError):
+            bench.matrix_may_continue("skipped")
+
 
 class PhaseTerminalityTests(unittest.IsolatedAsyncioTestCase):
     async def test_slow_completion_cannot_rewrite_timeout_or_escape_phase(self):
