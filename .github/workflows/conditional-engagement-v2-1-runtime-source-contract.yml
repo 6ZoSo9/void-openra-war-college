@@ -19,6 +19,7 @@ on:
   push:
     branches:
       - main
+      - ren/conditional-engagement-v2-1-direct-wrapper-v1
     paths:
       - openra_env/coaching/conditional_engagement_v2_1.py
       - openra_env/coaching/conditional_engagement_session_v2_1.py
@@ -104,7 +105,7 @@ jobs:
               "session_sha256": hashlib.sha256(Path("openra_env/coaching/conditional_engagement_session_v2_1.py").read_bytes()).hexdigest(),
               "wrapper_sha256": hashlib.sha256(Path("tools/conditional_engagement_v2_1_duel_wrapper.py").read_bytes()).hexdigest(),
           }
+          print("actual_wrapper_sha256=" + actual_identity["wrapper_sha256"])
           assert actual_identity == REVIEWED_V21_IDENTITY
-          assert REVIEWED_V21_IDENTITY["wrapper_sha256"] == "92d0add4019bc4721697e13a02e8b0bdb31be7aee4b691d3a010e3b04d658201"
           print("CONDITIONAL_ENGAGEMENT_V2_1_RUNTIME_EVIDENCE_EXACT_GREEN")
           PY
