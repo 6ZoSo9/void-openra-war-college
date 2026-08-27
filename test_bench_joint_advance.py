@@ -2,8 +2,15 @@
 """Source-only contract tests for bench_joint_advance.py."""
 
 import asyncio
+import io
 import json
+import os
+import socket
+import tempfile
+import types
 import unittest
+from pathlib import Path
+from unittest import mock
 
 import bench_joint_advance as bench
 
@@ -86,7 +93,7 @@ class TerminalLedgerTests(unittest.TestCase):
 
     def test_matrix_stops_after_any_non_success_terminal(self):
         self.assertTrue(bench.matrix_may_continue("success"))
-        for terminal in ("timeout", "rpc_error", "teardown_error"):
+        for terminal in ("timeout", "rpc_error", "teardown_error", "not_executed"):
             with self.subTest(terminal=terminal):
                 self.assertFalse(bench.matrix_may_continue(terminal))
         with self.assertRaises(bench.ContractError):
@@ -158,6 +165,28 @@ class EvidenceContractTests(unittest.TestCase):
                 command=["unit-test"],
                 host={"hostname": "fixture"},
             )
+        failed = bench.build_report(
+            provenance=self.provenance,
+            parameters=self.parameters,
+            cells=[],
+            executed_designated_host=True,
+            generated_at_utc="2026-08-27T00:00:00Z",
+            command=["unit-test"],
+            run={"terminal": "startup_error"},
+            host={"hostname": "fixture"},
+        )
+        self.assertEqual(failed["run"]["terminal"], "startup_error")
+        with self.assertRaises(bench.ContractError):
+            bench.build_report(
+                provenance=self.provenance,
+                parameters=self.parameters,
+                cells=[],
+                executed_designated_host=True,
+                generated_at_utc="2026-08-27T00:00:00Z",
+                command=["unit-test"],
+                run={"terminal": "completed"},
+                host={"hostname": "fixture"},
+            )
 
     def test_stable_json_is_machine_replayable(self):
         report = bench.build_report(
@@ -171,6 +200,99 @@ class EvidenceContractTests(unittest.TestCase):
         encoded = bench.stable_json(report)
         self.assertTrue(encoded.endswith("\n"))
         self.assertEqual(json.loads(encoded), report)
+
+
+class RuntimeBoundaryTests(unittest.TestCase):
+    def test_joint_response_is_bound_to_session_ticks_and_perspectives(self):
+        good = types.SimpleNamespace(
+            session_id="session-a",
+            start_tick=10,
+            end_tick=18,
+            player_observations=[
+                types.SimpleNamespace(player="Multi0"),
+                types.SimpleNamespace(player="Multi1"),
+            ],
+        )
+        self.assertEqual(
+            bench.validate_joint_response(good, "session-a", 8),
+            {"start_tick": 10, "end_tick": 18, "players": ["Multi0", "Multi1"]},
+        )
+        for mutation in (
+            {"session_id": "wrong"},
+            {"end_tick": 19},
+            {"player_observations": [types.SimpleNamespace(player="Multi0")]},
+        ):
+            candidate = types.SimpleNamespace(**good.__dict__)
+            for key, value in mutation.items():
+                setattr(candidate, key, value)
+            with self.subTest(mutation=mutation), self.assertRaises(bench.ContractError):
+                bench.validate_joint_response(candidate, "session-a", 8)
+
+    def test_occupied_endpoint_fails_before_runtime_contact(self):
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+        try:
+            with self.assertRaises(bench.ContractError):
+                bench.ensure_endpoint_unoccupied(port)
+        finally:
+            listener.close()
+
+    def test_remaining_matrix_cells_are_explicitly_terminal(self):
+        ledger = bench.CellLedger()
+        ledger.finalize("c1-t1", "timeout", {})
+        bench.finalize_unexecuted_cells(
+            ledger,
+            [
+                {"concurrency": 1, "ticks_per_joint_advance": 8},
+                {"concurrency": 2, "ticks_per_joint_advance": 1},
+            ],
+            blocked_by="c1-t1",
+        )
+        cells = ledger.values()
+        self.assertEqual([cell.terminal for cell in cells], ["timeout", "not_executed", "not_executed"])
+        self.assertTrue(all(cell.payload.get("blocked_by") == "c1-t1" for cell in cells[1:]))
+
+    def test_daemon_log_capture_drains_and_bounds_tail(self):
+        payload = (b"prefix\n" * 20_000) + b"terminal-tail"
+        capture = bench.BoundedLogCapture(io.BytesIO(payload), max_tail_bytes=1024)
+        capture.start()
+        result = capture.finish()
+        self.assertEqual(result["total_bytes"], len(payload))
+        self.assertEqual(result["tail_bytes"], 1024)
+        self.assertTrue(result["tail_utf8"].endswith("terminal-tail"))
+        self.assertTrue(result["drain_thread_retired"])
+        self.assertIsNone(result["drain_error"])
+
+    def test_python_310_compatible_deadline_primitive(self):
+        source = Path(bench.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("asyncio.timeout(", source)
+        self.assertIn("asyncio.wait_for(", source)
+
+
+class EvidencePublicationTests(unittest.TestCase):
+    def test_create_only_publication_is_immutable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = b'{"terminal":"completed"}\n'
+            result = bench.publish_evidence_create_only(output, payload)
+            self.assertEqual(output.read_bytes(), payload)
+            self.assertEqual(result["bytes"], len(payload))
+            self.assertEqual(os.stat(output).st_mode & 0o777, 0o400)
+            with self.assertRaises(FileExistsError):
+                bench.publish_evidence_create_only(output, b"replacement")
+            self.assertEqual(output.read_bytes(), payload)
+
+    def test_interrupted_publication_leaves_recognizable_pending_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            with mock.patch("bench_joint_advance.os.link", side_effect=OSError("fixture crash")):
+                with self.assertRaises(OSError):
+                    bench.publish_evidence_create_only(output, b"payload")
+            self.assertFalse(output.exists())
+            pending = list(Path(directory).glob(".evidence.json.*.pending"))
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0].read_bytes(), b"payload")
 
 
 if __name__ == "__main__":
