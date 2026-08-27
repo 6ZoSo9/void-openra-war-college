@@ -6,9 +6,16 @@ import hashlib
 import pytest
 
 from openra_env.analysis import spar_pair_comparison as pair
+from openra_env.analysis._spar_conditional_v2_reviewed_identity import (
+    REVIEWED_V2_CANDIDATE_SHA256,
+    REVIEWED_V2_POLICY_SHA256,
+    REVIEWED_V2_SESSION_SHA256,
+    REVIEWED_V2_SOURCE_COMMIT,
+    REVIEWED_V2_WRAPPER_SHA256,
+)
 
-CANDIDATE_SHA = "a" * 64
-SOURCE_COMMIT = "b" * 40
+CANDIDATE_SHA = REVIEWED_V2_CANDIDATE_SHA256
+SOURCE_COMMIT = REVIEWED_V2_SOURCE_COMMIT
 
 
 def report(
@@ -91,8 +98,12 @@ def report(
                     "REBUILD_FORCE": 10,
                     "BALANCED_SEARCH": rounds - 10,
                 },
-                "source_commit": SOURCE_COMMIT,
-                "candidate_sha256": CANDIDATE_SHA,
+                "source_commit": REVIEWED_V2_SOURCE_COMMIT,
+                "candidate_sha256": REVIEWED_V2_CANDIDATE_SHA256,
+                "policy_sha256": REVIEWED_V2_POLICY_SHA256,
+                "session_sha256": REVIEWED_V2_SESSION_SHA256,
+                "wrapper_sha256": REVIEWED_V2_WRAPPER_SHA256,
+                "reviewed_identity_verified": True,
                 "all_round_receipts_verified": True,
                 "tool_surface_bound": True,
                 "accepted_tool_bound": True,
@@ -114,6 +125,8 @@ def test_compare_uses_net_delta_primary_and_preserves_diagnostics():
     assert out["comparison"]["final_combat_delta"] == 4
     assert out["comparison"]["attack_move_fraction_delta"] < 0
     assert out["comparison"]["protocol_clean"] is True
+    assert out["candidate"]["reviewed_identity_verified"] is True
+    assert out["candidate"]["v2_wrapper_sha256"] == REVIEWED_V2_WRAPPER_SHA256
 
 
 @pytest.mark.parametrize(
@@ -156,6 +169,19 @@ def test_baseline_v2_presence_and_candidate_identity_fail_closed():
         )
 
 
+def test_pair_rejects_unverified_or_drifted_reviewed_identity():
+    baseline = report()
+    candidate = report(v2=True)
+    candidate["conditional_engagement_v2"]["reviewed_identity_verified"] = False
+    with pytest.raises(pair.PairContractError, match="reviewed V2 identity is not verified"):
+        pair.compare_reports(baseline, candidate)
+
+    candidate = report(v2=True)
+    candidate["conditional_engagement_v2"]["policy_sha256"] = "f" * 64
+    with pytest.raises(pair.PairContractError, match="reviewed V2 identity mismatch: policy_sha256"):
+        pair.compare_reports(baseline, candidate)
+
+
 def test_retries_make_pair_protocol_unclean_without_changing_primary_verdict():
     out = pair.compare_reports(
         report(),
@@ -181,6 +207,7 @@ def mkpair(seed, delta, clean=True, run=0):
 def test_matrix_pending_with_single_held_out_pair():
     out = pair.evaluate_matrix([mkpair(2060, 400)])
     assert out["status"] == "PENDING"
+    assert out["reviewed_identity_verified"] is True
     assert out["by_seed"]["2060"]["pair_count"] == 1
     assert out["by_seed"]["2060"]["gate_pass"] is None
 
@@ -217,11 +244,11 @@ def test_matrix_fails_completed_seed_gate_or_protocol():
     assert out["all_protocol_clean"] is False
 
 
-def test_matrix_rejects_mixed_candidate_generation_and_repeat_overflow():
+def test_matrix_rejects_reviewed_identity_drift_duplicate_and_repeat_overflow():
     first = mkpair(2060, 100)
     second = mkpair(2061, 100)
     second["candidate"]["v2_candidate_sha256"] = "f" * 64
-    with pytest.raises(pair.PairContractError, match="mixed V2 candidate"):
+    with pytest.raises(pair.PairContractError, match="reviewed V2 identity mismatch: candidate_sha256"):
         pair.evaluate_matrix([first, second])
 
     with pytest.raises(pair.PairContractError, match="repeat ceiling"):
@@ -232,8 +259,6 @@ def test_matrix_rejects_mixed_candidate_generation_and_repeat_overflow():
             ]
         )
 
-
-def test_matrix_rejects_duplicate_trajectory_evidence():
     evidence = mkpair(2060, 100, run=1)
     with pytest.raises(pair.PairContractError, match="duplicate baseline trajectory"):
         pair.evaluate_matrix([evidence, copy.deepcopy(evidence)])
