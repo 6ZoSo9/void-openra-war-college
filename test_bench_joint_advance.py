@@ -2,6 +2,7 @@
 """Source-only contract tests for bench_joint_advance.py."""
 
 import asyncio
+import hashlib
 import io
 import json
 import os
@@ -13,6 +14,9 @@ from pathlib import Path
 from unittest import mock
 
 import bench_joint_advance as bench
+
+
+BENCHMARK_SOURCE_SHA = "a" * 40
 
 
 class InputContractTests(unittest.TestCase):
@@ -129,6 +133,7 @@ class EvidenceContractTests(unittest.TestCase):
         self.provenance = bench.validate_provenance(
             bench.FROZEN_ENGINE_SHA,
             bench.FROZEN_WAR_COLLEGE_SHA,
+            BENCHMARK_SOURCE_SHA,
             bench.GENERATION,
         )
         self.parameters = {"concurrency": (1,), "tick_batches": (8,)}
@@ -211,20 +216,79 @@ class EvidenceContractTests(unittest.TestCase):
         self.assertEqual(json.loads(encoded), report)
 
     def test_only_reviewed_frozen_provenance_is_admitted(self):
-        for engine_sha, war_college_sha, generation in (
-            ("7" * 40, bench.FROZEN_WAR_COLLEGE_SHA, bench.GENERATION),
-            (bench.FROZEN_ENGINE_SHA, "7" * 40, bench.GENERATION),
-            (bench.FROZEN_ENGINE_SHA, bench.FROZEN_WAR_COLLEGE_SHA, "7" * 16),
+        for engine_sha, war_college_sha, benchmark_source_sha, generation in (
+            ("7" * 40, bench.FROZEN_WAR_COLLEGE_SHA, BENCHMARK_SOURCE_SHA, bench.GENERATION),
+            (bench.FROZEN_ENGINE_SHA, "7" * 40, BENCHMARK_SOURCE_SHA, bench.GENERATION),
+            (bench.FROZEN_ENGINE_SHA, bench.FROZEN_WAR_COLLEGE_SHA, "7" * 39, bench.GENERATION),
+            (bench.FROZEN_ENGINE_SHA, bench.FROZEN_WAR_COLLEGE_SHA, BENCHMARK_SOURCE_SHA, "7" * 16),
         ):
             with self.subTest(
                 engine_sha=engine_sha,
                 war_college_sha=war_college_sha,
                 generation=generation,
             ), self.assertRaises(bench.ContractError):
-                bench.validate_provenance(engine_sha, war_college_sha, generation)
+                bench.validate_provenance(
+                    engine_sha, war_college_sha, benchmark_source_sha, generation,
+                )
 
 
 class RuntimeBoundaryTests(unittest.TestCase):
+    def test_runtime_provenance_separates_benchmark_and_frozen_comparison(self):
+        with tempfile.TemporaryDirectory() as directory:
+            openra_dir = Path(directory)
+            (openra_dir / "bin").mkdir()
+            (openra_dir / "bin" / "OpenRA.dll").write_bytes(b"engine")
+            expected = bench.validate_provenance(
+                bench.FROZEN_ENGINE_SHA,
+                bench.FROZEN_WAR_COLLEGE_SHA,
+                BENCHMARK_SOURCE_SHA,
+                bench.GENERATION,
+            )
+            source = Path(bench.__file__).read_bytes()
+            with mock.patch(
+                "bench_joint_advance.git_head",
+                side_effect=[BENCHMARK_SOURCE_SHA, bench.FROZEN_ENGINE_SHA],
+            ), mock.patch(
+                "bench_joint_advance.committed_file_bytes", return_value=source,
+            ), mock.patch(
+                "bench_joint_advance.subprocess.check_output", return_value="8.0.0\n",
+            ):
+                report = bench.runtime_provenance(openra_dir, expected)
+            self.assertEqual(report["benchmark_source_git_head"], BENCHMARK_SOURCE_SHA)
+            self.assertEqual(
+                report["frozen_war_college_comparison_sha"],
+                bench.FROZEN_WAR_COLLEGE_SHA,
+            )
+            self.assertEqual(
+                report["benchmark_source_sha256"],
+                hashlib.sha256(source).hexdigest(),
+            )
+
+    def test_runtime_provenance_rejects_wrong_or_uncommitted_benchmark(self):
+        with tempfile.TemporaryDirectory() as directory:
+            openra_dir = Path(directory)
+            (openra_dir / "bin").mkdir()
+            (openra_dir / "bin" / "OpenRA.dll").write_bytes(b"engine")
+            expected = bench.validate_provenance(
+                bench.FROZEN_ENGINE_SHA,
+                bench.FROZEN_WAR_COLLEGE_SHA,
+                BENCHMARK_SOURCE_SHA,
+                bench.GENERATION,
+            )
+            with mock.patch(
+                "bench_joint_advance.git_head",
+                side_effect=["b" * 40, bench.FROZEN_ENGINE_SHA],
+            ), self.assertRaisesRegex(bench.ContractError, "benchmark source Git HEAD"):
+                bench.runtime_provenance(openra_dir, expected)
+
+            with mock.patch(
+                "bench_joint_advance.git_head",
+                side_effect=[BENCHMARK_SOURCE_SHA, bench.FROZEN_ENGINE_SHA],
+            ), mock.patch(
+                "bench_joint_advance.committed_file_bytes", return_value=b"copied-or-modified",
+            ), self.assertRaisesRegex(bench.ContractError, "running benchmark bytes"):
+                bench.runtime_provenance(openra_dir, expected)
+
     def test_joint_response_is_bound_to_session_ticks_and_perspectives(self):
         good = types.SimpleNamespace(
             session_id="session-a",
@@ -298,6 +362,7 @@ class EvidencePublicationTests(unittest.TestCase):
         provenance = bench.validate_provenance(
                 bench.FROZEN_ENGINE_SHA,
                 bench.FROZEN_WAR_COLLEGE_SHA,
+                BENCHMARK_SOURCE_SHA,
                 bench.GENERATION,
             )
         parameters = {"concurrency": [1], "tick_batches": [1]}
@@ -359,14 +424,14 @@ class EvidencePublicationTests(unittest.TestCase):
             real_fsync_directory = bench._fsync_directory
             calls = 0
 
-            def fail_first(path):
+            def fail_second(path):
                 nonlocal calls
                 calls += 1
-                if calls == 1:
+                if calls == 2:
                     raise OSError("fixture parent fsync failure")
                 return real_fsync_directory(path)
 
-            with mock.patch("bench_joint_advance._fsync_directory", side_effect=fail_first):
+            with mock.patch("bench_joint_advance._fsync_directory", side_effect=fail_second):
                 with self.assertRaises(OSError):
                     bench.publish_evidence_create_only(output, payload)
                 self.assertTrue(output.exists())
@@ -375,6 +440,72 @@ class EvidencePublicationTests(unittest.TestCase):
                     bench.recover_owned_evidence(output, self.operation(payload)), payload
                 )
             self.assertFalse((Path(directory) / ".evidence.json.pending").exists())
+
+    def test_pending_name_is_fenced_before_final_link(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = self.payload()
+            order = []
+            real_fsync_directory = bench._fsync_directory
+            real_link = os.link
+
+            def record_directory_fsync(path):
+                order.append("directory_fsync")
+                return real_fsync_directory(path)
+
+            def record_link(source, destination, **kwargs):
+                order.append("link")
+                return real_link(source, destination, **kwargs)
+
+            with mock.patch(
+                "bench_joint_advance._fsync_directory", side_effect=record_directory_fsync,
+            ), mock.patch("bench_joint_advance.os.link", side_effect=record_link):
+                bench.publish_evidence_create_only(output, payload)
+            self.assertEqual(order[:3], ["directory_fsync", "link", "directory_fsync"])
+
+    def test_pending_name_fsync_failure_cannot_publish_final(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = self.payload()
+            with mock.patch(
+                "bench_joint_advance._fsync_directory",
+                side_effect=OSError("fixture pending-name fsync failure"),
+            ), mock.patch("bench_joint_advance.os.link") as link:
+                with self.assertRaises(OSError):
+                    bench.publish_evidence_create_only(output, payload)
+            link.assert_not_called()
+            self.assertFalse(output.exists())
+            self.assertTrue((Path(directory) / ".evidence.json.pending").exists())
+
+    def test_retry_refences_surviving_pending_name_before_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = self.payload()
+            pending = Path(directory) / ".evidence.json.pending"
+            pending.write_bytes(payload)
+            pending.chmod(0o400)
+            order = []
+            real_fsync_directory = bench._fsync_directory
+            real_read = bench._read_regular_read_only
+
+            def record_directory_fsync(path):
+                order.append("directory_fsync")
+                return real_fsync_directory(path)
+
+            def record_read(path):
+                order.append("read")
+                return real_read(path)
+
+            with mock.patch(
+                "bench_joint_advance._fsync_directory", side_effect=record_directory_fsync,
+            ), mock.patch(
+                "bench_joint_advance._read_regular_read_only", side_effect=record_read,
+            ):
+                recovered = bench.recover_owned_evidence(
+                    output, self.operation(payload),
+                )
+            self.assertEqual(recovered, payload)
+            self.assertEqual(order[:2], ["directory_fsync", "read"])
 
     def test_committed_final_is_not_downgraded_by_pending_cleanup_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -627,6 +758,7 @@ class RetryRecoveryTests(unittest.TestCase):
                 "run",
                 "--engine-sha", bench.FROZEN_ENGINE_SHA,
                 "--war-college-sha", bench.FROZEN_WAR_COLLEGE_SHA,
+                "--benchmark-source-sha", BENCHMARK_SOURCE_SHA,
                 "--generation", bench.GENERATION,
                 "--execute-designated-host",
                 "--openra-dir", directory,
@@ -636,7 +768,10 @@ class RetryRecoveryTests(unittest.TestCase):
             ]
         parsed = bench.parser().parse_args(argv)
         provenance = bench.validate_provenance(
-            parsed.engine_sha, parsed.war_college_sha, parsed.generation,
+            parsed.engine_sha,
+            parsed.war_college_sha,
+            parsed.benchmark_source_sha,
+            parsed.generation,
         )
         parameters = bench.normalized_args(parsed)
         operation = bench.operation_descriptor(
