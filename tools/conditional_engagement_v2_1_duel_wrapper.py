@@ -10,6 +10,11 @@ import types
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+SCRIPT_PATH = Path(__file__).resolve()
+REPO_ROOT = SCRIPT_PATH.parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from tools import conditional_engagement_v2_duel_wrapper as parent
 
 V21_SOURCE_COMMIT = "bf4f5640e7a99cbac5cbda6e5ce33769237de069"
@@ -219,7 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "V2.1 source must be a separate worktree; refusing frozen legacy worktree",
     )
 
-    wrapper_sha = parent.sha256(Path(__file__).resolve())
+    wrapper_sha = parent.sha256(SCRIPT_PATH)
     hooks = ConditionalV21Hooks(legacy, coaching_session, provenance, wrapper_sha)
 
     print("=== VOID CONDITIONAL ENGAGEMENT V2.1 DUEL WRAPPER ===")
