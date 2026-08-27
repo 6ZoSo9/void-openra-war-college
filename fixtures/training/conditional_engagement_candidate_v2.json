@@ -1,0 +1,96 @@
+{
+  "acceptance_gate": {
+    "all_accepted_actions_first_attempt": true,
+    "all_trials_protocol_clean": true,
+    "held_out_seeds": {
+      "maximum_worse_pairs_out_of_three_per_seed": 1,
+      "minimum_seed_count": 3
+    },
+    "invalid_attempt_count": 0,
+    "reviewed_gain_seed": {
+      "median_net_delta_strictly_positive": true,
+      "minimum_better_pairs_out_of_three": 2
+    },
+    "reviewed_regression_seed": {
+      "maximum_worse_pairs_out_of_three": 1,
+      "median_net_delta_minimum": 0
+    }
+  },
+  "automatic_abaddon_policy_promotion": false,
+  "automatic_apollyon_weight_mutation": false,
+  "automatic_corpus_admission": false,
+  "candidate_only": true,
+  "curriculum_id": "symmetric-contact-warm-start-v1",
+  "doctrine": "RUSHER",
+  "generation_id": "ad1926569b12466c",
+  "mode_precedence": [
+    "REBUILD_FORCE",
+    "ATTRITION_BRAKE",
+    "CONTACT_RESPONSE",
+    "MEASURED_CONTACT",
+    "ENGAGEMENT_DEFICIT",
+    "BALANCED_SEARCH"
+  ],
+  "modes": {
+    "ATTRITION_BRAKE": {
+      "instruction": "Recent observed pressure is destroying force faster than it creates military progress, or repeated attack-move has saturated without progress. Do not repeat the same route merely to appear aggressive. Regroup, reinforce, preserve damaged units, or focus a currently visible target using only a currently offered function."
+    },
+    "BALANCED_SEARCH": {
+      "instruction": "No emergency engagement or attrition condition is proven. Balance scouting, reinforcement, economy and positioning from current observations. Aggression is not a quota; choose exactly one currently offered function that advances a measurable objective."
+    },
+    "CONTACT_RESPONSE": {
+      "instruction": "An enemy is currently visible while usable combat force exists. Prefer a deliberate currently offered tactical movement or targeting function over unrelated production. Concentrate useful force, protect the economy, and avoid blind pursuit beyond observed evidence."
+    },
+    "ENGAGEMENT_DEFICIT": {
+      "instruction": "A usable combat force has produced no observed military progress through a bounded passive streak. Reacquire contact with a currently offered scouting or tactical movement function. Do not repeat irrelevant production indefinitely, and do not invent hidden targets."
+    },
+    "MEASURED_CONTACT": {
+      "instruction": "Contact is active. Maintain pressure only while observed trades, force survival, or positional progress justify it. Use focused targeting, repositioning, reinforcement, or a deliberate pause as the current offered functions and evidence support."
+    },
+    "REBUILD_FORCE": {
+      "instruction": "Your observed combat force is below the bounded engagement floor. Preserve surviving units, restore a usable force and economy, and use only currently offered functions. Do not spend the last combat unit on activity that has no measured objective."
+    }
+  },
+  "policy_boundaries": {
+    "bounded_recent_history_only": true,
+    "current_observation_only": true,
+    "hidden_state_use": false,
+    "runtime_seed_branching": false,
+    "typed_tool_surface_required": true,
+    "unit_type_specific_rule": false
+  },
+  "schema": "void.apollyon.conditional-engagement-candidate.v2",
+  "source_evidence": {
+    "classification": "SEED_CONDITIONAL_AGGRESSION_EFFECT_CONFIRMED",
+    "gain_summary": {
+      "baseline_mean_attack_move_fraction": 0.0,
+      "better": 3,
+      "median_net_delta": 600,
+      "pair_count": 3,
+      "refined_mean_attack_move_fraction": 0.8981481481481481,
+      "worse": 0
+    },
+    "recommendation": "REWORK_COACHING_BEFORE_ADMISSION",
+    "regression_summary": {
+      "baseline_mean_attack_move_fraction": 0.7407407407407407,
+      "better": 1,
+      "median_net_delta": -200,
+      "pair_count": 3,
+      "refined_mean_attack_move_fraction": 0.861111111111111,
+      "worse": 2
+    },
+    "source_candidate_sha256": "71b427a80402c153f55c681b0b02a8608b57ec65d0d726d03a9547ce755ff8b6",
+    "source_review_sha256": "47de83fa78556361bd595b94dfe5a1b3da1c0d63fea6916c35cb137e935e11ff",
+    "variance_manifest_sha256": "d0802c23d31917a4ff295145b9192c9d0fc4b458087329bedf8ad50437635b0c",
+    "variance_review_sha256": "8cab03535e607fcf82a4e546f203cfb696249e591e706f4ce99583e182bc961a"
+  },
+  "thresholds": {
+    "attack_move_saturation_denominator": 5,
+    "attack_move_saturation_numerator": 4,
+    "history_window_rounds": 5,
+    "minimum_engagement_force": 2,
+    "no_military_progress_rounds": 2,
+    "passive_streak_rounds": 2,
+    "severe_force_drop_units": 2
+  }
+}
