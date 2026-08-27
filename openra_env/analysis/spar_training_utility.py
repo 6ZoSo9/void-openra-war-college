@@ -10,9 +10,33 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ._spar_analyzer import analyze_trajectory
+from ._spar_analyzer import analyze_trajectory as _analyze_trajectory_base
+from ._spar_conditional_v2 import validate_conditional_v2_evidence
 from ._spar_contract import ContractError
 from ._spar_metrics import contact_episodes, trade_ratio, visible_count
+
+
+def analyze_trajectory(
+    trajectory_path: Path,
+    *,
+    summary_path: Path | None = None,
+    expected_trajectory_sha256: str | None = None,
+    expected_summary_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Run base analysis, then verify optional Conditional Engagement V2 evidence."""
+    report = _analyze_trajectory_base(
+        trajectory_path,
+        summary_path=summary_path,
+        expected_trajectory_sha256=expected_trajectory_sha256,
+        expected_summary_sha256=expected_summary_sha256,
+    )
+    trajectory_sha = report["provenance"]["trajectory_sha256"]
+    report["conditional_engagement_v2"] = validate_conditional_v2_evidence(
+        trajectory_path,
+        expected_trajectory_sha256=trajectory_sha,
+    )
+    return report
+
 
 def stable_json(value: dict[str, Any]) -> str:
     return json.dumps(
