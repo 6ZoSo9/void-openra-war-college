@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from ._spar_conditional_v2_reviewed_identity import REVIEWED_V2_IDENTITY
 from ._spar_contract import (
     MAX_TRAJECTORY_BYTES,
     SHA256,
@@ -37,8 +38,7 @@ MODES = (
 
 def _text_array(value: Any, label: str) -> list[str]:
     rows = _arr(value, label)
-    result = [_str(item, f"{label}[{index}]") for index, item in enumerate(rows)]
-    return result
+    return [_str(item, f"{label}[{index}]") for index, item in enumerate(rows)]
 
 
 def _run_binding(header: dict[str, Any]) -> dict[str, Any] | None:
@@ -55,14 +55,23 @@ def _run_binding(header: dict[str, Any]) -> dict[str, Any] | None:
         "automatic_corpus_admission",
     ):
         _bool(raw.get(key), f"V2 {key}", False)
-    return {
-        "schema": RUN_SCHEMA,
-        "candidate_only": True,
+
+    parsed = {
         "source_commit": _pattern(raw.get("source_commit"), "V2 source_commit", SHA40),
         "candidate_sha256": _pattern(raw.get("candidate_sha256"), "V2 candidate SHA", SHA256),
         "policy_sha256": _pattern(raw.get("policy_sha256"), "V2 policy SHA", SHA256),
         "session_sha256": _pattern(raw.get("session_sha256"), "V2 session SHA", SHA256),
         "wrapper_sha256": _pattern(raw.get("wrapper_sha256"), "V2 wrapper SHA", SHA256),
+    }
+    for key, expected in REVIEWED_V2_IDENTITY.items():
+        if parsed[key] != expected:
+            raise ContractError(f"V2 reviewed identity mismatch: {key}")
+
+    return {
+        "schema": RUN_SCHEMA,
+        "candidate_only": True,
+        **parsed,
+        "reviewed_identity_verified": True,
         "automatic_apollyon_weight_mutation": False,
         "automatic_abaddon_policy_promotion": False,
         "automatic_corpus_admission": False,
@@ -94,19 +103,13 @@ def _round_binding(
         raise ContractError("V2 prepared candidate SHA mismatch")
     _bool(prepared.get("history_committed"), "V2 prepared history_committed", False)
 
-    allowed = _text_array(
-        prepared.get("current_allowed_tool_names"),
-        "V2 current_allowed_tool_names",
-    )
+    allowed = _text_array(prepared.get("current_allowed_tool_names"), "V2 current_allowed_tool_names")
     if not allowed or len(allowed) != len(set(allowed)):
         raise ContractError("V2 offered tool names must be nonempty and unique")
 
     apollyon = _obj(row.get("apollyon"), "V2-bound Apollyon decision")
     host_contract = _obj(apollyon.get("tool_contract"), "V2-bound Apollyon tool contract")
-    host_allowed = _text_array(
-        host_contract.get("offered_tool_names"),
-        "Apollyon offered_tool_names",
-    )
+    host_allowed = _text_array(host_contract.get("offered_tool_names"), "Apollyon offered_tool_names")
     if allowed != host_allowed:
         raise ContractError("V2 prepared tool surface does not match host tool contract")
 
@@ -159,12 +162,7 @@ def validate_conditional_v2_evidence(
     *,
     expected_trajectory_sha256: str,
 ) -> dict[str, Any]:
-    """Re-read one unchanged generation and verify optional V2 bindings.
-
-    The caller supplies the SHA already validated by the base analyzer. If the
-    file changes between base analysis and this pass, the digest comparison
-    fails closed instead of combining evidence from two generations.
-    """
+    """Re-read one unchanged generation and verify optional V2 bindings."""
     if SHA256.fullmatch(expected_trajectory_sha256) is None:
         raise ContractError("expected trajectory SHA-256 malformed for V2 validation")
     raw = _read(trajectory_path, "trajectory", MAX_TRAJECTORY_BYTES)
@@ -185,11 +183,7 @@ def validate_conditional_v2_evidence(
         if mode is not None:
             mode_counts[mode] += 1
     if run is None:
-        return {
-            "present": False,
-            "rounds_verified": 0,
-            "mode_counts": {},
-        }
+        return {"present": False, "rounds_verified": 0, "mode_counts": {}}
     if rounds == 0:
         raise ContractError("V2 run binding has no joint_decision rows")
     return {
