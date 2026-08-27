@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ctypes
+import ctypes.util
 import hashlib
 import json
 import math
@@ -587,15 +589,100 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _evidence_generation(metadata: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _open_regular_read_only(path: Path) -> tuple[int, bytes, os.stat_result]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ContractError(f"evidence artifact is not a regular file: {path}")
+        if stat.S_IMODE(metadata.st_mode) != 0o400:
+            raise ContractError(f"evidence artifact mode is not 0400: {path}")
+        if metadata.st_size > MAX_EVIDENCE_BYTES:
+            raise ContractError(f"evidence artifact exceeds {MAX_EVIDENCE_BYTES} bytes")
+
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(descriptor, min(64 * 1024, MAX_EVIDENCE_BYTES + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > MAX_EVIDENCE_BYTES:
+                raise ContractError(f"evidence artifact exceeds {MAX_EVIDENCE_BYTES} bytes")
+        payload = b"".join(chunks)
+        after = os.fstat(descriptor)
+        if _evidence_generation(after) != _evidence_generation(metadata):
+            raise ContractError(f"evidence artifact changed while being consumed: {path}")
+        if len(payload) != metadata.st_size:
+            raise ContractError(f"evidence artifact size changed while being consumed: {path}")
+        return descriptor, payload, metadata
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
 def _read_regular_read_only(path: Path) -> bytes:
-    metadata = path.lstat()
-    if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
-        raise ContractError(f"evidence artifact is not a regular file: {path}")
-    if stat.S_IMODE(metadata.st_mode) != 0o400:
-        raise ContractError(f"evidence artifact mode is not 0400: {path}")
-    if metadata.st_size > MAX_EVIDENCE_BYTES:
-        raise ContractError(f"evidence artifact exceeds {MAX_EVIDENCE_BYTES} bytes")
-    return path.read_bytes()
+    descriptor, payload, _ = _open_regular_read_only(path)
+    os.close(descriptor)
+    return payload
+
+
+def _assert_path_generation(path: Path, descriptor: int, label: str) -> None:
+    try:
+        named = path.lstat()
+    except FileNotFoundError as error:
+        raise ContractError(f"{label} evidence name disappeared before commit") from error
+    opened = os.fstat(descriptor)
+    if not os.path.samestat(named, opened):
+        raise ContractError(f"{label} evidence name changed generation before commit")
+    if not stat.S_ISREG(named.st_mode) or stat.S_IMODE(named.st_mode) != 0o400:
+        raise ContractError(f"{label} evidence name changed contract before commit")
+
+
+def _link_open_inode_create_only(descriptor: int, destination: Path) -> None:
+    """Link the retained open inode without re-resolving its mutable source name."""
+    parent_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    parent_descriptor = os.open(destination.parent, parent_flags)
+    try:
+        library = ctypes.CDLL(ctypes.util.find_library("c") or None, use_errno=True)
+        linkat = library.linkat
+        linkat.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+        ]
+        linkat.restype = ctypes.c_int
+        result = linkat(
+            descriptor,
+            b"",
+            parent_descriptor,
+            os.fsencode(destination.name),
+            0x1000,  # Linux AT_EMPTY_PATH: retained descriptor is link authority.
+        )
+        if result != 0:
+            error_number = ctypes.get_errno()
+            raise OSError(
+                error_number,
+                os.strerror(error_number),
+                os.fspath(destination),
+            )
+    finally:
+        os.close(parent_descriptor)
 
 
 def _validate_recoverable_evidence(
@@ -663,23 +750,35 @@ def recover_owned_evidence(
     # Re-establish that fence before trusting the surviving name as recovery
     # authority or using it as the source of a final hard link.
     _fsync_directory(path.parent)
-    pending_payload = _read_regular_read_only(staging)
-    # Invocation identity is checked before pending -> final publication.
-    _validate_recoverable_evidence(pending_payload, expected_operation)
-    if final_exists:
-        final_payload = _read_regular_read_only(path)
-        if not os.path.samestat(path.stat(), staging.stat()):
-            raise ContractError("final evidence is not the owned pending inode")
-        if final_payload != pending_payload:
-            raise ContractError("owned final and pending evidence bytes differ")
-    else:
-        os.link(staging, path, follow_symlinks=False)
+    pending_descriptor, pending_payload, pending_metadata = _open_regular_read_only(staging)
+    try:
+        # Invocation identity is checked on bytes consumed from the retained
+        # descriptor before that exact inode can become final authority.
+        _validate_recoverable_evidence(pending_payload, expected_operation)
+        _assert_path_generation(staging, pending_descriptor, "pending")
+        if final_exists:
+            final_descriptor, final_payload, final_metadata = _open_regular_read_only(path)
+            try:
+                if not os.path.samestat(final_metadata, pending_metadata):
+                    raise ContractError("final evidence is not the owned pending inode")
+                if final_payload != pending_payload:
+                    raise ContractError("owned final and pending evidence bytes differ")
+            finally:
+                os.close(final_descriptor)
+        else:
+            _link_open_inode_create_only(pending_descriptor, path)
 
-    with path.open("rb") as stream:
-        os.fsync(stream.fileno())
-    _fsync_directory(path.parent)
-    _retire_pending(staging, path.parent)
-    return pending_payload
+        os.fsync(pending_descriptor)
+        _fsync_directory(path.parent)
+        try:
+            _assert_path_generation(staging, pending_descriptor, "pending")
+        except ContractError:
+            # Never unlink a foreign generation that replaced the owned alias.
+            return pending_payload
+        _retire_pending(staging, path.parent)
+        return pending_payload
+    finally:
+        os.close(pending_descriptor)
 
 
 def publish_evidence_create_only(path: Path, payload: bytes) -> dict[str, Any]:
@@ -705,22 +804,35 @@ def publish_evidence_create_only(path: Path, payload: bytes) -> dict[str, Any]:
     staging = _pending_path(path)
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(staging, flags, 0o600)
-    with os.fdopen(descriptor, "wb", closefd=True) as stream:
-        stream.write(payload)
-        stream.flush()
-        os.fchmod(stream.fileno(), 0o400)
-        os.fsync(stream.fileno())
-    # Make the pending name durable before it becomes recovery authority or is
-    # used as the source of the final create-only hard link.
-    _fsync_directory(path.parent)
+    retired = False
+    retirement_error: str | None = None
     try:
-        os.link(staging, path, follow_symlinks=False)
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fchmod(stream.fileno(), 0o400)
+            os.fsync(stream.fileno())
+        # Make the pending name durable before it becomes recovery authority.
+        # Retain the written descriptor so the later final link cannot resolve
+        # a replacement generation through the mutable staging pathname.
         _fsync_directory(path.parent)
+        _assert_path_generation(staging, descriptor, "pending")
+        _link_open_inode_create_only(descriptor, path)
+        _fsync_directory(path.parent)
+        try:
+            _assert_path_generation(staging, descriptor, "pending")
+        except ContractError as error:
+            # A replacement alias is not ours to remove after the exact owned
+            # inode has been committed through the retained descriptor.
+            retirement_error = f"{type(error).__name__}:{error}"
+        else:
+            retired, retirement_error = _retire_pending(staging, path.parent)
     except Exception:
         # The immutable pending inode is the recovery authority.  Never unlink
         # it after an ambiguous final-link or directory-durability terminal.
         raise
-    retired, retirement_error = _retire_pending(staging, path.parent)
+    finally:
+        os.close(descriptor)
     return {
         "path": str(path),
         "sha256": hashlib.sha256(payload).hexdigest(),

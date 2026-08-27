@@ -405,7 +405,10 @@ class EvidencePublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
             payload = self.payload()
-            with mock.patch("bench_joint_advance.os.link", side_effect=OSError("fixture crash")):
+            with mock.patch(
+                "bench_joint_advance._link_open_inode_create_only",
+                side_effect=OSError("fixture crash"),
+            ):
                 with self.assertRaises(OSError):
                     bench.publish_evidence_create_only(output, payload)
             self.assertFalse(output.exists())
@@ -447,19 +450,22 @@ class EvidencePublicationTests(unittest.TestCase):
             payload = self.payload()
             order = []
             real_fsync_directory = bench._fsync_directory
-            real_link = os.link
+            real_link = bench._link_open_inode_create_only
 
             def record_directory_fsync(path):
                 order.append("directory_fsync")
                 return real_fsync_directory(path)
 
-            def record_link(source, destination, **kwargs):
+            def record_link(descriptor, destination):
                 order.append("link")
-                return real_link(source, destination, **kwargs)
+                return real_link(descriptor, destination)
 
             with mock.patch(
                 "bench_joint_advance._fsync_directory", side_effect=record_directory_fsync,
-            ), mock.patch("bench_joint_advance.os.link", side_effect=record_link):
+            ), mock.patch(
+                "bench_joint_advance._link_open_inode_create_only",
+                side_effect=record_link,
+            ):
                 bench.publish_evidence_create_only(output, payload)
             self.assertEqual(order[:3], ["directory_fsync", "link", "directory_fsync"])
 
@@ -470,12 +476,67 @@ class EvidencePublicationTests(unittest.TestCase):
             with mock.patch(
                 "bench_joint_advance._fsync_directory",
                 side_effect=OSError("fixture pending-name fsync failure"),
-            ), mock.patch("bench_joint_advance.os.link") as link:
+            ), mock.patch(
+                "bench_joint_advance._link_open_inode_create_only",
+            ) as link:
                 with self.assertRaises(OSError):
                     bench.publish_evidence_create_only(output, payload)
             link.assert_not_called()
             self.assertFalse(output.exists())
             self.assertTrue((Path(directory) / ".evidence.json.pending").exists())
+
+    def test_pending_replacement_after_fsync_cannot_cross_commit_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = Path(directory) / ".evidence.json.pending"
+            payload = self.payload()
+            foreign = b"foreign-generation"
+            real_assert = bench._assert_path_generation
+            replaced = False
+
+            def replace_then_assert(path, descriptor, label):
+                nonlocal replaced
+                if not replaced:
+                    replaced = True
+                    pending.unlink()
+                    pending.write_bytes(foreign)
+                    pending.chmod(0o400)
+                return real_assert(path, descriptor, label)
+
+            with mock.patch(
+                "bench_joint_advance._assert_path_generation",
+                side_effect=replace_then_assert,
+            ):
+                with self.assertRaisesRegex(bench.ContractError, "changed generation"):
+                    bench.publish_evidence_create_only(output, payload)
+            self.assertFalse(output.exists())
+            self.assertEqual(pending.read_bytes(), foreign)
+
+    def test_recovery_replacement_after_validation_cannot_be_adopted_or_deleted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = Path(directory) / ".evidence.json.pending"
+            payload = self.payload()
+            foreign = b"foreign-generation"
+            pending.write_bytes(payload)
+            pending.chmod(0o400)
+            real_validate = bench._validate_recoverable_evidence
+
+            def validate_then_replace(candidate, expected_operation=None):
+                result = real_validate(candidate, expected_operation)
+                pending.unlink()
+                pending.write_bytes(foreign)
+                pending.chmod(0o400)
+                return result
+
+            with mock.patch(
+                "bench_joint_advance._validate_recoverable_evidence",
+                side_effect=validate_then_replace,
+            ):
+                with self.assertRaisesRegex(bench.ContractError, "changed generation"):
+                    bench.recover_owned_evidence(output, self.operation(payload))
+            self.assertFalse(output.exists())
+            self.assertEqual(pending.read_bytes(), foreign)
 
     def test_retry_refences_surviving_pending_name_before_recovery(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -486,26 +547,26 @@ class EvidencePublicationTests(unittest.TestCase):
             pending.chmod(0o400)
             order = []
             real_fsync_directory = bench._fsync_directory
-            real_read = bench._read_regular_read_only
+            real_open = bench._open_regular_read_only
 
             def record_directory_fsync(path):
                 order.append("directory_fsync")
                 return real_fsync_directory(path)
 
-            def record_read(path):
-                order.append("read")
-                return real_read(path)
+            def record_open(path):
+                order.append("open")
+                return real_open(path)
 
             with mock.patch(
                 "bench_joint_advance._fsync_directory", side_effect=record_directory_fsync,
             ), mock.patch(
-                "bench_joint_advance._read_regular_read_only", side_effect=record_read,
+                "bench_joint_advance._open_regular_read_only", side_effect=record_open,
             ):
                 recovered = bench.recover_owned_evidence(
                     output, self.operation(payload),
                 )
             self.assertEqual(recovered, payload)
-            self.assertEqual(order[:2], ["directory_fsync", "read"])
+            self.assertEqual(order[:2], ["directory_fsync", "open"])
 
     def test_committed_final_is_not_downgraded_by_pending_cleanup_failure(self):
         with tempfile.TemporaryDirectory() as directory:
