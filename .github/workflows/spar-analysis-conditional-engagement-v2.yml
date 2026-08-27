@@ -10,6 +10,7 @@ on:
       - fixtures/training/conditional_engagement_candidate_v2.json
       - tests/test_spar_training_utility.py
       - tests/test_conditional_engagement_v2.py
+      - tests/test_conditional_engagement_session_v2.py
       - .github/workflows/spar-analysis-conditional-engagement-v2.yml
   push:
     branches:
@@ -22,6 +23,7 @@ on:
       - fixtures/training/conditional_engagement_candidate_v2.json
       - tests/test_spar_training_utility.py
       - tests/test_conditional_engagement_v2.py
+      - tests/test_conditional_engagement_session_v2.py
       - .github/workflows/spar-analysis-conditional-engagement-v2.yml
 
 permissions:
@@ -53,12 +55,14 @@ jobs:
             openra_env/analysis/*.py \
             openra_env/coaching/*.py \
             tests/test_spar_training_utility.py \
-            tests/test_conditional_engagement_v2.py
+            tests/test_conditional_engagement_v2.py \
+            tests/test_conditional_engagement_session_v2.py
       - name: Run focused source tests
         run: |
           python -m pytest -q \
             tests/test_spar_training_utility.py \
-            tests/test_conditional_engagement_v2.py
+            tests/test_conditional_engagement_v2.py \
+            tests/test_conditional_engagement_session_v2.py
       - name: Verify exact candidate fixture
         env:
           PYTHONPATH: .
