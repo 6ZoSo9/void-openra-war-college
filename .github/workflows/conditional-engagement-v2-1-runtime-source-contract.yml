@@ -18,7 +18,7 @@ on:
       - .github/workflows/conditional-engagement-v2-1-runtime-source-contract.yml
   push:
     branches:
-      - ren/conditional-engagement-v2-1-runtime-integration-v1
+      - main
     paths:
       - openra_env/coaching/conditional_engagement_v2_1.py
       - openra_env/coaching/conditional_engagement_session_v2_1.py
