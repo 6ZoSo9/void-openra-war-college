@@ -282,9 +282,15 @@ async def run_owned_phase(
             await asyncio.gather(*unfinished, return_exceptions=True)
 
 
-def validate_provenance(engine_sha: str, war_college_sha: str, generation: str) -> dict[str, str]:
+def validate_provenance(
+    engine_sha: str,
+    war_college_sha: str,
+    benchmark_source_sha: str,
+    generation: str,
+) -> dict[str, str]:
     require_sha40(engine_sha, "engine SHA")
     require_sha40(war_college_sha, "War College SHA")
+    require_sha40(benchmark_source_sha, "benchmark source SHA")
     if not GENERATION_RE.fullmatch(generation):
         raise ContractError("generation must be exactly 16 lowercase hex characters")
     if engine_sha != FROZEN_ENGINE_SHA:
@@ -296,6 +302,7 @@ def validate_provenance(engine_sha: str, war_college_sha: str, generation: str) 
     return {
         "engine_sha": engine_sha,
         "war_college_sha": war_college_sha,
+        "benchmark_source_sha": benchmark_source_sha,
         "generation": generation,
         "frozen_engine_sha": FROZEN_ENGINE_SHA,
         "frozen_war_college_sha": FROZEN_WAR_COLLEGE_SHA,
@@ -437,14 +444,38 @@ def git_head(path: Path) -> str:
     return require_sha40(value, f"Git HEAD for {path}")
 
 
+def committed_file_bytes(repository_root: Path, commit_sha: str, path: Path) -> bytes:
+    try:
+        relative = path.resolve().relative_to(repository_root.resolve()).as_posix()
+    except ValueError as error:
+        raise ContractError("benchmark source is outside its repository") from error
+    try:
+        return subprocess.check_output(
+            ["git", "-C", str(repository_root), "show", f"{commit_sha}:{relative}"],
+            stderr=subprocess.STDOUT,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ContractError(
+            f"benchmark source is not committed at {commit_sha}: {error}"
+        ) from error
+
+
 def runtime_provenance(openra_dir: Path, expected: dict[str, str]) -> dict[str, Any]:
     repository_root = Path(__file__).resolve().parent
-    actual_wc = git_head(repository_root)
+    source_path = Path(__file__).resolve()
+    actual_benchmark_source = git_head(repository_root)
     actual_engine = git_head(openra_dir)
-    if actual_wc != expected["war_college_sha"]:
-        raise ContractError("War College Git HEAD differs from the asserted exact SHA")
+    if actual_benchmark_source != expected["benchmark_source_sha"]:
+        raise ContractError("benchmark source Git HEAD differs from the asserted exact SHA")
     if actual_engine != expected["engine_sha"]:
         raise ContractError("OpenRA Git HEAD differs from the asserted exact SHA")
+    live_source = source_path.read_bytes()
+    committed_source = committed_file_bytes(
+        repository_root, actual_benchmark_source, source_path,
+    )
+    if live_source != committed_source:
+        raise ContractError("running benchmark bytes differ from the asserted Git generation")
     binary = openra_dir / "bin" / "OpenRA.dll"
     if not binary.is_file():
         raise ContractError(f"OpenRA runtime binary does not exist: {binary}")
@@ -455,7 +486,9 @@ def runtime_provenance(openra_dir: Path, expected: dict[str, str]) -> dict[str, 
     except (OSError, subprocess.SubprocessError) as error:
         raise ContractError(f"dotnet identity unavailable: {error}") from error
     return {
-        "war_college_git_head": actual_wc,
+        "benchmark_source_git_head": actual_benchmark_source,
+        "benchmark_source_sha256": hashlib.sha256(live_source).hexdigest(),
+        "frozen_war_college_comparison_sha": expected["war_college_sha"],
         "engine_git_head": actual_engine,
         "openra_binary_sha256": sha256_file(binary),
         "dotnet_version": dotnet_version,
@@ -586,6 +619,7 @@ def _validate_recoverable_evidence(
     validate_provenance(
         provenance.get("engine_sha", ""),
         provenance.get("war_college_sha", ""),
+        provenance.get("benchmark_source_sha", ""),
         provenance.get("generation", ""),
     )
     run = report.get("run")
@@ -625,6 +659,10 @@ def recover_owned_evidence(
     if final_exists and not pending_exists:
         raise FileExistsError(f"evidence output already exists: {path}")
 
+    # A prior attempt may have failed while fencing the pending directory entry.
+    # Re-establish that fence before trusting the surviving name as recovery
+    # authority or using it as the source of a final hard link.
+    _fsync_directory(path.parent)
     pending_payload = _read_regular_read_only(staging)
     # Invocation identity is checked before pending -> final publication.
     _validate_recoverable_evidence(pending_payload, expected_operation)
@@ -672,6 +710,9 @@ def publish_evidence_create_only(path: Path, payload: bytes) -> dict[str, Any]:
         stream.flush()
         os.fchmod(stream.fileno(), 0o400)
         os.fsync(stream.fileno())
+    # Make the pending name durable before it becomes recovery authority or is
+    # used as the source of the final create-only hard link.
+    _fsync_directory(path.parent)
     try:
         os.link(staging, path, follow_symlinks=False)
         _fsync_directory(path.parent)
@@ -1344,6 +1385,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("mode", choices=("plan", "run"))
     result.add_argument("--engine-sha", required=True)
     result.add_argument("--war-college-sha", required=True)
+    result.add_argument("--benchmark-source-sha", required=True)
     result.add_argument("--generation", default=GENERATION)
     result.add_argument("--concurrency", default="1,2,4,8")
     result.add_argument("--tick-batches", default="1,8,32,128")
@@ -1404,7 +1446,12 @@ def normalized_args(args: argparse.Namespace) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        provenance = validate_provenance(args.engine_sha, args.war_college_sha, args.generation)
+        provenance = validate_provenance(
+            args.engine_sha,
+            args.war_college_sha,
+            args.benchmark_source_sha,
+            args.generation,
+        )
         parameters = normalized_args(args)
         if args.mode == "run":
             if not args.execute_designated_host:
