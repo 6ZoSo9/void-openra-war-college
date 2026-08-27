@@ -19,7 +19,9 @@ import re
 import socket
 import subprocess
 import sys
+import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Iterable
@@ -31,7 +33,16 @@ FROZEN_ENGINE_SHA = "1607a7a6501d42a47638393ecef8b22831064932"
 FROZEN_WAR_COLLEGE_SHA = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 GENERATION = "ad1926569b12466c"
 ALLOWED_CONCURRENCY = (1, 2, 4, 8)
-ALLOWED_TERMINALS = {"success", "timeout", "rpc_error", "teardown_error"}
+ALLOWED_TERMINALS = {
+    "success", "timeout", "rpc_error", "teardown_error", "not_executed",
+}
+RUN_TERMINALS = {
+    "startup_error", "readiness_timeout", "channel_error", "cleanup_error",
+    "output_error", "completed",
+}
+MAP_NAME = "singles.oramap"
+BOTS = "Multi1:rl-agent,Multi0:rl-agent"
+MAX_DAEMON_LOG_TAIL_BYTES = 65_536
 TRANSIENT_KEYS = {"session_id", "episode_id", "transport_id", "request_id"}
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 GENERATION_RE = re.compile(r"^[0-9a-f]{16}$")
@@ -155,6 +166,12 @@ def matrix_may_continue(terminal: str) -> bool:
     return terminal == "success"
 
 
+def terminal_exit_code(report: dict[str, Any]) -> int:
+    if report["run"]["terminal"] != "completed":
+        return 1
+    return 0 if all(cell["terminal"] == "success" for cell in report["cells"]) else 1
+
+
 @dataclass(frozen=True)
 class FinalCell:
     key: str
@@ -240,13 +257,19 @@ def build_report(
     executed_designated_host: bool,
     generated_at_utc: str,
     command: list[str],
+    run: dict[str, Any] | None = None,
     host: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     runtime_evidence = "EXECUTED" if executed_designated_host else "PENDING_DESIGNATED_HOST"
-    if runtime_evidence == "EXECUTED" and not cells:
-        raise ContractError("executed runtime evidence requires at least one terminal cell")
     if not executed_designated_host and cells:
         raise ContractError("source-only evidence must not contain measured runtime cells")
+    if not executed_designated_host and run is not None:
+        raise ContractError("source-only evidence must not contain a runtime attempt terminal")
+    if executed_designated_host:
+        if not isinstance(run, dict) or run.get("terminal") not in RUN_TERMINALS:
+            raise ContractError("executed runtime evidence requires an exact run terminal")
+        if run["terminal"] == "completed" and not cells:
+            raise ContractError("completed runtime evidence requires terminal matrix cells")
     for cell in cells:
         if cell.get("terminal") not in ALLOWED_TERMINALS:
             raise ContractError("report contains an invalid matrix-cell terminal")
@@ -258,6 +281,7 @@ def build_report(
         "provenance": provenance,
         "command": command,
         "host": host if executed_designated_host else None,
+        "run": run if executed_designated_host else None,
         "parameters": parameters,
         "cells": cells,
     }
@@ -281,10 +305,171 @@ def human_summary(report: dict[str, Any]) -> str:
     for cell in report["cells"]:
         terminals[cell["terminal"]] += 1
     counts = ", ".join(f"{key}={value}" for key, value in terminals.items())
+    run_terminal = report["run"]["terminal"] if report["run"] else "not_executed"
     return (
         f"{MARKER} runtime_evidence={report['runtime_evidence']} "
-        f"cells={len(report['cells'])} {counts}"
+        f"run_terminal={run_terminal} cells={len(report['cells'])} {counts}"
     )
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            chunk = stream.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def git_head(path: Path) -> str:
+    try:
+        value = subprocess.check_output(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=10,
+        ).strip()
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ContractError(f"cannot bind Git HEAD for {path}: {error}") from error
+    return require_sha40(value, f"Git HEAD for {path}")
+
+
+def runtime_provenance(openra_dir: Path, expected: dict[str, str]) -> dict[str, Any]:
+    repository_root = Path(__file__).resolve().parent
+    actual_wc = git_head(repository_root)
+    actual_engine = git_head(openra_dir)
+    if actual_wc != expected["war_college_sha"]:
+        raise ContractError("War College Git HEAD differs from the asserted exact SHA")
+    if actual_engine != expected["engine_sha"]:
+        raise ContractError("OpenRA Git HEAD differs from the asserted exact SHA")
+    binary = openra_dir / "bin" / "OpenRA.dll"
+    if not binary.is_file():
+        raise ContractError(f"OpenRA runtime binary does not exist: {binary}")
+    try:
+        dotnet_version = subprocess.check_output(
+            ["dotnet", "--version"], stderr=subprocess.STDOUT, text=True, timeout=10,
+        ).strip()
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ContractError(f"dotnet identity unavailable: {error}") from error
+    return {
+        "war_college_git_head": actual_wc,
+        "engine_git_head": actual_engine,
+        "openra_binary_sha256": sha256_file(binary),
+        "dotnet_version": dotnet_version,
+        "dotnet_version_sha256": hashlib.sha256(dotnet_version.encode("utf-8")).hexdigest(),
+    }
+
+
+def ensure_endpoint_unoccupied(port: int) -> None:
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        probe.bind(("127.0.0.1", port))
+    except OSError as error:
+        raise ContractError(f"127.0.0.1:{port} is already occupied") from error
+    finally:
+        probe.close()
+
+
+def process_listener_identity(pid: int, port: int) -> dict[str, Any] | None:
+    socket_inodes: set[str] = set()
+    try:
+        for descriptor in Path(f"/proc/{pid}/fd").iterdir():
+            try:
+                target = os.readlink(descriptor)
+            except OSError:
+                continue
+            match = re.fullmatch(r"socket:\[([0-9]+)\]", target)
+            if match:
+                socket_inodes.add(match.group(1))
+        wanted_port = f"{port:04X}"
+        for table_name in ("tcp", "tcp6"):
+            table = Path(f"/proc/{pid}/net/{table_name}")
+            for line in table.read_text(encoding="ascii").splitlines()[1:]:
+                fields = line.split()
+                if len(fields) < 10:
+                    continue
+                local, state, inode = fields[1], fields[3], fields[9]
+                if local.rsplit(":", 1)[-1] == wanted_port and state == "0A" and inode in socket_inodes:
+                    return {"pid": pid, "port": port, "socket_inode": inode, "proc_table": table_name}
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        return None
+    return None
+
+
+class BoundedLogCapture:
+    """Continuously drain daemon output while retaining only a bounded tail."""
+
+    def __init__(self, stream: Any, max_tail_bytes: int = MAX_DAEMON_LOG_TAIL_BYTES) -> None:
+        self.stream = stream
+        self.max_tail_bytes = max_tail_bytes
+        self.total_bytes = 0
+        self._tail = bytearray()
+        self._digest = hashlib.sha256()
+        self._error: str | None = None
+        self._lock = threading.Lock()
+        self._thread = threading.Thread(target=self._drain, name="openra-log-drain", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _drain(self) -> None:
+        try:
+            while True:
+                chunk = self.stream.read(4096)
+                if not chunk:
+                    return
+                with self._lock:
+                    self.total_bytes += len(chunk)
+                    self._digest.update(chunk)
+                    self._tail.extend(chunk)
+                    excess = len(self._tail) - self.max_tail_bytes
+                    if excess > 0:
+                        del self._tail[:excess]
+        except Exception as error:
+            with self._lock:
+                self._error = f"{type(error).__name__}:{error}"
+
+    def finish(self, timeout_s: float = 5.0) -> dict[str, Any]:
+        self._thread.join(timeout_s)
+        with self._lock:
+            return {
+                "total_bytes": self.total_bytes,
+                "sha256": self._digest.hexdigest(),
+                "tail_utf8": bytes(self._tail).decode("utf-8", errors="replace"),
+                "tail_bytes": len(self._tail),
+                "drain_error": self._error,
+                "drain_thread_retired": not self._thread.is_alive(),
+            }
+
+
+def publish_evidence_create_only(path: Path, payload: bytes) -> dict[str, Any]:
+    path = path.resolve()
+    if path.exists():
+        raise FileExistsError(f"evidence output already exists: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staging = path.parent / f".{path.name}.{uuid.uuid4().hex}.pending"
+    descriptor = os.open(staging, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb", closefd=True) as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(staging, 0o400)
+        os.link(staging, path, follow_symlinks=False)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        staging.unlink()
+        return {"path": str(path), "sha256": hashlib.sha256(payload).hexdigest(), "bytes": len(payload)}
+    except Exception:
+        # A pending artifact is intentionally recognizable and is never promoted
+        # or deleted implicitly after an interrupted publication.
+        raise
 
 
 def rss_bytes(pid: int) -> int | None:
@@ -303,6 +488,8 @@ class RssSampler:
         self.before = rss_bytes(pid)
         self.peak = self.before
         self.after: int | None = None
+        self.cell_before: int | None = None
+        self.cell_peak: int | None = None
         self._stop = asyncio.Event()
 
     async def run(self) -> None:
@@ -310,6 +497,10 @@ class RssSampler:
             value = rss_bytes(self.pid)
             if value is not None and (self.peak is None or value > self.peak):
                 self.peak = value
+            if value is not None and self.cell_before is not None and (
+                self.cell_peak is None or value > self.cell_peak
+            ):
+                self.cell_peak = value
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=0.05)
             except TimeoutError:
@@ -318,6 +509,17 @@ class RssSampler:
     def stop(self) -> None:
         self.after = rss_bytes(self.pid)
         self._stop.set()
+
+    def begin_cell(self) -> None:
+        self.cell_before = rss_bytes(self.pid)
+        self.cell_peak = self.cell_before
+
+    def end_cell(self) -> dict[str, int | None]:
+        after = rss_bytes(self.pid)
+        result = {"before": self.cell_before, "peak": self.cell_peak, "after": after}
+        self.cell_before = None
+        self.cell_peak = None
+        return result
 
 
 def _runtime_modules() -> tuple[Any, Any, Any, Any]:
@@ -356,30 +558,87 @@ def start_daemon(openra_dir: Path, port: int) -> subprocess.Popen[bytes]:
     )
 
 
-async def wait_ready(stub: Any, pb2: Any, timeout_s: float) -> None:
+async def wait_ready(
+    stub: Any,
+    pb2: Any,
+    daemon: subprocess.Popen[bytes],
+    port: int,
+    timeout_s: float,
+) -> dict[str, Any]:
     deadline = time.monotonic() + timeout_s
     last_error: Exception | None = None
     while time.monotonic() < deadline:
+        if daemon.poll() is not None:
+            raise ContractError(f"spawned OpenRA daemon exited before readiness: rc={daemon.returncode}")
+        identity = process_listener_identity(daemon.pid, port)
+        if identity is None:
+            await asyncio.sleep(0.05)
+            continue
         try:
             await asyncio.wait_for(stub.GetState(pb2.StateRequest()), timeout=2.0)
-            return
+            if daemon.poll() is not None:
+                raise ContractError("spawned OpenRA daemon exited during readiness")
+            confirmed = process_listener_identity(daemon.pid, port)
+            if confirmed != identity:
+                raise ContractError("spawned daemon listener identity changed during readiness")
+            return confirmed
         except Exception as error:  # runtime boundary: grpc error subclasses vary
             last_error = error
             await asyncio.sleep(0.25)
     raise TimeoutError(f"daemon readiness exceeded {timeout_s}s: {last_error}")
 
 
-async def destroy_sessions(stub: Any, pb2: Any, session_ids: list[str], timeout_s: float) -> list[str]:
+async def wait_session_playing(
+    stub: Any, pb2: Any, session_id: str, timeout_s: float,
+) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        state = await asyncio.wait_for(
+            stub.GetState(pb2.StateRequest(session_id=session_id)),
+            timeout=min(5.0, timeout_s),
+        )
+        if getattr(state, "phase", None) == "playing":
+            return
+        await asyncio.sleep(0.05)
+    raise TimeoutError(f"session {session_id} did not reach phase=playing")
+
+
+def validate_joint_response(response: Any, session_id: str, requested_ticks: int) -> dict[str, Any]:
+    if getattr(response, "session_id", None) != session_id:
+        raise ContractError("JointAdvance response session binding mismatch")
+    start_tick = getattr(response, "start_tick", None)
+    end_tick = getattr(response, "end_tick", None)
+    if not isinstance(start_tick, int) or not isinstance(end_tick, int):
+        raise ContractError("JointAdvance response ticks must be exact integers")
+    if end_tick - start_tick != requested_ticks:
+        raise ContractError("JointAdvance response did not prove requested tick advancement")
+    observations = list(getattr(response, "player_observations", ()))
+    players = [getattr(observation, "player", None) for observation in observations]
+    if len(players) != 2 or set(players) != {"Multi0", "Multi1"}:
+        raise ContractError("JointAdvance response must contain exactly Multi0 and Multi1 perspectives")
+    return {"start_tick": start_tick, "end_tick": end_tick, "players": sorted(players)}
+
+
+async def destroy_sessions(
+    stub: Any, pb2: Any, session_ids: list[str], timeout_s: float,
+) -> dict[str, Any]:
     failures: list[str] = []
+    latencies: list[float] = []
     for session_id in session_ids:
+        started = time.monotonic()
         try:
             await asyncio.wait_for(
                 stub.DestroySession(pb2.DestroySessionRequest(session_id=session_id)),
                 timeout=timeout_s,
             )
+            latencies.append((time.monotonic() - started) * 1000)
         except Exception as error:
             failures.append(f"{session_id}:{type(error).__name__}:{error}")
-    return failures
+    return {
+        "failures": failures,
+        "latency": latency_summary(latencies),
+        "latency_samples_ms": latencies,
+    }
 
 
 async def run_repetition(
@@ -394,32 +653,37 @@ async def run_repetition(
     repetition: int,
     rpc_timeout_s: float,
     teardown_timeout_s: float,
+    teardown_records: list[dict[str, Any]],
 ) -> dict[str, Any]:
     session_ids: list[str] = []
     create_latencies: list[float] = []
     advance_latencies: list[float] = []
     hashes: dict[str, str] = {}
-    teardown_failures: list[str] = []
+    teardown = {"failures": [], "latency": {"count": 0}}
     started = time.monotonic()
     try:
         async def create(slot: int) -> tuple[int, str, float]:
             t0 = time.monotonic()
             response = await asyncio.wait_for(
                 stub.CreateSession(pb2.CreateSessionRequest(
-                    map_name="singles.oramap",
-                    bots="Multi1:rl-agent,Multi0:rl-agent",
+                    map_name=MAP_NAME,
+                    bots=BOTS,
                     seed=seed_base + slot,
                 )),
                 timeout=rpc_timeout_s,
             )
+            # Record ownership immediately: if a sibling create fails or the
+            # phase is cancelled, this session still has to be destroyed.
+            session_ids.append(response.session_id)
+            await wait_session_playing(stub, pb2, response.session_id, rpc_timeout_s)
             return slot, response.session_id, (time.monotonic() - t0) * 1000
 
         created = await asyncio.gather(*(create(slot) for slot in range(concurrency)))
         created.sort(key=lambda item: item[0])
-        session_ids.extend(item[1] for item in created)
         create_latencies.extend(item[2] for item in created)
 
         final_by_slot: dict[int, dict[str, Any]] = {}
+        validation_by_slot: dict[int, dict[str, Any]] = {}
         for _sample in range(samples):
             async def advance(slot: int, session_id: str) -> tuple[int, float, dict[str, Any]]:
                 request = pb2.JointAdvanceRequest(
@@ -433,20 +697,23 @@ async def run_repetition(
                 t0 = time.monotonic()
                 response = await asyncio.wait_for(stub.JointAdvance(request), timeout=rpc_timeout_s)
                 elapsed_ms = (time.monotonic() - t0) * 1000
+                validation = validate_joint_response(response, session_id, ticks)
                 as_dict = message_to_dict(response, preserving_proto_field_name=True)
-                return slot, elapsed_ms, as_dict
+                return slot, elapsed_ms, {"response": as_dict, "validation": validation}
 
             advanced = await asyncio.gather(*(
                 advance(slot, session_id) for slot, session_id in enumerate(session_ids)
             ))
-            for slot, elapsed_ms, response in advanced:
+            for slot, elapsed_ms, envelope in advanced:
                 advance_latencies.append(elapsed_ms)
-                final_by_slot[slot] = response
+                final_by_slot[slot] = envelope["response"]
+                validation_by_slot[slot] = envelope["validation"]
 
         for slot, response in sorted(final_by_slot.items()):
             hashes[str(slot)] = canonical_state_hash(response)
     finally:
-        teardown_failures = await destroy_sessions(stub, pb2, session_ids, teardown_timeout_s)
+        teardown = await destroy_sessions(stub, pb2, session_ids, teardown_timeout_s)
+        teardown_records.append(teardown)
 
     wall_s = time.monotonic() - started
     return {
@@ -455,10 +722,13 @@ async def run_repetition(
         "create_latency": latency_summary(create_latencies),
         "joint_advance_latency": latency_summary(advance_latencies),
         "joint_advance_calls": len(advance_latencies),
-        "ticks_advanced_requested": len(advance_latencies) * ticks,
-        "requested_ticks_per_second": (len(advance_latencies) * ticks) / wall_s if wall_s > 0 else 0,
+        "ticks_advanced_validated": len(advance_latencies) * ticks,
+        "validated_ticks_per_second": (len(advance_latencies) * ticks) / wall_s if wall_s > 0 else 0,
         "canonical_hash_by_slot": hashes,
-        "teardown_failures": teardown_failures,
+        "joint_advance_validation_by_slot": {
+            str(slot): validation for slot, validation in sorted(validation_by_slot.items())
+        },
+        "teardown": teardown,
         "wall_seconds": wall_s,
     }
 
@@ -479,35 +749,54 @@ async def run_cell(
 ) -> tuple[str, dict[str, Any]]:
     started = time.monotonic()
     repetition_results: list[dict[str, Any]] = []
+    teardown_records: list[dict[str, Any]] = []
+
+    def teardown_evidence() -> dict[str, Any]:
+        failures = [failure for record in teardown_records for failure in record["failures"]]
+        samples = [
+            sample
+            for record in teardown_records
+            for sample in record["latency_samples_ms"]
+        ]
+        return {
+            "teardown_failures": failures,
+            "teardown_latency": latency_summary(samples),
+        }
+
+    async def run_repetitions() -> None:
+        for repetition in range(repetitions):
+            repetition_results.append(await run_repetition(
+                stub=stub,
+                pb2=pb2,
+                message_to_dict=message_to_dict,
+                concurrency=concurrency,
+                ticks=ticks,
+                samples=samples,
+                seed_base=seed_base,
+                repetition=repetition,
+                rpc_timeout_s=rpc_timeout_s,
+                teardown_timeout_s=teardown_timeout_s,
+                teardown_records=teardown_records,
+            ))
     try:
-        async with asyncio.timeout(cell_timeout_s):
-            for repetition in range(repetitions):
-                repetition_results.append(await run_repetition(
-                    stub=stub,
-                    pb2=pb2,
-                    message_to_dict=message_to_dict,
-                    concurrency=concurrency,
-                    ticks=ticks,
-                    samples=samples,
-                    seed_base=seed_base,
-                    repetition=repetition,
-                    rpc_timeout_s=rpc_timeout_s,
-                    teardown_timeout_s=teardown_timeout_s,
-                ))
-    except TimeoutError as error:
-        return "timeout", {"error": str(error), "completed_repetitions": len(repetition_results)}
+        # asyncio.wait_for is available throughout the repository's Python >=3.10 range.
+        await asyncio.wait_for(run_repetitions(), timeout=cell_timeout_s)
+    except asyncio.TimeoutError as error:
+        return "timeout", {
+            "error": str(error),
+            "completed_repetitions": len(repetition_results),
+            **teardown_evidence(),
+        }
     except Exception as error:
         return "rpc_error", {
             "error_type": type(error).__name__,
             "error": str(error),
             "completed_repetitions": len(repetition_results),
+            **teardown_evidence(),
         }
 
-    teardown_errors = [
-        failure
-        for repetition in repetition_results
-        for failure in repetition["teardown_failures"]
-    ]
+    teardown = teardown_evidence()
+    teardown_errors = teardown["teardown_failures"]
     hashes_by_slot: dict[str, list[str]] = {}
     for repetition in repetition_results:
         for slot, digest in repetition["canonical_hash_by_slot"].items():
@@ -518,29 +807,102 @@ async def run_cell(
         "same_seed_deterministic": deterministic,
         "hashes_by_slot": hashes_by_slot,
         "cell_wall_seconds": time.monotonic() - started,
-        "teardown_failures": teardown_errors,
+        **teardown,
     }
     return ("teardown_error" if teardown_errors else "success"), payload
 
 
-async def execute_runtime(args: argparse.Namespace, parameters: dict[str, Any]) -> list[dict[str, Any]]:
-    grpc, message_to_dict, pb2, pb2_grpc = _runtime_modules()
-    daemon = start_daemon(Path(args.openra_dir).resolve(), args.port)
-    sampler = RssSampler(daemon.pid)
-    sampler_task = asyncio.create_task(sampler.run())
-    channel = grpc.aio.insecure_channel(
-        f"127.0.0.1:{args.port}",
-        options=[
-            ("grpc.max_receive_message_length", 64 * 1024 * 1024),
-            ("grpc.max_send_message_length", 16 * 1024 * 1024),
-        ],
-    )
+def finalize_unexecuted_cells(
+    ledger: CellLedger,
+    planned: list[dict[str, int]],
+    *,
+    blocked_by: str,
+) -> None:
+    for cell in planned:
+        key = f"c{cell['concurrency']}-t{cell['ticks_per_joint_advance']}"
+        ledger.finalize(key, "not_executed", {
+            **cell,
+            "blocked_by": blocked_by,
+            "reason": "matrix retired after first non-success terminal",
+            "process_rss_bytes": None,
+        })
+
+
+async def execute_runtime(
+    args: argparse.Namespace,
+    parameters: dict[str, Any],
+    expected_provenance: dict[str, str],
+) -> dict[str, Any]:
+    """Attempt a designated-host run and always return a structured terminal."""
+    actual_hostname = socket.gethostname()
+    host = {
+        "hostname": actual_hostname,
+        "designated_hostname": args.designated_hostname,
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+        "cpu_count": os.cpu_count(),
+    }
+    run: dict[str, Any] = {
+        "terminal": "startup_error",
+        "stage": "host_attestation",
+        "error_type": None,
+        "error": None,
+        "listener_identity": None,
+        "runtime_provenance": None,
+        "daemon_log": None,
+        "cleanup": {"failures": []},
+    }
     ledger = CellLedger()
+    daemon: subprocess.Popen[bytes] | None = None
+    capture: BoundedLogCapture | None = None
+    sampler: RssSampler | None = None
+    sampler_task: asyncio.Task[Any] | None = None
+    channel: Any | None = None
+    planned = build_matrix(parameters["concurrency"], parameters["tick_batches"])
     try:
+        if args.designated_hostname != actual_hostname:
+            raise ContractError("designated hostname does not match this host")
+
+        run["stage"] = "runtime_provenance"
+        run["runtime_provenance"] = runtime_provenance(
+            Path(args.openra_dir).resolve(), expected_provenance,
+        )
+        run["stage"] = "endpoint_preflight"
+        ensure_endpoint_unoccupied(args.port)
+        run["stage"] = "runtime_import"
+        grpc, message_to_dict, pb2, pb2_grpc = _runtime_modules()
+
+        run["stage"] = "daemon_startup"
+        daemon = start_daemon(Path(args.openra_dir).resolve(), args.port)
+        if daemon.stdout is None:
+            raise ContractError("spawned daemon has no capturable output stream")
+        capture = BoundedLogCapture(daemon.stdout)
+        capture.start()
+        sampler = RssSampler(daemon.pid)
+        sampler_task = asyncio.create_task(sampler.run())
+        channel = grpc.aio.insecure_channel(
+            f"127.0.0.1:{args.port}",
+            options=[
+                ("grpc.max_receive_message_length", 64 * 1024 * 1024),
+                ("grpc.max_send_message_length", 16 * 1024 * 1024),
+            ],
+        )
         stub = pb2_grpc.RLBridgeStub(channel)
-        await wait_ready(stub, pb2, args.ready_timeout_s)
-        for cell in build_matrix(parameters["concurrency"], parameters["tick_batches"]):
+
+        run["stage"] = "readiness"
+        listener_identity = await wait_ready(
+            stub, pb2, daemon, args.port, args.ready_timeout_s,
+        )
+        run["listener_identity"] = listener_identity
+
+        for index, cell in enumerate(planned):
             key = f"c{cell['concurrency']}-t{cell['ticks_per_joint_advance']}"
+            run["stage"] = f"cell:{key}"
+            if daemon.poll() is not None:
+                raise ContractError(f"spawned daemon exited before {key}: rc={daemon.returncode}")
+            if process_listener_identity(daemon.pid, args.port) != listener_identity:
+                raise ContractError(f"spawned daemon listener identity changed before {key}")
+            sampler.begin_cell()
             terminal, payload = await run_cell(
                 stub=stub,
                 pb2=pb2,
@@ -555,33 +917,88 @@ async def execute_runtime(args: argparse.Namespace, parameters: dict[str, Any]) 
                 teardown_timeout_s=args.teardown_timeout_s,
             )
             payload.update(cell)
+            payload["process_rss_bytes"] = sampler.end_cell()
+            if daemon.poll() is not None or process_listener_identity(daemon.pid, args.port) != listener_identity:
+                terminal = "rpc_error"
+                payload["daemon_identity_error"] = "spawned daemon/listener ownership lost during cell"
             ledger.finalize(key, terminal, payload)
             if not matrix_may_continue(terminal):
+                finalize_unexecuted_cells(ledger, planned[index + 1:], blocked_by=key)
                 break
-    finally:
-        await channel.close()
-        sampler.stop()
-        await sampler_task
-        daemon.terminate()
-        try:
-            daemon.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            daemon.kill()
-            daemon.wait(timeout=5)
 
-    return [
-        {
-            "key": cell.key,
-            "terminal": cell.terminal,
-            **cell.payload,
-            "process_rss_bytes": {
-                "before": sampler.before,
-                "peak": sampler.peak,
-                "after": sampler.after,
-            },
+        run.update({"terminal": "completed", "stage": "matrix_complete"})
+    except asyncio.TimeoutError as error:
+        run.update({
+            "terminal": "readiness_timeout" if run["stage"] == "readiness" else "channel_error",
+            "error_type": type(error).__name__,
+            "error": str(error),
+        })
+    except (ContractError, OSError, subprocess.SubprocessError) as error:
+        startup_stages = {
+            "host_attestation", "runtime_provenance", "endpoint_preflight",
+            "runtime_import", "daemon_startup",
         }
-        for cell in ledger.values()
-    ]
+        run.update({
+            "terminal": "startup_error" if run["stage"] in startup_stages else (
+                "readiness_timeout" if run["stage"] == "readiness" else "channel_error"
+            ),
+            "error_type": type(error).__name__,
+            "error": str(error),
+        })
+    except Exception as error:  # grpc implementations expose varying exception classes
+        run.update({
+            "terminal": "channel_error",
+            "error_type": type(error).__name__,
+            "error": str(error),
+        })
+    finally:
+        cleanup_failures: list[str] = []
+        if channel is not None:
+            try:
+                await channel.close()
+            except Exception as error:
+                cleanup_failures.append(f"channel:{type(error).__name__}:{error}")
+        if sampler is not None:
+            sampler.stop()
+        if sampler_task is not None:
+            try:
+                await sampler_task
+            except Exception as error:
+                cleanup_failures.append(f"sampler:{type(error).__name__}:{error}")
+        if daemon is not None:
+            try:
+                if daemon.poll() is None:
+                    daemon.terminate()
+                    try:
+                        daemon.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        daemon.kill()
+                        daemon.wait(timeout=5)
+                run["daemon_returncode"] = daemon.returncode
+            except Exception as error:
+                cleanup_failures.append(f"daemon:{type(error).__name__}:{error}")
+        if capture is not None:
+            log = capture.finish()
+            run["daemon_log"] = log
+            if log["drain_error"] or not log["drain_thread_retired"]:
+                cleanup_failures.append("daemon_log_drain_not_cleanly_retired")
+        run["cleanup"] = {"failures": cleanup_failures}
+        if cleanup_failures and run["terminal"] == "completed":
+            run.update({
+                "terminal": "cleanup_error",
+                "stage": "cleanup",
+                "error_type": "CleanupError",
+                "error": ";".join(cleanup_failures),
+            })
+
+    return {
+        "cells": [
+            {"key": cell.key, "terminal": cell.terminal, **cell.payload}
+            for cell in ledger.values()
+        ],
+        "run": run,
+        "host": host,
+    }
 
 
 def utc_now() -> str:
@@ -607,6 +1024,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--port", default="9999")
     result.add_argument("--openra-dir")
     result.add_argument("--output")
+    result.add_argument("--designated-hostname")
     result.add_argument("--execute-designated-host", action="store_true")
     return result
 
@@ -644,6 +1062,9 @@ def normalized_args(args: argparse.Namespace) -> dict[str, Any]:
         "cell_timeout_s": args.cell_timeout_s,
         "teardown_timeout_s": args.teardown_timeout_s,
         "ready_timeout_s": args.ready_timeout_s,
+        "port": args.port,
+        "map_name": MAP_NAME,
+        "bots": BOTS,
     }
 
 
@@ -655,24 +1076,33 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "run":
             if not args.execute_designated_host:
                 raise ContractError("run requires --execute-designated-host")
-            if not args.openra_dir or not args.output:
-                raise ContractError("run requires --openra-dir and --output")
-            cells = asyncio.run(execute_runtime(args, parameters))
+            if not args.openra_dir or not args.output or not args.designated_hostname:
+                raise ContractError(
+                    "run requires --openra-dir, --output, and --designated-hostname"
+                )
+            outcome = asyncio.run(execute_runtime(args, parameters, provenance))
             report = build_report(
                 provenance=provenance,
                 parameters=parameters,
-                cells=cells,
+                cells=outcome["cells"],
                 executed_designated_host=True,
                 generated_at_utc=utc_now(),
-                command=sys.argv,
-                host={
-                    "hostname": socket.gethostname(),
-                    "platform": platform.platform(),
-                    "python": platform.python_version(),
-                    "cpu_count": os.cpu_count(),
-                },
+                command=sys.argv if argv is None else [Path(sys.argv[0]).name, *argv],
+                run=outcome["run"],
+                host=outcome["host"],
             )
-            Path(args.output).write_text(stable_json(report), encoding="utf-8")
+            try:
+                publish_evidence_create_only(
+                    Path(args.output), stable_json(report).encode("utf-8"),
+                )
+            except (OSError, ContractError) as error:
+                report["run"].update({
+                    "terminal": "output_error",
+                    "stage": "evidence_publication",
+                    "error_type": type(error).__name__,
+                    "error": str(error),
+                })
+                report = json.loads(json.dumps(report, allow_nan=False))
             print(human_summary(report), file=sys.stderr)
         else:
             if args.execute_designated_host:
@@ -683,10 +1113,10 @@ def main(argv: list[str] | None = None) -> int:
                 cells=[],
                 executed_designated_host=False,
                 generated_at_utc=utc_now(),
-                command=sys.argv,
+                command=sys.argv if argv is None else [Path(sys.argv[0]).name, *argv],
             )
         print(json.dumps(report, indent=2, sort_keys=True))
-        return 0
+        return terminal_exit_code(report) if args.mode == "run" else 0
     except ContractError as error:
         print(f"contract error: {error}", file=sys.stderr)
         return 2
