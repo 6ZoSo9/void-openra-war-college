@@ -13,6 +13,7 @@ on:
       - fixtures/training/conditional_engagement_candidate_v2_1.json
       - tests/test_conditional_engagement_v2_1.py
       - tests/test_conditional_engagement_v2_1_duel_wrapper.py
+      - tests/test_conditional_engagement_v2_1_parent_hold.py
       - tests/test_spar_conditional_engagement_v2_1.py
       - .github/workflows/conditional-engagement-v2-1-runtime-source-contract.yml
   push:
@@ -26,6 +27,7 @@ on:
       - openra_env/analysis/spar_training_utility.py
       - tools/conditional_engagement_v2_1_duel_wrapper.py
       - tests/test_conditional_engagement_v2_1_duel_wrapper.py
+      - tests/test_conditional_engagement_v2_1_parent_hold.py
       - tests/test_spar_conditional_engagement_v2_1.py
       - .github/workflows/conditional-engagement-v2-1-runtime-source-contract.yml
 
@@ -68,12 +70,14 @@ jobs:
             tools/conditional_engagement_v2_1_duel_wrapper.py \
             tests/test_conditional_engagement_v2_1.py \
             tests/test_conditional_engagement_v2_1_duel_wrapper.py \
+            tests/test_conditional_engagement_v2_1_parent_hold.py \
             tests/test_spar_conditional_engagement_v2_1.py
       - name: Run V2.1 runtime and evidence tests
         run: |
           python -m pytest -q \
             tests/test_conditional_engagement_v2_1.py \
             tests/test_conditional_engagement_v2_1_duel_wrapper.py \
+            tests/test_conditional_engagement_v2_1_parent_hold.py \
             tests/test_spar_conditional_engagement_v2_1.py
       - name: Verify exact V2.1 candidate fixture and reviewed identity
         env:
@@ -86,18 +90,21 @@ jobs:
           from openra_env.coaching.conditional_engagement_v2_1 import candidate_sha256, validate_candidate
           from openra_env.analysis._spar_conditional_v2_1_reviewed_identity import REVIEWED_V21_IDENTITY
 
-          expected = "a0b08f7a7ea807de53416f589790059e2540404f680d6b470395bdbdc067f460"
-          path = Path("fixtures/training/conditional_engagement_candidate_v2_1.json")
-          candidate = json.loads(path.read_text(encoding="utf-8"))
+          expected_candidate = "a0b08f7a7ea807de53416f589790059e2540404f680d6b470395bdbdc067f460"
+          fixture = Path("fixtures/training/conditional_engagement_candidate_v2_1.json")
+          candidate = json.loads(fixture.read_text(encoding="utf-8"))
           validate_candidate(candidate)
-          assert candidate_sha256(candidate) == expected
-          assert hashlib.sha256(path.read_bytes()).hexdigest() == expected
-          assert REVIEWED_V21_IDENTITY == {
+          assert candidate_sha256(candidate) == expected_candidate
+          assert hashlib.sha256(fixture.read_bytes()).hexdigest() == expected_candidate
+
+          actual_identity = {
               "source_commit": "bf4f5640e7a99cbac5cbda6e5ce33769237de069",
-              "candidate_sha256": expected,
-              "policy_sha256": "3816048beae8d282532f59e3c2b914fb9d8e303bd4ae539cdb699b8d1e5b89f3",
-              "session_sha256": "1dacb413a0f09afcd953f02c8800677619111833a777785dd22ae433aca365e8",
-              "wrapper_sha256": "e80b8870011fa917381cdaaef3db6c1f4d583db6f8690449135eddb8cc052805",
+              "candidate_sha256": expected_candidate,
+              "policy_sha256": hashlib.sha256(Path("openra_env/coaching/conditional_engagement_v2_1.py").read_bytes()).hexdigest(),
+              "session_sha256": hashlib.sha256(Path("openra_env/coaching/conditional_engagement_session_v2_1.py").read_bytes()).hexdigest(),
+              "wrapper_sha256": hashlib.sha256(Path("tools/conditional_engagement_v2_1_duel_wrapper.py").read_bytes()).hexdigest(),
           }
+          assert actual_identity == REVIEWED_V21_IDENTITY
+          assert REVIEWED_V21_IDENTITY["wrapper_sha256"] == "92d0add4019bc4721697e13a02e8b0bdb31be7aee4b691d3a010e3b04d658201"
           print("CONDITIONAL_ENGAGEMENT_V2_1_RUNTIME_EVIDENCE_EXACT_GREEN")
           PY
