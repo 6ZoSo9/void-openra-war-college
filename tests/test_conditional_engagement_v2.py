@@ -98,15 +98,15 @@ def snap(
 
 def test_derivation_binds_exact_audit_and_stays_candidate_only() -> None:
     result = candidate()
-    assert result["schema"] == CANDIDATE_SCHEME
+    assert result["schema"] == CANDIDATE_SCHEMA
     assert result["candidate_only"] is True
     assert result["source_evidence"]["variance_manifest_sha256"] == MANIFEST_SHA
     assert result["source_evidence"]["variance_review_sha256"] == REVIEW_SHA
     assert result["policy_boundaries"]["runtime_seed_branching"] is False
     assert result["policy_boundaries"]["unit_type_specific_rule"] is False
     assert result["automatic_apollyon_weight_mutation"] is False
-    assert resu["automatic_abaddon_policy_promotion"] is False
-    assert resu["automatic_corpus_admission"] is False
+    assert result["automatic_abaddon_policy_promotion"] is False
+    assert result["automatic_corpus_admission"] is False
     assert candidate_sha256(result) == EXPECTED_CANDIDATE_SHA
 
 
