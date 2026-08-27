@@ -132,6 +132,12 @@ class EvidenceContractTests(unittest.TestCase):
             bench.GENERATION,
         )
         self.parameters = {"concurrency": (1,), "tick_batches": (8,)}
+        self.operation = bench.operation_descriptor(
+            self.provenance,
+            self.parameters,
+            designated_hostname="fixture",
+            openra_dir=Path("/tmp/frozen-openra"),
+        )
 
     def test_source_only_report_cannot_claim_runtime_measurements(self):
         report = bench.build_report(
@@ -164,6 +170,7 @@ class EvidenceContractTests(unittest.TestCase):
                 generated_at_utc="2026-08-27T00:00:00Z",
                 command=["unit-test"],
                 host={"hostname": "fixture"},
+                operation=self.operation,
             )
         failed = bench.build_report(
             provenance=self.provenance,
@@ -174,6 +181,7 @@ class EvidenceContractTests(unittest.TestCase):
             command=["unit-test"],
             run={"terminal": "startup_error"},
             host={"hostname": "fixture"},
+            operation=self.operation,
         )
         self.assertEqual(failed["run"]["terminal"], "startup_error")
         with self.assertRaises(bench.ContractError):
@@ -186,6 +194,7 @@ class EvidenceContractTests(unittest.TestCase):
                 command=["unit-test"],
                 run={"terminal": "completed"},
                 host={"hostname": "fixture"},
+                operation=self.operation,
             )
 
     def test_stable_json_is_machine_replayable(self):
@@ -286,21 +295,34 @@ class RuntimeBoundaryTests(unittest.TestCase):
 class EvidencePublicationTests(unittest.TestCase):
     @staticmethod
     def payload():
-        report = bench.build_report(
-            provenance=bench.validate_provenance(
+        provenance = bench.validate_provenance(
                 bench.FROZEN_ENGINE_SHA,
                 bench.FROZEN_WAR_COLLEGE_SHA,
                 bench.GENERATION,
-            ),
-            parameters={"concurrency": [1], "tick_batches": [1]},
+            )
+        parameters = {"concurrency": [1], "tick_batches": [1]}
+        operation = bench.operation_descriptor(
+            provenance,
+            parameters,
+            designated_hostname="fixture",
+            openra_dir=Path("/tmp/frozen-openra"),
+        )
+        report = bench.build_report(
+            provenance=provenance,
+            parameters=parameters,
             cells=[{"key": "c1-t1", "terminal": "success"}],
             executed_designated_host=True,
             generated_at_utc="2026-08-27T00:00:00Z",
             command=["unit-test"],
             run={"terminal": "completed"},
             host={"hostname": "fixture"},
+            operation=operation,
         )
         return bench.stable_json(report).encode("utf-8")
+
+    @staticmethod
+    def operation(payload):
+        return json.loads(payload)["operation"]
 
     def test_create_only_publication_is_immutable(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -325,7 +347,7 @@ class EvidencePublicationTests(unittest.TestCase):
             pending = list(Path(directory).glob(".evidence.json.pending"))
             self.assertEqual(len(pending), 1)
             self.assertEqual(pending[0].read_bytes(), payload)
-            recovered = bench.recover_owned_evidence(output)
+            recovered = bench.recover_owned_evidence(output, self.operation(payload))
             self.assertEqual(recovered, payload)
             self.assertEqual(output.read_bytes(), payload)
             self.assertFalse(pending[0].exists())
@@ -349,7 +371,9 @@ class EvidencePublicationTests(unittest.TestCase):
                     bench.publish_evidence_create_only(output, payload)
                 self.assertTrue(output.exists())
                 self.assertTrue((Path(directory) / ".evidence.json.pending").exists())
-                self.assertEqual(bench.recover_owned_evidence(output), payload)
+                self.assertEqual(
+                    bench.recover_owned_evidence(output, self.operation(payload)), payload
+                )
             self.assertFalse((Path(directory) / ".evidence.json.pending").exists())
 
     def test_committed_final_is_not_downgraded_by_pending_cleanup_failure(self):
@@ -415,10 +439,12 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             return types.SimpleNamespace(**kwargs)
 
     class Stub:
-        def __init__(self, *, fail_advance=False, fail_create=False):
+        def __init__(self, *, fail_advance=False, fail_create=False, stall_destroy=False):
             self.destroyed = []
+            self.server_created = []
             self.fail_advance = fail_advance
             self.fail_create = fail_create
+            self.stall_destroy = stall_destroy
             self.blocked_create_cancelled = False
             self.blocked_advance_cancelled = False
             self.teardown_started = False
@@ -428,6 +454,8 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             if self.fail_create and request.seed == 2050:
                 raise RuntimeError("fixture create failure")
             if self.fail_create:
+                # Model server-side commit before the response is withheld.
+                self.server_created.append(f"session-{request.seed}")
                 try:
                     await asyncio.sleep(60)
                 finally:
@@ -464,6 +492,8 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
 
         async def DestroySession(self, request):
             self.teardown_started = True
+            if self.stall_destroy and request.session_id.endswith("2050"):
+                await asyncio.sleep(60)
             self.destroyed.append(request.session_id)
             return types.SimpleNamespace()
 
@@ -555,17 +585,45 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(stub.mutation_after_teardown)
         self.assertEqual(stub.destroyed, [])
         self.assertEqual(len(teardown_records), 1)
+        self.assertEqual(stub.server_created, ["session-2051"])
+        self.assertTrue(teardown_records[0]["create_commit_response_ambiguous"])
+        self.assertTrue(teardown_records[0]["containment_required"])
+        self.assertEqual(
+            teardown_records[0]["cleanup_terminal"],
+            "daemon_retirement_required",
+        )
+
+    async def test_cell_deadline_cannot_cancel_known_session_cleanup(self):
+        stub = self.Stub(stall_destroy=True)
+        terminal, payload = await bench.run_cell(
+            stub=stub,
+            pb2=self.Pb2,
+            message_to_dict=self.as_dict,
+            concurrency=2,
+            ticks=8,
+            samples=1,
+            repetitions=2,
+            seed_base=2050,
+            rpc_timeout_s=1,
+            cell_timeout_s=0.04,
+            teardown_timeout_s=0.05,
+        )
+        self.assertEqual(terminal, "timeout")
+        self.assertTrue(payload["cleanup_after_work_cancellation"])
+        self.assertEqual(
+            payload["teardown_attempted_session_ids"],
+            ["session-2050", "session-2051"],
+        )
+        self.assertEqual(payload["teardown_destroyed_session_ids"], ["session-2051"])
+        self.assertEqual(payload["teardown_unretired_session_ids"], ["session-2050"])
+        self.assertTrue(payload["containment_required"])
+        self.assertIn("daemon_retirement_required", payload["cleanup_terminals"])
 
 
 class RetryRecoveryTests(unittest.TestCase):
-    def test_pending_retry_recovers_before_runtime_contact(self):
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "evidence.json"
-            pending = Path(directory) / ".evidence.json.pending"
-            payload = EvidencePublicationTests.payload()
-            pending.write_bytes(payload)
-            pending.chmod(0o400)
-            argv = [
+    @staticmethod
+    def invocation(directory, output, *, seed="2050", hostname="fixture"):
+        argv = [
                 "run",
                 "--engine-sha", bench.FROZEN_ENGINE_SHA,
                 "--war-college-sha", bench.FROZEN_WAR_COLLEGE_SHA,
@@ -573,8 +631,40 @@ class RetryRecoveryTests(unittest.TestCase):
                 "--execute-designated-host",
                 "--openra-dir", directory,
                 "--output", str(output),
-                "--designated-hostname", "fixture",
+                "--designated-hostname", hostname,
+                "--seed", seed,
             ]
+        parsed = bench.parser().parse_args(argv)
+        provenance = bench.validate_provenance(
+            parsed.engine_sha, parsed.war_college_sha, parsed.generation,
+        )
+        parameters = bench.normalized_args(parsed)
+        operation = bench.operation_descriptor(
+            provenance,
+            parameters,
+            designated_hostname=hostname,
+            openra_dir=Path(directory),
+        )
+        report = bench.build_report(
+            provenance=provenance,
+            parameters=parameters,
+            cells=[{"key": "c1-t1", "terminal": "success"}],
+            executed_designated_host=True,
+            generated_at_utc="2026-08-27T00:00:00Z",
+            command=argv,
+            run={"terminal": "completed"},
+            host={"hostname": hostname},
+            operation=operation,
+        )
+        return argv, bench.stable_json(report).encode("utf-8")
+
+    def test_pending_retry_recovers_before_runtime_contact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = Path(directory) / ".evidence.json.pending"
+            argv, payload = self.invocation(directory, output)
+            pending.write_bytes(payload)
+            pending.chmod(0o400)
             stdout = io.StringIO()
             stderr = io.StringIO()
             with mock.patch("bench_joint_advance.execute_runtime") as execute_runtime, mock.patch(
@@ -585,6 +675,20 @@ class RetryRecoveryTests(unittest.TestCase):
             self.assertEqual(json.loads(stdout.getvalue())["run"]["terminal"], "completed")
             self.assertFalse(pending.exists())
             self.assertTrue(output.exists())
+
+    def test_changed_invocation_cannot_publish_pending_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = Path(directory) / ".evidence.json.pending"
+            _, old_payload = self.invocation(directory, output, seed="2050")
+            changed_argv, _ = self.invocation(directory, output, seed="2051")
+            pending.write_bytes(old_payload)
+            pending.chmod(0o400)
+            with mock.patch("bench_joint_advance.execute_runtime") as execute_runtime:
+                self.assertEqual(bench.main(changed_argv), 2)
+            execute_runtime.assert_not_called()
+            self.assertTrue(pending.exists())
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":
