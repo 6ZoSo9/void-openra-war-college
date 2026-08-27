@@ -11,6 +11,12 @@ from .conditional_engagement_v2 import (
     snapshot_from_state,
     validate_candidate,
 )
+from .conditional_engagement_session_v2 import (
+    COMMIT_SCHEMA,
+    PREPARED_SCHEMA,
+    ConditionalEngagementSessionV2,
+    SessionError,
+)
 
 __all__ = [
     "CANDIDATE_SCHEMA",
@@ -22,4 +28,8 @@ __all__ = [
     "select_mode",
     "snapshot_from_state",
     "validate_candidate",
+    "COMMIT_SCHEMA",
+    "PREPARED_SCHEMA",
+    "ConditionalEngagementSessionV2",
+    "SessionError",
 ]
