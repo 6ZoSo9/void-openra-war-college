@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 
 import pytest
 
@@ -19,6 +20,7 @@ def report(
     rounds=72,
     v2=False,
     retries=None,
+    run=0,
 ):
     retries = [] if retries is None else retries
     provenance = {
@@ -37,8 +39,12 @@ def report(
         "seed": seed,
         "round_limit": 72,
         "ticks_per_round": 25,
-        "trajectory_sha256": "7" * 64 if not v2 else "8" * 64,
-        "summary_sha256": "9" * 64 if not v2 else "0" * 64,
+        "trajectory_sha256": hashlib.sha256(
+            f"trajectory:{seed}:{v2}:{run}".encode()
+        ).hexdigest(),
+        "summary_sha256": hashlib.sha256(
+            f"summary:{seed}:{v2}:{run}".encode()
+        ).hexdigest(),
     }
     return {
         "marker": "VOID_WAR_COLLEGE_SPAR_TRAINING_UTILITY_V1",
@@ -160,13 +166,14 @@ def test_retries_make_pair_protocol_unclean_without_changing_primary_verdict():
     assert out["comparison"]["invalid_attempt_count_zero"] is False
 
 
-def mkpair(seed, delta, clean=True):
-    baseline = report(seed=seed, net=0)
+def mkpair(seed, delta, clean=True, run=0):
+    baseline = report(seed=seed, net=0, run=run)
     candidate = report(
         seed=seed,
         net=delta,
         v2=True,
         retries=[] if clean else [1],
+        run=run,
     )
     return pair.compare_reports(baseline, candidate)
 
@@ -180,13 +187,13 @@ def test_matrix_pending_with_single_held_out_pair():
 
 def test_matrix_passes_exact_reviewed_and_three_held_out_seeds():
     rows = []
-    for delta in (0, 100, -50):
-        rows.append(mkpair(2051, delta))
-    for delta in (600, 500, -100):
-        rows.append(mkpair(2055, delta))
+    for run, delta in enumerate((0, 100, -50), 1):
+        rows.append(mkpair(2051, delta, run=run))
+    for run, delta in enumerate((600, 500, -100), 1):
+        rows.append(mkpair(2055, delta, run=run))
     for seed in (2060, 2061, 2062):
-        for delta in (100, 0, -50):
-            rows.append(mkpair(seed, delta))
+        for run, delta in enumerate((100, 0, -50), 1):
+            rows.append(mkpair(seed, delta, run=run))
 
     out = pair.evaluate_matrix(rows)
     assert out["status"] == "PASS"
@@ -196,7 +203,11 @@ def test_matrix_passes_exact_reviewed_and_three_held_out_seeds():
 
 
 def test_matrix_fails_completed_seed_gate_or_protocol():
-    rows = [mkpair(2051, -100), mkpair(2051, -200), mkpair(2051, 100)]
+    rows = [
+        mkpair(2051, -100, run=1),
+        mkpair(2051, -200, run=2),
+        mkpair(2051, 100, run=3),
+    ]
     out = pair.evaluate_matrix(rows)
     assert out["status"] == "FAIL"
     assert out["by_seed"]["2051"]["gate_pass"] is False
@@ -214,7 +225,18 @@ def test_matrix_rejects_mixed_candidate_generation_and_repeat_overflow():
         pair.evaluate_matrix([first, second])
 
     with pytest.raises(pair.PairContractError, match="repeat ceiling"):
-        pair.evaluate_matrix([mkpair(2060, delta) for delta in (1, 2, 3, 4)])
+        pair.evaluate_matrix(
+            [
+                mkpair(2060, delta, run=run)
+                for run, delta in enumerate((1, 2, 3, 4), 1)
+            ]
+        )
+
+
+def test_matrix_rejects_duplicate_trajectory_evidence():
+    evidence = mkpair(2060, 100, run=1)
+    with pytest.raises(pair.PairContractError, match="duplicate baseline trajectory"):
+        pair.evaluate_matrix([evidence, copy.deepcopy(evidence)])
 
 
 def test_stable_json_is_deterministic():
