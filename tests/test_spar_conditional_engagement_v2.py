@@ -14,9 +14,16 @@ from openra_env.analysis._spar_conditional_v2 import (
     RUN_SCHEMA,
     validate_conditional_v2_evidence,
 )
+from openra_env.analysis._spar_conditional_v2_reviewed_identity import (
+    REVIEWED_V2_CANDIDATE_SHA256,
+    REVIEWED_V2_POLICY_SHA256,
+    REVIEWED_V2_SESSION_SHA256,
+    REVIEWED_V2_SOURCE_COMMIT,
+    REVIEWED_V2_WRAPPER_SHA256,
+)
 from openra_env.analysis._spar_contract import ContractError
 
-CANDIDATE_SHA = "2" * 64
+CANDIDATE_SHA = REVIEWED_V2_CANDIDATE_SHA256
 
 
 def run_header(*, with_v2: bool = True) -> dict:
@@ -25,11 +32,11 @@ def run_header(*, with_v2: bool = True) -> dict:
         row["conditional_engagement_v2"] = {
             "schema": RUN_SCHEMA,
             "candidate_only": True,
-            "source_commit": "1" * 40,
+            "source_commit": REVIEWED_V2_SOURCE_COMMIT,
             "candidate_sha256": CANDIDATE_SHA,
-            "policy_sha256": "3" * 64,
-            "session_sha256": "4" * 64,
-            "wrapper_sha256": "5" * 64,
+            "policy_sha256": REVIEWED_V2_POLICY_SHA256,
+            "session_sha256": REVIEWED_V2_SESSION_SHA256,
+            "wrapper_sha256": REVIEWED_V2_WRAPPER_SHA256,
             "automatic_apollyon_weight_mutation": False,
             "automatic_abaddon_policy_promotion": False,
             "automatic_corpus_admission": False,
@@ -109,7 +116,7 @@ def validate(path: Path, rows: list[dict]) -> dict:
     )
 
 
-def test_valid_v2_evidence_binds_every_round_and_counts_modes(tmp_path) -> None:
+def test_valid_v2_evidence_binds_reviewed_identity_every_round_and_counts_modes(tmp_path) -> None:
     path = tmp_path / "trajectory.jsonl"
     report = validate(
         path,
@@ -121,8 +128,12 @@ def test_valid_v2_evidence_binds_every_round_and_counts_modes(tmp_path) -> None:
         ],
     )
     assert report["present"] is True
-    assert report["source_commit"] == "1" * 40
+    assert report["source_commit"] == REVIEWED_V2_SOURCE_COMMIT
     assert report["candidate_sha256"] == CANDIDATE_SHA
+    assert report["policy_sha256"] == REVIEWED_V2_POLICY_SHA256
+    assert report["session_sha256"] == REVIEWED_V2_SESSION_SHA256
+    assert report["wrapper_sha256"] == REVIEWED_V2_WRAPPER_SHA256
+    assert report["reviewed_identity_verified"] is True
     assert report["rounds_verified"] == 3
     assert report["all_round_receipts_verified"] is True
     assert report["tool_surface_bound"] is True
@@ -132,6 +143,29 @@ def test_valid_v2_evidence_binds_every_round_and_counts_modes(tmp_path) -> None:
         "BALANCED_SEARCH": 1,
         "CONTACT_RESPONSE": 1,
     }
+
+
+def test_self_attested_five_hash_bundle_fails_even_when_internally_consistent(tmp_path) -> None:
+    path = tmp_path / "trajectory.jsonl"
+    header = run_header()
+    decision = joint_decision(1)
+    fake_candidate = "9" * 64
+    header["conditional_engagement_v2"].update(
+        {
+            "source_commit": "a" * 40,
+            "candidate_sha256": fake_candidate,
+            "policy_sha256": "b" * 64,
+            "session_sha256": "c" * 64,
+            "wrapper_sha256": "d" * 64,
+        }
+    )
+    prepared = decision["conditional_engagement_v2"]["prepared"]
+    prepared["candidate_sha256"] = fake_candidate
+    prepared["decision"]["candidate_sha256"] = fake_candidate
+    decision["conditional_engagement_v2"]["accepted"]["candidate_sha256"] = fake_candidate
+    digest = write_rows(path, [header, decision])
+    with pytest.raises(ContractError, match="V2 reviewed identity mismatch"):
+        validate_conditional_v2_evidence(path, expected_trajectory_sha256=digest)
 
 
 def test_baseline_without_v2_evidence_remains_valid_optional_absence(tmp_path) -> None:
