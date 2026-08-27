@@ -9,6 +9,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from ._spar_conditional_v2_reviewed_identity import REVIEWED_V2_IDENTITY
+
 PAIR_SCHEMA = "void.apollyon.conditional-engagement-pair-comparison.v1"
 MATRIX_SCHEMA = "void.apollyon.conditional-engagement-pair-matrix.v1"
 ANALYZER_MARKER = "VOID_WAR_COLLEGE_SPAR_TRAINING_UTILITY_V1"
@@ -33,6 +35,13 @@ AUTHORITY_FALSE = (
     "automatic_apollyon_weight_mutation",
     "automatic_abaddon_policy_promotion",
 )
+PAIR_IDENTITY_KEYS = {
+    "source_commit": "v2_source_commit",
+    "candidate_sha256": "v2_candidate_sha256",
+    "policy_sha256": "v2_policy_sha256",
+    "session_sha256": "v2_session_sha256",
+    "wrapper_sha256": "v2_wrapper_sha256",
+}
 
 
 class PairContractError(ValueError):
@@ -103,6 +112,12 @@ def _tool_fraction(side: Mapping[str, Any], tool: str, rounds: int) -> float:
     return count / rounds
 
 
+def _require_reviewed_v2_identity(v2: Mapping[str, Any], label: str) -> None:
+    _require(v2.get("reviewed_identity_verified") is True, f"{label} reviewed V2 identity is not verified")
+    for key, expected in REVIEWED_V2_IDENTITY.items():
+        _require(v2.get(key) == expected, f"{label} reviewed V2 identity mismatch: {key}")
+
+
 def compare_reports(
     baseline: Mapping[str, Any],
     candidate: Mapping[str, Any],
@@ -126,6 +141,7 @@ def compare_reports(
     cv2 = _obj(candidate.get("conditional_engagement_v2"), "candidate.conditional_engagement_v2")
     _require(bv2.get("present") is False, "baseline unexpectedly contains Conditional Engagement V2")
     _require(cv2.get("present") is True, "candidate is missing Conditional Engagement V2")
+    _require_reviewed_v2_identity(cv2, "candidate")
     _require(cv2.get("all_round_receipts_verified") is True, "candidate V2 round receipts are not verified")
     _require(cv2.get("tool_surface_bound") is True, "candidate V2 tool surface is not bound")
     _require(cv2.get("accepted_tool_bound") is True, "candidate V2 accepted tool is not bound")
@@ -153,6 +169,9 @@ def compare_reports(
     c_retries = list(_arr(c_ap["retried_rounds"], "candidate.apollyon.retried_rounds"))
     protocol_clean = not b_retries and not c_retries
 
+    candidate_identity = {
+        PAIR_IDENTITY_KEYS[key]: cv2[key] for key in REVIEWED_V2_IDENTITY
+    }
     return {
         "schema": PAIR_SCHEMA,
         "candidate_only": True,
@@ -172,8 +191,8 @@ def compare_reports(
             "trajectory_sha256": candidate_trajectory_sha,
             "summary_sha256": candidate_summary_sha,
             "rounds_completed": c_rounds,
-            "v2_source_commit": cv2.get("source_commit"),
-            "v2_candidate_sha256": cv2.get("candidate_sha256"),
+            "reviewed_identity_verified": True,
+            **candidate_identity,
             "v2_mode_counts": dict(sorted(_obj(cv2.get("mode_counts"), "candidate V2 mode_counts").items())),
             "apollyon_net_kill_cost": c_net,
             "apollyon_final_combat": c_ap["final_combat_capable_units"],
@@ -216,8 +235,6 @@ def evaluate_matrix(
     _require(type(repeats_per_seed) is int and repeats_per_seed >= 1, "repeats_per_seed malformed")
 
     grouped: dict[int, list[Mapping[str, Any]]] = {}
-    expected_candidate_sha = None
-    expected_source_commit = None
     all_protocol_clean = True
     seen_baseline_trajectories: set[str] = set()
     seen_candidate_trajectories: set[str] = set()
@@ -236,15 +253,10 @@ def evaluate_matrix(
         _require(candidate_trajectory_sha not in seen_candidate_trajectories, "duplicate candidate trajectory evidence")
         seen_baseline_trajectories.add(baseline_trajectory_sha)
         seen_candidate_trajectories.add(candidate_trajectory_sha)
-        candidate_sha = candidate.get("v2_candidate_sha256")
-        source_commit = candidate.get("v2_source_commit")
-        _require(isinstance(candidate_sha, str) and candidate_sha, "pair candidate SHA missing")
-        _require(isinstance(source_commit, str) and source_commit, "pair source commit missing")
-        if expected_candidate_sha is None:
-            expected_candidate_sha = candidate_sha
-            expected_source_commit = source_commit
-        _require(candidate_sha == expected_candidate_sha, "mixed V2 candidate SHA-256 generations")
-        _require(source_commit == expected_source_commit, "mixed V2 source commit generations")
+        _require(candidate.get("reviewed_identity_verified") is True, "pair reviewed V2 identity is not verified")
+        for key, expected in REVIEWED_V2_IDENTITY.items():
+            output_key = PAIR_IDENTITY_KEYS[key]
+            _require(candidate.get(output_key) == expected, f"pair reviewed V2 identity mismatch: {key}")
         all_protocol_clean = all_protocol_clean and comparison.get("protocol_clean") is True
         grouped.setdefault(seed, []).append(pair)
 
@@ -298,8 +310,12 @@ def evaluate_matrix(
         "schema": MATRIX_SCHEMA,
         "candidate_only": True,
         "status": status,
-        "v2_candidate_sha256": expected_candidate_sha,
-        "v2_source_commit": expected_source_commit,
+        "reviewed_identity_verified": True if pairs else False,
+        "v2_source_commit": REVIEWED_V2_IDENTITY["source_commit"] if pairs else None,
+        "v2_candidate_sha256": REVIEWED_V2_IDENTITY["candidate_sha256"] if pairs else None,
+        "v2_policy_sha256": REVIEWED_V2_IDENTITY["policy_sha256"] if pairs else None,
+        "v2_session_sha256": REVIEWED_V2_IDENTITY["session_sha256"] if pairs else None,
+        "v2_wrapper_sha256": REVIEWED_V2_IDENTITY["wrapper_sha256"] if pairs else None,
         "repeats_per_seed": repeats_per_seed,
         "regression_seed": regression_seed,
         "gain_seed": gain_seed,
@@ -322,8 +338,7 @@ def stable_json(value: Mapping[str, Any]) -> str:
 
 def _read_json(path: Path) -> Mapping[str, Any]:
     raw = path.read_text(encoding="utf-8")
-    value = json.loads(raw)
-    return _obj(value, str(path))
+    return _obj(json.loads(raw), str(path))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
