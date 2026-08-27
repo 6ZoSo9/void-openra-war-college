@@ -1,0 +1,93 @@
+{
+  "acceptance_gate": {
+    "all_trials_protocol_clean": true,
+    "held_out_seeds": {
+      "maximum_worse_pairs_out_of_three_per_seed": 1,
+      "minimum_seed_count": 3
+    },
+    "invalid_attempt_count": 0,
+    "parent_v2_force_survival_nonregression": true,
+    "reviewed_gain_seed": {
+      "median_net_delta_strictly_positive": true,
+      "minimum_better_pairs_out_of_three": 2
+    },
+    "reviewed_regression_seed": {
+      "maximum_worse_pairs_out_of_three": 1,
+      "median_net_delta_minimum": 0
+    },
+    "seed_2060_final_combat_delta_minimum": 0,
+    "seed_2060_net_kill_cost_delta_minimum": 0
+  },
+  "automatic_abaddon_policy_promotion": false,
+  "automatic_apollyon_weight_mutation": false,
+  "automatic_corpus_admission": false,
+  "candidate_only": true,
+  "curriculum_id": "symmetric-contact-warm-start-v1",
+  "doctrine": "RUSHER",
+  "generation_id": "ad1926569b12466c",
+  "mode_precedence": [
+    "REBUILD_FORCE",
+    "ATTRITION_BRAKE",
+    "CONTACT_RESPONSE",
+    "MEASURED_CONTACT",
+    "FORCE_CONVERSION",
+    "ENGAGEMENT_DEFICIT",
+    "BALANCED_SEARCH"
+  ],
+  "modes": {
+    "ATTRITION_BRAKE": {
+      "instruction": "Recent observed losses exceed military progress or force dropped sharply. Break the losing cycle: regroup, reinforce, preserve force, and avoid repeating an unproductive pressure pattern."
+    },
+    "BALANCED_SEARCH": {
+      "instruction": "No emergency condition is proven. Balance scouting, reinforcement, economy, and positioning from current observations. Aggression is not a quota; choose one currently offered action with a measurable objective."
+    },
+    "CONTACT_RESPONSE": {
+      "instruction": "An enemy is currently visible while usable force exists. Prefer a deliberate currently offered tactical movement or targeting action over unrelated activity, while avoiding blind pursuit beyond observed evidence."
+    },
+    "ENGAGEMENT_DEFICIT": {
+      "instruction": "A usable force remains passive without observed military progress. Reacquire contact with a currently offered scouting, movement, or positioning action; do not accumulate irrelevant production indefinitely and do not invent hidden targets."
+    },
+    "FORCE_CONVERSION": {
+      "instruction": "A rebuilt force is available, but repeated blind attack-move has produced no observed contact or military progress. Do not repeat the same blind attack-move this round unless new observed evidence justifies it. Use a currently offered non-hidden-state movement, formation, scouting, or repositioning action to reacquire productive contact while preserving cohesion; once contact is visible, transition to focused engagement."
+    },
+    "MEASURED_CONTACT": {
+      "instruction": "Contact is active. Maintain pressure only while observed trades, force survival, or positional progress justify it; prefer focused targeting or controlled repositioning over reflexive repetition."
+    },
+    "REBUILD_FORCE": {
+      "instruction": "Observed combat force is below the engagement floor. Preserve survivors and rebuild a usable force before spending scarce units on unsupported pressure."
+    }
+  },
+  "policy_boundaries": {
+    "automatic_tool_filtering": false,
+    "bounded_recent_history_only": true,
+    "current_observation_only": true,
+    "hidden_state_use": false,
+    "runtime_seed_branching": false,
+    "typed_tool_surface_required": true,
+    "unit_type_specific_rule": false
+  },
+  "schema": "void.apollyon.conditional-engagement-candidate.v2.1",
+  "source_evidence": {
+    "apollyon_final_combat_delta": 12,
+    "apollyon_net_kill_cost_delta": -200,
+    "baseline_analysis_sha256": "04f30f0c9ef457e19cbaf1acbd5fc2a0805df0d36ba870d6eb3795751434df1a",
+    "normalized_warm_start_sha256": "283bf90cc0a2a7c430c3b4179844a8aeb88f510ff0d0079c2643c48bb78fc482",
+    "parent_v2_candidate_sha256": "27f28a6a46f63a055f8f35c021bafae1035084c444ba7e2009161109ec3efdd6",
+    "protocol_clean": true,
+    "reviewed_identity_verified": true,
+    "reviewed_pair_verdict": "WORSE",
+    "seed_2060_matrix_report_sha256": "b30ea0fe84e5911eb007fbe7e55f24bb314aadf176c06e608af83076fc4c7591",
+    "seed_2060_pair_report_sha256": "aeb39e266cd2e9b0850b777caf7225d0a8026f56839de9c05910bca22fced880",
+    "v2_analysis_sha256": "74ad937d7a4ce8886011c50142904c73e25c85d986cd3e49a9ade0d09daf1e22",
+    "warm_start_semantic_match": true
+  },
+  "thresholds": {
+    "blind_attack_move_streak_rounds": 2,
+    "force_conversion_floor": 4,
+    "history_window_rounds": 6,
+    "minimum_engagement_force": 2,
+    "no_military_progress_rounds": 2,
+    "passive_streak_rounds": 2,
+    "severe_force_drop_units": 2
+  }
+}
