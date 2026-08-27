@@ -41,6 +41,7 @@ jobs:
           python bench_joint_advance.py plan \
             --engine-sha 1607a7a6501d42a47638393ecef8b22831064932 \
             --war-college-sha 973802ef0a614e5afa782ff20e231e18966ae3e5 \
+            --benchmark-source-sha ${{ github.event.pull_request.head.sha || github.sha }} \
             --concurrency 1,2 \
             --tick-batches 1,8 \
             --samples 2 \
