@@ -3,6 +3,8 @@ name: spar-analysis-conditional-engagement-v2
 on:
   pull_request:
     paths:
+      - __init__.py
+      - openra_env/__init__.py
       - openra_env/analysis/**
       - openra_env/coaching/**
       - fixtures/training/conditional_engagement_candidate_v2.json
@@ -13,6 +15,8 @@ on:
     branches:
       - main
     paths:
+      - __init__.py
+      - openra_env/__init__.py
       - openra_env/analysis/**
       - openra_env/coaching/**
       - fixtures/training/conditional_engagement_candidate_v2.json
@@ -44,6 +48,8 @@ jobs:
       - name: Compile focused source
         run: |
           python -m py_compile \
+            __init__.py \
+            openra_env/__init__.py \
             openra_env/analysis/*.py \
             openra_env/coaching/*.py \
             tests/test_spar_training_utility.py \
