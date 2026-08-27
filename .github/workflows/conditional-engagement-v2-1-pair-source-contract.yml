@@ -1,0 +1,59 @@
+name: conditional-engagement-v2-1-pair-source-contract
+
+on:
+  pull_request:
+    paths:
+      - openra_env/analysis/spar_v21_pair_comparison.py
+      - openra_env/analysis/spar_v21_pair_binding.py
+      - openra_env/analysis/spar_pair_binding.py
+      - openra_env/analysis/_spar_conditional_v2_1_reviewed_identity.py
+      - tests/test_spar_v21_pair_comparison.py
+      - .github/workflows/conditional-engagement-v2-1-pair-source-contract.yml
+  push:
+    branches:
+      - ren/conditional-engagement-v2-1-pair-comparator-v1
+    paths:
+      - openra_env/analysis/spar_v21_pair_comparison.py
+      - openra_env/analysis/spar_v21_pair_binding.py
+      - tests/test_spar_v21_pair_comparison.py
+      - .github/workflows/conditional-engagement-v2-1-pair-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Python ${{ matrix.python-version }} V2.1 pair contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install focused test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile V2.1 pair source
+        run: |
+          python -m py_compile \
+            openra_env/analysis/spar_v21_pair_comparison.py \
+            openra_env/analysis/spar_v21_pair_binding.py \
+            tests/test_spar_v21_pair_comparison.py
+      - name: Run V2.1 pair tests
+        run: python -m pytest -q tests/test_spar_v21_pair_comparison.py
+      - name: Prove exact reviewed V2.1 identity remains selected
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from openra_env.analysis._spar_conditional_v2_1_reviewed_identity import REVIEWED_V21_IDENTITY
+          assert REVIEWED_V21_IDENTITY["candidate_sha256"] == "a0b08f7a7ea807de53416f589790059e2540404f680d6b470395bdbdc067f460"
+          assert REVIEWED_V21_IDENTITY["wrapper_sha256"] == "92d0add4019bc4721697e13a02e8b0bdb31be7aee4b691d3a010e3b04d658201"
+          print("CONDITIONAL_ENGAGEMENT_V2_1_PAIR_IDENTITY_GREEN")
+          PY
