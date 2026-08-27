@@ -13,7 +13,6 @@ on:
   push:
     branches:
       - main
-      - ren/conditional-engagement-v2-1-force-conversion-v1
     paths:
       - openra_env/coaching/__init__.py
       - openra_env/coaching/conditional_engagement_v2_1.py
