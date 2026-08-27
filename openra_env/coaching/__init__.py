@@ -17,6 +17,23 @@ from .conditional_engagement_session_v2 import (
     ConditionalEngagementSessionV2,
     SessionError,
 )
+from .conditional_engagement_v2_1 import (
+    CANDIDATE_SCHEMA as V21_CANDIDATE_SCHEMA,
+    DECISION_SCHEMA as V21_DECISION_SCHEMA,
+    EXPECTED_CANDIDATE_SHA256 as V21_EXPECTED_CANDIDATE_SHA256,
+    PolicyError as V21PolicyError,
+    candidate_sha256 as v21_candidate_sha256,
+    format_coaching as format_coaching_v21,
+    select_mode as select_mode_v21,
+    snapshot_from_state as snapshot_from_state_v21,
+    validate_candidate as validate_candidate_v21,
+)
+from .conditional_engagement_session_v2_1 import (
+    COMMIT_SCHEMA as V21_COMMIT_SCHEMA,
+    PREPARED_SCHEMA as V21_PREPARED_SCHEMA,
+    ConditionalEngagementSessionV21,
+    SessionError as V21SessionError,
+)
 
 __all__ = [
     "CANDIDATE_SCHEMA",
@@ -32,4 +49,17 @@ __all__ = [
     "PREPARED_SCHEMA",
     "ConditionalEngagementSessionV2",
     "SessionError",
+    "V21_CANDIDATE_SCHEMA",
+    "V21_DECISION_SCHEMA",
+    "V21_EXPECTED_CANDIDATE_SHA256",
+    "V21PolicyError",
+    "v21_candidate_sha256",
+    "format_coaching_v21",
+    "select_mode_v21",
+    "snapshot_from_state_v21",
+    "validate_candidate_v21",
+    "V21_COMMIT_SCHEMA",
+    "V21_PREPARED_SCHEMA",
+    "ConditionalEngagementSessionV21",
+    "V21SessionError",
 ]
