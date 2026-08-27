@@ -19,7 +19,6 @@ on:
   push:
     branches:
       - main
-      - ren/conditional-engagement-v2-pair-comparator-v1
     paths:
       - __init__.py
       - openra_env/__init__.py
