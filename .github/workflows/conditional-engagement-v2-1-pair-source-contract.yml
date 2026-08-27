@@ -54,6 +54,6 @@ jobs:
           python - <<'PY'
           from openra_env.analysis._spar_conditional_v2_1_reviewed_identity import REVIEWED_V21_IDENTITY
           assert REVIEWED_V21_IDENTITY["candidate_sha256"] == "a0b08f7a7ea807de53416f589790059e2540404f680d6b470395bdbdc067f460"
-          assert REVIEWED_V21_IDENTITY["wrapper_sha256"] == "92d0add4019bc4721697e13a02e8b0bdb31be7aee4b691d3a010e3b04d658201"
+          assert REVIEWED_V21_IDENTITY["wrapper_sha256"] == "fb0688e2712274c925b1ac5f15ed3f817b688faad51885de351d5a46d6031fae"
           print("CONDITIONAL_ENGAGEMENT_V2_1_PAIR_IDENTITY_GREEN")
           PY
