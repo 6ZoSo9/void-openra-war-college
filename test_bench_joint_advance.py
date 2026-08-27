@@ -128,7 +128,7 @@ class EvidenceContractTests(unittest.TestCase):
     def setUp(self):
         self.provenance = bench.validate_provenance(
             bench.FROZEN_ENGINE_SHA,
-            "7" * 40,
+            bench.FROZEN_WAR_COLLEGE_SHA,
             bench.GENERATION,
         )
         self.parameters = {"concurrency": (1,), "tick_batches": (8,)}
@@ -201,6 +201,19 @@ class EvidenceContractTests(unittest.TestCase):
         self.assertTrue(encoded.endswith("\n"))
         self.assertEqual(json.loads(encoded), report)
 
+    def test_only_reviewed_frozen_provenance_is_admitted(self):
+        for engine_sha, war_college_sha, generation in (
+            ("7" * 40, bench.FROZEN_WAR_COLLEGE_SHA, bench.GENERATION),
+            (bench.FROZEN_ENGINE_SHA, "7" * 40, bench.GENERATION),
+            (bench.FROZEN_ENGINE_SHA, bench.FROZEN_WAR_COLLEGE_SHA, "7" * 16),
+        ):
+            with self.subTest(
+                engine_sha=engine_sha,
+                war_college_sha=war_college_sha,
+                generation=generation,
+            ), self.assertRaises(bench.ContractError):
+                bench.validate_provenance(engine_sha, war_college_sha, generation)
+
 
 class RuntimeBoundaryTests(unittest.TestCase):
     def test_joint_response_is_bound_to_session_ticks_and_perspectives(self):
@@ -271,10 +284,28 @@ class RuntimeBoundaryTests(unittest.TestCase):
 
 
 class EvidencePublicationTests(unittest.TestCase):
+    @staticmethod
+    def payload():
+        report = bench.build_report(
+            provenance=bench.validate_provenance(
+                bench.FROZEN_ENGINE_SHA,
+                bench.FROZEN_WAR_COLLEGE_SHA,
+                bench.GENERATION,
+            ),
+            parameters={"concurrency": [1], "tick_batches": [1]},
+            cells=[{"key": "c1-t1", "terminal": "success"}],
+            executed_designated_host=True,
+            generated_at_utc="2026-08-27T00:00:00Z",
+            command=["unit-test"],
+            run={"terminal": "completed"},
+            host={"hostname": "fixture"},
+        )
+        return bench.stable_json(report).encode("utf-8")
+
     def test_create_only_publication_is_immutable(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
-            payload = b'{"terminal":"completed"}\n'
+            payload = self.payload()
             result = bench.publish_evidence_create_only(output, payload)
             self.assertEqual(output.read_bytes(), payload)
             self.assertEqual(result["bytes"], len(payload))
@@ -286,13 +317,274 @@ class EvidencePublicationTests(unittest.TestCase):
     def test_interrupted_publication_leaves_recognizable_pending_file(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
+            payload = self.payload()
             with mock.patch("bench_joint_advance.os.link", side_effect=OSError("fixture crash")):
                 with self.assertRaises(OSError):
-                    bench.publish_evidence_create_only(output, b"payload")
+                    bench.publish_evidence_create_only(output, payload)
             self.assertFalse(output.exists())
-            pending = list(Path(directory).glob(".evidence.json.*.pending"))
+            pending = list(Path(directory).glob(".evidence.json.pending"))
             self.assertEqual(len(pending), 1)
-            self.assertEqual(pending[0].read_bytes(), b"payload")
+            self.assertEqual(pending[0].read_bytes(), payload)
+            recovered = bench.recover_owned_evidence(output)
+            self.assertEqual(recovered, payload)
+            self.assertEqual(output.read_bytes(), payload)
+            self.assertFalse(pending[0].exists())
+
+    def test_post_link_directory_fsync_failure_is_recoverable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = self.payload()
+            real_fsync_directory = bench._fsync_directory
+            calls = 0
+
+            def fail_first(path):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise OSError("fixture parent fsync failure")
+                return real_fsync_directory(path)
+
+            with mock.patch("bench_joint_advance._fsync_directory", side_effect=fail_first):
+                with self.assertRaises(OSError):
+                    bench.publish_evidence_create_only(output, payload)
+                self.assertTrue(output.exists())
+                self.assertTrue((Path(directory) / ".evidence.json.pending").exists())
+                self.assertEqual(bench.recover_owned_evidence(output), payload)
+            self.assertFalse((Path(directory) / ".evidence.json.pending").exists())
+
+    def test_committed_final_is_not_downgraded_by_pending_cleanup_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = self.payload()
+            with mock.patch(
+                "bench_joint_advance._retire_pending",
+                return_value=(False, "fixture cleanup failure"),
+            ):
+                result = bench.publish_evidence_create_only(output, payload)
+            self.assertEqual(output.read_bytes(), payload)
+            self.assertFalse(result["pending_retired"])
+            self.assertEqual(result["pending_retirement_error"], "fixture cleanup failure")
+
+    def test_parent_must_preexist_and_mode_precedes_inode_fsync(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing_output = Path(directory) / "missing" / "evidence.json"
+            with self.assertRaises(FileNotFoundError):
+                bench.publish_evidence_create_only(missing_output, self.payload())
+            self.assertFalse(missing_output.parent.exists())
+
+            output = Path(directory) / "evidence.json"
+            order = []
+            real_fchmod = os.fchmod
+            real_fsync = os.fsync
+
+            def record_fchmod(fd, mode):
+                order.append("fchmod")
+                return real_fchmod(fd, mode)
+
+            def record_fsync(fd):
+                order.append("fsync")
+                return real_fsync(fd)
+
+            with mock.patch("bench_joint_advance.os.fchmod", side_effect=record_fchmod), mock.patch(
+                "bench_joint_advance.os.fsync", side_effect=record_fsync,
+            ):
+                bench.publish_evidence_create_only(output, self.payload())
+            self.assertLess(order.index("fchmod"), order.index("fsync"))
+
+
+class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
+    class Pb2:
+        @staticmethod
+        def CreateSessionRequest(**kwargs):
+            return types.SimpleNamespace(**kwargs)
+
+        @staticmethod
+        def StateRequest(**kwargs):
+            return types.SimpleNamespace(**kwargs)
+
+        @staticmethod
+        def PlayerCommandBatch(**kwargs):
+            return types.SimpleNamespace(**kwargs)
+
+        @staticmethod
+        def JointAdvanceRequest(**kwargs):
+            return types.SimpleNamespace(**kwargs)
+
+        @staticmethod
+        def DestroySessionRequest(**kwargs):
+            return types.SimpleNamespace(**kwargs)
+
+    class Stub:
+        def __init__(self, *, fail_advance=False, fail_create=False):
+            self.destroyed = []
+            self.fail_advance = fail_advance
+            self.fail_create = fail_create
+            self.blocked_create_cancelled = False
+            self.blocked_advance_cancelled = False
+            self.teardown_started = False
+            self.mutation_after_teardown = False
+
+        async def CreateSession(self, request):
+            if self.fail_create and request.seed == 2050:
+                raise RuntimeError("fixture create failure")
+            if self.fail_create:
+                try:
+                    await asyncio.sleep(60)
+                finally:
+                    self.blocked_create_cancelled = True
+                    if self.teardown_started:
+                        self.mutation_after_teardown = True
+            await asyncio.sleep(0.02 if request.seed % 2 == 0 else 0)
+            return types.SimpleNamespace(session_id=f"session-{request.seed}")
+
+        async def GetState(self, request):
+            return types.SimpleNamespace(phase="playing")
+
+        async def JointAdvance(self, request):
+            if self.fail_advance and request.session_id.endswith("2050"):
+                raise RuntimeError("fixture advance failure")
+            if self.fail_advance:
+                try:
+                    await asyncio.sleep(60)
+                finally:
+                    self.blocked_advance_cancelled = True
+                    if self.teardown_started:
+                        self.mutation_after_teardown = True
+            seed = int(request.session_id.rsplit("-", 1)[1])
+            return types.SimpleNamespace(
+                session_id=request.session_id,
+                start_tick=10,
+                end_tick=10 + request.ticks,
+                seed=seed,
+                player_observations=[
+                    types.SimpleNamespace(player="Multi0"),
+                    types.SimpleNamespace(player="Multi1"),
+                ],
+            )
+
+        async def DestroySession(self, request):
+            self.teardown_started = True
+            self.destroyed.append(request.session_id)
+            return types.SimpleNamespace()
+
+    @staticmethod
+    def as_dict(response, preserving_proto_field_name=True):
+        del preserving_proto_field_name
+        return {
+            "session_id": response.session_id,
+            "start_tick": response.start_tick,
+            "end_tick": response.end_tick,
+            "state": {"seed": response.seed},
+            "player_observations": [
+                {"player": item.player} for item in response.player_observations
+            ],
+        }
+
+    async def run_fixture(self, stub):
+        teardown_records = []
+        result = await bench.run_repetition(
+            stub=stub,
+            pb2=self.Pb2,
+            message_to_dict=self.as_dict,
+            concurrency=2,
+            ticks=8,
+            samples=1,
+            seed_base=2050,
+            repetition=0,
+            rpc_timeout_s=1,
+            teardown_timeout_s=1,
+            teardown_records=teardown_records,
+        )
+        return result, teardown_records
+
+    async def test_out_of_order_creation_preserves_slot_seed_session_hash_binding(self):
+        stub = self.Stub()
+        result, teardown_records = await self.run_fixture(stub)
+        self.assertEqual(
+            result["session_id_by_slot"],
+            {"0": "session-2050", "1": "session-2051"},
+        )
+        self.assertEqual(result["seed_by_slot"], {"0": 2050, "1": 2051})
+        self.assertNotEqual(
+            result["canonical_hash_by_slot"]["0"],
+            result["canonical_hash_by_slot"]["1"],
+        )
+        self.assertEqual(stub.destroyed, ["session-2050", "session-2051"])
+        self.assertEqual(len(teardown_records), 1)
+
+    async def test_failed_advance_retires_sibling_before_teardown(self):
+        stub = self.Stub(fail_advance=True)
+        teardown_records = []
+        with self.assertRaises(RuntimeError):
+            await bench.run_repetition(
+                stub=stub,
+                pb2=self.Pb2,
+                message_to_dict=self.as_dict,
+                concurrency=2,
+                ticks=8,
+                samples=1,
+                seed_base=2050,
+                repetition=0,
+                rpc_timeout_s=1,
+                teardown_timeout_s=1,
+                teardown_records=teardown_records,
+            )
+        self.assertTrue(stub.blocked_advance_cancelled)
+        self.assertFalse(stub.mutation_after_teardown)
+        self.assertEqual(stub.destroyed, ["session-2050", "session-2051"])
+        self.assertEqual(len(teardown_records), 1)
+
+    async def test_failed_create_retires_sibling_before_teardown(self):
+        stub = self.Stub(fail_create=True)
+        teardown_records = []
+        with self.assertRaises(RuntimeError):
+            await bench.run_repetition(
+                stub=stub,
+                pb2=self.Pb2,
+                message_to_dict=self.as_dict,
+                concurrency=2,
+                ticks=8,
+                samples=1,
+                seed_base=2050,
+                repetition=0,
+                rpc_timeout_s=1,
+                teardown_timeout_s=1,
+                teardown_records=teardown_records,
+            )
+        self.assertTrue(stub.blocked_create_cancelled)
+        self.assertFalse(stub.mutation_after_teardown)
+        self.assertEqual(stub.destroyed, [])
+        self.assertEqual(len(teardown_records), 1)
+
+
+class RetryRecoveryTests(unittest.TestCase):
+    def test_pending_retry_recovers_before_runtime_contact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = Path(directory) / ".evidence.json.pending"
+            payload = EvidencePublicationTests.payload()
+            pending.write_bytes(payload)
+            pending.chmod(0o400)
+            argv = [
+                "run",
+                "--engine-sha", bench.FROZEN_ENGINE_SHA,
+                "--war-college-sha", bench.FROZEN_WAR_COLLEGE_SHA,
+                "--generation", bench.GENERATION,
+                "--execute-designated-host",
+                "--openra-dir", directory,
+                "--output", str(output),
+                "--designated-hostname", "fixture",
+            ]
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch("bench_joint_advance.execute_runtime") as execute_runtime, mock.patch(
+                "sys.stdout", stdout,
+            ), mock.patch("sys.stderr", stderr):
+                self.assertEqual(bench.main(argv), 0)
+            execute_runtime.assert_not_called()
+            self.assertEqual(json.loads(stdout.getvalue())["run"]["terminal"], "completed")
+            self.assertFalse(pending.exists())
+            self.assertTrue(output.exists())
 
 
 if __name__ == "__main__":

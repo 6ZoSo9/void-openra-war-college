@@ -17,11 +17,11 @@ import os
 import platform
 import re
 import socket
+import stat
 import subprocess
 import sys
 import threading
 import time
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Iterable
@@ -43,6 +43,7 @@ RUN_TERMINALS = {
 MAP_NAME = "singles.oramap"
 BOTS = "Multi1:rl-agent,Multi0:rl-agent"
 MAX_DAEMON_LOG_TAIL_BYTES = 65_536
+MAX_EVIDENCE_BYTES = 16 * 1024 * 1024
 TRANSIENT_KEYS = {"session_id", "episode_id", "transport_id", "request_id"}
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 GENERATION_RE = re.compile(r"^[0-9a-f]{16}$")
@@ -235,11 +236,62 @@ async def retire_phase_tasks(
     return ledger
 
 
+async def run_owned_phase(
+    operations: dict[str, Awaitable[Any]],
+    *,
+    deadline_s: float,
+) -> dict[str, Any]:
+    """Return keyed results only after every phase task is retired.
+
+    On the first exception or the shared deadline, every unfinished sibling is
+    cancelled and awaited before the exception escapes.  Callers may therefore
+    begin teardown only after no create/advance operation can still mutate the
+    runtime or its ownership ledger.
+    """
+    if not operations:
+        raise ContractError("owned phase requires at least one operation")
+    if not math.isfinite(deadline_s) or deadline_s <= 0:
+        raise ContractError("owned phase deadline must be finite and positive")
+    tasks = {key: asyncio.create_task(operation) for key, operation in operations.items()}
+    try:
+        done, pending = await asyncio.wait(
+            tasks.values(), timeout=deadline_s, return_when=asyncio.FIRST_EXCEPTION,
+        )
+        failure: BaseException | None = None
+        for key in sorted(tasks):
+            task = tasks[key]
+            if task in done and not task.cancelled():
+                error = task.exception()
+                if error is not None:
+                    failure = error
+                    break
+        if failure is not None or pending:
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*tasks.values(), return_exceptions=True)
+            if failure is not None:
+                raise failure
+            raise asyncio.TimeoutError(f"owned phase exceeded {deadline_s}s")
+        return {key: tasks[key].result() for key in sorted(tasks)}
+    finally:
+        unfinished = [task for task in tasks.values() if not task.done()]
+        for task in unfinished:
+            task.cancel()
+        if unfinished:
+            await asyncio.gather(*unfinished, return_exceptions=True)
+
+
 def validate_provenance(engine_sha: str, war_college_sha: str, generation: str) -> dict[str, str]:
     require_sha40(engine_sha, "engine SHA")
     require_sha40(war_college_sha, "War College SHA")
     if not GENERATION_RE.fullmatch(generation):
         raise ContractError("generation must be exactly 16 lowercase hex characters")
+    if engine_sha != FROZEN_ENGINE_SHA:
+        raise ContractError("engine SHA is not the reviewed frozen generation")
+    if war_college_sha != FROZEN_WAR_COLLEGE_SHA:
+        raise ContractError("War College SHA is not the reviewed frozen generation")
+    if generation != GENERATION:
+        raise ContractError("generation is not the reviewed benchmark generation")
     return {
         "engine_sha": engine_sha,
         "war_college_sha": war_college_sha,
@@ -445,31 +497,137 @@ class BoundedLogCapture:
             }
 
 
-def publish_evidence_create_only(path: Path, payload: bytes) -> dict[str, Any]:
-    path = path.resolve()
-    if path.exists():
-        raise FileExistsError(f"evidence output already exists: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    staging = path.parent / f".{path.name}.{uuid.uuid4().hex}.pending"
-    descriptor = os.open(staging, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
-        with os.fdopen(descriptor, "wb", closefd=True) as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.chmod(staging, 0o400)
-        os.link(staging, path, follow_symlinks=False)
-        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _read_regular_read_only(path: Path) -> bytes:
+    metadata = path.lstat()
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+        raise ContractError(f"evidence artifact is not a regular file: {path}")
+    if stat.S_IMODE(metadata.st_mode) != 0o400:
+        raise ContractError(f"evidence artifact mode is not 0400: {path}")
+    if metadata.st_size > MAX_EVIDENCE_BYTES:
+        raise ContractError(f"evidence artifact exceeds {MAX_EVIDENCE_BYTES} bytes")
+    return path.read_bytes()
+
+
+def _validate_recoverable_evidence(payload: bytes) -> dict[str, Any]:
+    try:
+        report = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ContractError(f"pending evidence is not canonical JSON: {error}") from error
+    if not isinstance(report, dict) or report.get("marker") != MARKER:
+        raise ContractError("pending evidence marker mismatch")
+    if report.get("schema_version") != SCHEMA_VERSION:
+        raise ContractError("pending evidence schema mismatch")
+    if report.get("runtime_evidence") != "EXECUTED":
+        raise ContractError("pending evidence is not an executed runtime attempt")
+    provenance = report.get("provenance")
+    if not isinstance(provenance, dict):
+        raise ContractError("pending evidence provenance is absent")
+    validate_provenance(
+        provenance.get("engine_sha", ""),
+        provenance.get("war_college_sha", ""),
+        provenance.get("generation", ""),
+    )
+    run = report.get("run")
+    if not isinstance(run, dict) or run.get("terminal") not in RUN_TERMINALS:
+        raise ContractError("pending evidence run terminal is invalid")
+    return report
+
+
+def _pending_path(path: Path) -> Path:
+    return path.parent / f".{path.name}.pending"
+
+
+def _retire_pending(staging: Path, parent: Path) -> tuple[bool, str | None]:
+    try:
         staging.unlink()
-        return {"path": str(path), "sha256": hashlib.sha256(payload).hexdigest(), "bytes": len(payload)}
+        _fsync_directory(parent)
+        return True, None
+    except OSError as error:
+        # The final link was already fenced.  A retained owned alias is recovery
+        # evidence, not authority to downgrade or replace the committed final.
+        return False, f"{type(error).__name__}:{error}"
+
+
+def recover_owned_evidence(path: Path) -> bytes | None:
+    """Converge an exact owned pending/final publication without runtime contact."""
+    path = Path(os.path.abspath(os.fspath(path)))
+    if not path.parent.is_dir():
+        raise FileNotFoundError(f"evidence output parent must pre-exist: {path.parent}")
+    staging = _pending_path(path)
+    final_exists = os.path.lexists(path)
+    pending_exists = os.path.lexists(staging)
+    if not final_exists and not pending_exists:
+        return None
+    if final_exists and not pending_exists:
+        raise FileExistsError(f"evidence output already exists: {path}")
+
+    pending_payload = _read_regular_read_only(staging)
+    _validate_recoverable_evidence(pending_payload)
+    if final_exists:
+        final_payload = _read_regular_read_only(path)
+        if not os.path.samestat(path.stat(), staging.stat()):
+            raise ContractError("final evidence is not the owned pending inode")
+        if final_payload != pending_payload:
+            raise ContractError("owned final and pending evidence bytes differ")
+    else:
+        os.link(staging, path, follow_symlinks=False)
+
+    with path.open("rb") as stream:
+        os.fsync(stream.fileno())
+    _fsync_directory(path.parent)
+    _retire_pending(staging, path.parent)
+    return pending_payload
+
+
+def publish_evidence_create_only(path: Path, payload: bytes) -> dict[str, Any]:
+    path = Path(os.path.abspath(os.fspath(path)))
+    if len(payload) > MAX_EVIDENCE_BYTES:
+        raise ContractError(f"evidence payload exceeds {MAX_EVIDENCE_BYTES} bytes")
+    if not path.parent.is_dir():
+        raise FileNotFoundError(f"evidence output parent must pre-exist: {path.parent}")
+    recovered = recover_owned_evidence(path)
+    if recovered is not None:
+        return {
+            "path": str(path),
+            "sha256": hashlib.sha256(recovered).hexdigest(),
+            "bytes": len(recovered),
+            "recovered": True,
+            "payload_matches_request": recovered == payload,
+        }
+
+    staging = _pending_path(path)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(staging, flags, 0o600)
+    with os.fdopen(descriptor, "wb", closefd=True) as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fchmod(stream.fileno(), 0o400)
+        os.fsync(stream.fileno())
+    try:
+        os.link(staging, path, follow_symlinks=False)
+        _fsync_directory(path.parent)
     except Exception:
-        # A pending artifact is intentionally recognizable and is never promoted
-        # or deleted implicitly after an interrupted publication.
+        # The immutable pending inode is the recovery authority.  Never unlink
+        # it after an ambiguous final-link or directory-durability terminal.
         raise
+    retired, retirement_error = _retire_pending(staging, path.parent)
+    return {
+        "path": str(path),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "bytes": len(payload),
+        "recovered": False,
+        "payload_matches_request": True,
+        "pending_retired": retired,
+        "pending_retirement_error": retirement_error,
+    }
 
 
 def rss_bytes(pid: int) -> int | None:
@@ -655,7 +813,7 @@ async def run_repetition(
     teardown_timeout_s: float,
     teardown_records: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    session_ids: list[str] = []
+    session_id_by_slot: dict[int, str] = {}
     create_latencies: list[float] = []
     advance_latencies: list[float] = []
     hashes: dict[str, str] = {}
@@ -674,12 +832,22 @@ async def run_repetition(
             )
             # Record ownership immediately: if a sibling create fails or the
             # phase is cancelled, this session still has to be destroyed.
-            session_ids.append(response.session_id)
+            if not isinstance(response.session_id, str) or not response.session_id:
+                raise ContractError("CreateSession returned an invalid session ID")
+            session_id_by_slot[slot] = response.session_id
             await wait_session_playing(stub, pb2, response.session_id, rpc_timeout_s)
             return slot, response.session_id, (time.monotonic() - t0) * 1000
 
-        created = await asyncio.gather(*(create(slot) for slot in range(concurrency)))
+        created_by_task = await run_owned_phase(
+            {str(slot): create(slot) for slot in range(concurrency)},
+            deadline_s=rpc_timeout_s,
+        )
+        created = list(created_by_task.values())
         created.sort(key=lambda item: item[0])
+        if [item[0] for item in created] != list(range(concurrency)):
+            raise ContractError("CreateSession results do not cover every requested slot")
+        if len(set(session_id_by_slot.values())) != concurrency:
+            raise ContractError("CreateSession returned duplicate session ownership")
         create_latencies.extend(item[2] for item in created)
 
         final_by_slot: dict[int, dict[str, Any]] = {}
@@ -701,9 +869,14 @@ async def run_repetition(
                 as_dict = message_to_dict(response, preserving_proto_field_name=True)
                 return slot, elapsed_ms, {"response": as_dict, "validation": validation}
 
-            advanced = await asyncio.gather(*(
-                advance(slot, session_id) for slot, session_id in enumerate(session_ids)
-            ))
+            advanced_by_task = await run_owned_phase(
+                {
+                    str(slot): advance(slot, session_id_by_slot[slot])
+                    for slot in range(concurrency)
+                },
+                deadline_s=rpc_timeout_s,
+            )
+            advanced = list(advanced_by_task.values())
             for slot, elapsed_ms, envelope in advanced:
                 advance_latencies.append(elapsed_ms)
                 final_by_slot[slot] = envelope["response"]
@@ -712,13 +885,19 @@ async def run_repetition(
         for slot, response in sorted(final_by_slot.items()):
             hashes[str(slot)] = canonical_state_hash(response)
     finally:
-        teardown = await destroy_sessions(stub, pb2, session_ids, teardown_timeout_s)
+        owned_session_ids = list(dict.fromkeys(
+            session_id_by_slot[slot] for slot in sorted(session_id_by_slot)
+        ))
+        teardown = await destroy_sessions(stub, pb2, owned_session_ids, teardown_timeout_s)
         teardown_records.append(teardown)
 
     wall_s = time.monotonic() - started
     return {
         "repetition": repetition,
         "seed_by_slot": {str(slot): seed_base + slot for slot in range(concurrency)},
+        "session_id_by_slot": {
+            str(slot): session_id_by_slot[slot] for slot in sorted(session_id_by_slot)
+        },
         "create_latency": latency_summary(create_latencies),
         "joint_advance_latency": latency_summary(advance_latencies),
         "joint_advance_calls": len(advance_latencies),
@@ -1080,6 +1259,12 @@ def main(argv: list[str] | None = None) -> int:
                 raise ContractError(
                     "run requires --openra-dir, --output, and --designated-hostname"
                 )
+            recovered_payload = recover_owned_evidence(Path(args.output))
+            if recovered_payload is not None:
+                report = _validate_recoverable_evidence(recovered_payload)
+                print(human_summary(report), file=sys.stderr)
+                print(json.dumps(report, indent=2, sort_keys=True))
+                return terminal_exit_code(report)
             outcome = asyncio.run(execute_runtime(args, parameters, provenance))
             report = build_report(
                 provenance=provenance,
@@ -1092,9 +1277,12 @@ def main(argv: list[str] | None = None) -> int:
                 host=outcome["host"],
             )
             try:
-                publish_evidence_create_only(
-                    Path(args.output), stable_json(report).encode("utf-8"),
-                )
+                payload = stable_json(report).encode("utf-8")
+                publication = publish_evidence_create_only(Path(args.output), payload)
+                if not publication["payload_matches_request"]:
+                    report = _validate_recoverable_evidence(
+                        _read_regular_read_only(Path(args.output).resolve())
+                    )
             except (OSError, ContractError) as error:
                 report["run"].update({
                     "terminal": "output_error",
@@ -1117,7 +1305,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         print(json.dumps(report, indent=2, sort_keys=True))
         return terminal_exit_code(report) if args.mode == "run" else 0
-    except ContractError as error:
+    except (ContractError, OSError) as error:
         print(f"contract error: {error}", file=sys.stderr)
         return 2
 
