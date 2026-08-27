@@ -147,6 +147,14 @@ def build_matrix(concurrency: tuple[int, ...], tick_batches: tuple[int, ...]) ->
     return cells
 
 
+def matrix_may_continue(terminal: str) -> bool:
+    if terminal not in ALLOWED_TERMINALS:
+        raise ContractError(f"unsupported cell terminal: {terminal}")
+    # Any other terminal can leave unknown or failed-to-destroy server state.
+    # Stop and retire the disposable daemon instead of contaminating later cells.
+    return terminal == "success"
+
+
 @dataclass(frozen=True)
 class FinalCell:
     key: str
@@ -548,6 +556,8 @@ async def execute_runtime(args: argparse.Namespace, parameters: dict[str, Any]) 
             )
             payload.update(cell)
             ledger.finalize(key, terminal, payload)
+            if not matrix_may_continue(terminal):
+                break
     finally:
         await channel.close()
         sampler.stop()
