@@ -1,0 +1,49 @@
+name: joint-advance-source-contract
+
+on:
+  pull_request:
+    paths:
+      - bench_joint_advance.py
+      - test_bench_joint_advance.py
+      - .github/workflows/joint-advance-source-contract.yml
+  push:
+    branches:
+      - main
+    paths:
+      - bench_joint_advance.py
+      - test_bench_joint_advance.py
+      - .github/workflows/joint-advance-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    name: Python ${{ matrix.python-version }} source contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile source contract
+        run: python -m py_compile bench_joint_advance.py test_bench_joint_advance.py
+      - name: Run source contract tests
+        run: python -m unittest -v
+      - name: Verify source-only plan
+        run: |
+          python bench_joint_advance.py plan \
+            --engine-sha 1607a7a6501d42a47638393ecef8b22831064932 \
+            --war-college-sha 973802ef0a614e5afa782ff20e231e18966ae3e5 \
+            --concurrency 1,2 \
+            --tick-batches 1,8 \
+            --samples 2 \
+            --repetitions 2 \
+            --seed 2050 > joint-advance-plan.json
+          python -c 'import json; d=json.load(open("joint-advance-plan.json", encoding="utf-8")); assert d["runtime_evidence"] == "PENDING_DESIGNATED_HOST"; assert d["cells"] == []; assert d["run"] is None'
