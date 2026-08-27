@@ -25,7 +25,7 @@ def header(*, handoff_tick: int = 100, ticks_per_round: int = 25):
         "generation_id": GENERATION,
         "runtime_image_id": IMAGE_ID,
         "engine_commit": ENGINE_COMMIT,
-        "war_collee_commit": WAR_COLLEGE_COMMIT,
+        "war_college_commit": WAR_COLLEGE_COMMIT,
         "joint_training_attestation_sha256": ATTESTATION_SHA,
         "warm_start_sha256": WARM_START_SHA,
         "warm_start_handoff": {
@@ -287,6 +287,7 @@ def test_delayed_production_completion_binds_latest_prior_order(tmp_path):
     assert production["completion_round"] == 2
     assert production["completion_tick"] == 150
     assert production["attribution"] == "latest_prior_controller_production_order"
+
 
 def test_requires_header_and_exact_alternation(tmp_path):
     trajectory = tmp_path / "trajectory.jsonl"
