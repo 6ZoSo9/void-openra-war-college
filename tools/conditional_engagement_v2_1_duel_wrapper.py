@@ -250,7 +250,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def cli(argv: Sequence[str] | None = None) -> int:
     try:
         return main(argv)
-    except WrapperError as error:
+    except parent.WrapperError as error:
         print("VOID_CONDITIONAL_ENGAGEMENT_V2_1_WRAPPER_HOLD", file=sys.stderr)
         print(f"blocker={error}", file=sys.stderr)
         return 2
