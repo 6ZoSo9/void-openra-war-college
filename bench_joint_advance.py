@@ -29,6 +29,7 @@ from typing import Any, Awaitable, Iterable
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
 SCHEMA_VERSION = 1
+OPERATION_SCHEMA = "void.war-college.joint-advance-operation.v1"
 FROZEN_ENGINE_SHA = "1607a7a6501d42a47638393ecef8b22831064932"
 FROZEN_WAR_COLLEGE_SHA = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 GENERATION = "ad1926569b12466c"
@@ -311,6 +312,7 @@ def build_report(
     command: list[str],
     run: dict[str, Any] | None = None,
     host: dict[str, Any] | None = None,
+    operation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     runtime_evidence = "EXECUTED" if executed_designated_host else "PENDING_DESIGNATED_HOST"
     if not executed_designated_host and cells:
@@ -318,6 +320,7 @@ def build_report(
     if not executed_designated_host and run is not None:
         raise ContractError("source-only evidence must not contain a runtime attempt terminal")
     if executed_designated_host:
+        validate_operation(operation)
         if not isinstance(run, dict) or run.get("terminal") not in RUN_TERMINALS:
             raise ContractError("executed runtime evidence requires an exact run terminal")
         if run["terminal"] == "completed" and not cells:
@@ -335,6 +338,7 @@ def build_report(
         "host": host if executed_designated_host else None,
         "run": run if executed_designated_host else None,
         "parameters": parameters,
+        "operation": operation if executed_designated_host else None,
         "cells": cells,
     }
     # The in-memory contract must equal the stable JSON contract. In particular,
@@ -350,6 +354,51 @@ def stable_json(report: dict[str, Any]) -> str:
         ensure_ascii=False,
         allow_nan=False,
     ) + "\n"
+
+
+def operation_descriptor(
+    provenance: dict[str, str],
+    parameters: dict[str, Any],
+    *,
+    designated_hostname: str,
+    openra_dir: Path,
+) -> dict[str, Any]:
+    if not isinstance(designated_hostname, str) or not designated_hostname:
+        raise ContractError("designated hostname must be nonempty text")
+    descriptor = {
+        "provenance": provenance,
+        "parameters": parameters,
+        "designated_hostname": designated_hostname,
+        "openra_dir": str(Path(openra_dir).resolve()),
+    }
+    descriptor = json.loads(json.dumps(descriptor, sort_keys=True, allow_nan=False))
+    encoded = json.dumps(
+        descriptor, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    return {
+        "schema": OPERATION_SCHEMA,
+        "descriptor": descriptor,
+        "sha256": hashlib.sha256(encoded).hexdigest(),
+    }
+
+
+def validate_operation(
+    operation: Any,
+    expected: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(operation, dict) or operation.get("schema") != OPERATION_SCHEMA:
+        raise ContractError("evidence operation descriptor is absent or invalid")
+    descriptor = operation.get("descriptor")
+    if not isinstance(descriptor, dict):
+        raise ContractError("evidence operation body is invalid")
+    encoded = json.dumps(
+        descriptor, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    if operation.get("sha256") != hashlib.sha256(encoded).hexdigest():
+        raise ContractError("evidence operation digest mismatch")
+    if expected is not None and operation != expected:
+        raise ContractError("pending evidence does not match the current invocation")
+    return operation
 
 
 def human_summary(report: dict[str, Any]) -> str:
@@ -516,7 +565,10 @@ def _read_regular_read_only(path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _validate_recoverable_evidence(payload: bytes) -> dict[str, Any]:
+def _validate_recoverable_evidence(
+    payload: bytes,
+    expected_operation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     try:
         report = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -527,6 +579,7 @@ def _validate_recoverable_evidence(payload: bytes) -> dict[str, Any]:
         raise ContractError("pending evidence schema mismatch")
     if report.get("runtime_evidence") != "EXECUTED":
         raise ContractError("pending evidence is not an executed runtime attempt")
+    validate_operation(report.get("operation"), expected_operation)
     provenance = report.get("provenance")
     if not isinstance(provenance, dict):
         raise ContractError("pending evidence provenance is absent")
@@ -556,7 +609,10 @@ def _retire_pending(staging: Path, parent: Path) -> tuple[bool, str | None]:
         return False, f"{type(error).__name__}:{error}"
 
 
-def recover_owned_evidence(path: Path) -> bytes | None:
+def recover_owned_evidence(
+    path: Path,
+    expected_operation: dict[str, Any],
+) -> bytes | None:
     """Converge an exact owned pending/final publication without runtime contact."""
     path = Path(os.path.abspath(os.fspath(path)))
     if not path.parent.is_dir():
@@ -570,7 +626,8 @@ def recover_owned_evidence(path: Path) -> bytes | None:
         raise FileExistsError(f"evidence output already exists: {path}")
 
     pending_payload = _read_regular_read_only(staging)
-    _validate_recoverable_evidence(pending_payload)
+    # Invocation identity is checked before pending -> final publication.
+    _validate_recoverable_evidence(pending_payload, expected_operation)
     if final_exists:
         final_payload = _read_regular_read_only(path)
         if not os.path.samestat(path.stat(), staging.stat()):
@@ -593,7 +650,11 @@ def publish_evidence_create_only(path: Path, payload: bytes) -> dict[str, Any]:
         raise ContractError(f"evidence payload exceeds {MAX_EVIDENCE_BYTES} bytes")
     if not path.parent.is_dir():
         raise FileNotFoundError(f"evidence output parent must pre-exist: {path.parent}")
-    recovered = recover_owned_evidence(path)
+    if os.path.lexists(path) and not os.path.lexists(_pending_path(path)):
+        raise FileExistsError(f"evidence output already exists: {path}")
+    requested_report = _validate_recoverable_evidence(payload)
+    requested_operation = requested_report["operation"]
+    recovered = recover_owned_evidence(path, requested_operation)
     if recovered is not None:
         return {
             "path": str(path),
@@ -780,22 +841,46 @@ def validate_joint_response(response: Any, session_id: str, requested_ticks: int
 async def destroy_sessions(
     stub: Any, pb2: Any, session_ids: list[str], timeout_s: float,
 ) -> dict[str, Any]:
+    attempted = list(dict.fromkeys(session_ids))
     failures: list[str] = []
     latencies: list[float] = []
-    for session_id in session_ids:
+    destroyed: list[str] = []
+
+    async def destroy(session_id: str) -> tuple[str, float]:
         started = time.monotonic()
-        try:
-            await asyncio.wait_for(
-                stub.DestroySession(pb2.DestroySessionRequest(session_id=session_id)),
-                timeout=timeout_s,
+        await stub.DestroySession(pb2.DestroySessionRequest(session_id=session_id))
+        return session_id, (time.monotonic() - started) * 1000
+
+    tasks = {session_id: asyncio.create_task(destroy(session_id)) for session_id in attempted}
+    if tasks:
+        done, pending = await asyncio.wait(tasks.values(), timeout=timeout_s)
+        for session_id in attempted:
+            task = tasks[session_id]
+            if task in done:
+                try:
+                    retired_id, latency = task.result()
+                    destroyed.append(retired_id)
+                    latencies.append(latency)
+                except Exception as error:
+                    failures.append(f"{session_id}:{type(error).__name__}:{error}")
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+            pending_ids = sorted(
+                session_id for session_id, task in tasks.items() if task in pending
             )
-            latencies.append((time.monotonic() - started) * 1000)
-        except Exception as error:
-            failures.append(f"{session_id}:{type(error).__name__}:{error}")
+            failures.extend(f"{session_id}:TimeoutError:total teardown deadline" for session_id in pending_ids)
+    unretired = [session_id for session_id in attempted if session_id not in set(destroyed)]
     return {
         "failures": failures,
         "latency": latency_summary(latencies),
         "latency_samples_ms": latencies,
+        "attempted_session_ids": attempted,
+        "destroyed_session_ids": destroyed,
+        "unretired_session_ids": unretired,
+        "teardown_total_deadline_s": timeout_s,
+        "cleanup_terminal": "complete" if not unretired else "daemon_retirement_required",
     }
 
 
@@ -817,7 +902,14 @@ async def run_repetition(
     create_latencies: list[float] = []
     advance_latencies: list[float] = []
     hashes: dict[str, str] = {}
-    teardown = {"failures": [], "latency": {"count": 0}}
+    teardown = {
+        "failures": [], "latency": {"count": 0},
+        "latency_samples_ms": [], "attempted_session_ids": [],
+        "destroyed_session_ids": [], "unretired_session_ids": [],
+        "cleanup_terminal": "complete",
+    }
+    create_phase_started = False
+    create_phase_complete = False
     started = time.monotonic()
     try:
         async def create(slot: int) -> tuple[int, str, float]:
@@ -838,10 +930,12 @@ async def run_repetition(
             await wait_session_playing(stub, pb2, response.session_id, rpc_timeout_s)
             return slot, response.session_id, (time.monotonic() - t0) * 1000
 
+        create_phase_started = True
         created_by_task = await run_owned_phase(
             {str(slot): create(slot) for slot in range(concurrency)},
             deadline_s=rpc_timeout_s,
         )
+        create_phase_complete = True
         created = list(created_by_task.values())
         created.sort(key=lambda item: item[0])
         if [item[0] for item in created] != list(range(concurrency)):
@@ -888,8 +982,28 @@ async def run_repetition(
         owned_session_ids = list(dict.fromkeys(
             session_id_by_slot[slot] for slot in sorted(session_id_by_slot)
         ))
-        teardown = await destroy_sessions(stub, pb2, owned_session_ids, teardown_timeout_s)
+        cleanup_task = asyncio.create_task(
+            destroy_sessions(stub, pb2, owned_session_ids, teardown_timeout_s)
+        )
+        cancelled_during_cleanup = False
+        try:
+            teardown = await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            # The work deadline may freeze the cell terminal, but it cannot
+            # silently cancel cleanup for already-owned sessions.
+            cancelled_during_cleanup = True
+            teardown = await cleanup_task
+        create_ambiguous = create_phase_started and not create_phase_complete
+        teardown["create_commit_response_ambiguous"] = create_ambiguous
+        teardown["cleanup_after_work_cancellation"] = cancelled_during_cleanup
+        teardown["containment_required"] = bool(
+            create_ambiguous or teardown["unretired_session_ids"]
+        )
+        if teardown["containment_required"]:
+            teardown["cleanup_terminal"] = "daemon_retirement_required"
         teardown_records.append(teardown)
+        if cancelled_during_cleanup:
+            raise asyncio.CancelledError
 
     wall_s = time.monotonic() - started
     return {
@@ -940,6 +1054,30 @@ async def run_cell(
         return {
             "teardown_failures": failures,
             "teardown_latency": latency_summary(samples),
+            "teardown_attempted_session_ids": [
+                session_id for record in teardown_records
+                for session_id in record["attempted_session_ids"]
+            ],
+            "teardown_destroyed_session_ids": [
+                session_id for record in teardown_records
+                for session_id in record["destroyed_session_ids"]
+            ],
+            "teardown_unretired_session_ids": [
+                session_id for record in teardown_records
+                for session_id in record["unretired_session_ids"]
+            ],
+            "create_commit_response_ambiguous": any(
+                record["create_commit_response_ambiguous"] for record in teardown_records
+            ),
+            "cleanup_after_work_cancellation": any(
+                record["cleanup_after_work_cancellation"] for record in teardown_records
+            ),
+            "containment_required": any(
+                record["containment_required"] for record in teardown_records
+            ),
+            "cleanup_terminals": [
+                record["cleanup_terminal"] for record in teardown_records
+            ],
         }
 
     async def run_repetitions() -> None:
@@ -988,7 +1126,11 @@ async def run_cell(
         "cell_wall_seconds": time.monotonic() - started,
         **teardown,
     }
-    return ("teardown_error" if teardown_errors else "success"), payload
+    return (
+        "teardown_error"
+        if teardown_errors or teardown["containment_required"]
+        else "success"
+    ), payload
 
 
 def finalize_unexecuted_cells(
@@ -1132,6 +1274,10 @@ async def execute_runtime(
         })
     finally:
         cleanup_failures: list[str] = []
+        containment_required = any(
+            bool(cell.payload.get("containment_required"))
+            for cell in ledger.values()
+        )
         if channel is not None:
             try:
                 await channel.close()
@@ -1161,6 +1307,14 @@ async def execute_runtime(
             run["daemon_log"] = log
             if log["drain_error"] or not log["drain_thread_retired"]:
                 cleanup_failures.append("daemon_log_drain_not_cleanly_retired")
+        daemon_retired = daemon is not None and daemon.poll() is not None
+        run["containment"] = {
+            "required_by_cell": containment_required,
+            "boundary": "disposable_daemon_retirement" if containment_required else "not_required",
+            "daemon_retired": daemon_retired,
+        }
+        if containment_required and not daemon_retired:
+            cleanup_failures.append("required_disposable_daemon_retirement_not_proven")
         run["cleanup"] = {"failures": cleanup_failures}
         if cleanup_failures and run["terminal"] == "completed":
             run.update({
@@ -1259,9 +1413,15 @@ def main(argv: list[str] | None = None) -> int:
                 raise ContractError(
                     "run requires --openra-dir, --output, and --designated-hostname"
                 )
-            recovered_payload = recover_owned_evidence(Path(args.output))
+            operation = operation_descriptor(
+                provenance,
+                parameters,
+                designated_hostname=args.designated_hostname,
+                openra_dir=Path(args.openra_dir),
+            )
+            recovered_payload = recover_owned_evidence(Path(args.output), operation)
             if recovered_payload is not None:
-                report = _validate_recoverable_evidence(recovered_payload)
+                report = _validate_recoverable_evidence(recovered_payload, operation)
                 print(human_summary(report), file=sys.stderr)
                 print(json.dumps(report, indent=2, sort_keys=True))
                 return terminal_exit_code(report)
@@ -1275,6 +1435,7 @@ def main(argv: list[str] | None = None) -> int:
                 command=sys.argv if argv is None else [Path(sys.argv[0]).name, *argv],
                 run=outcome["run"],
                 host=outcome["host"],
+                operation=operation,
             )
             try:
                 payload = stable_json(report).encode("utf-8")
