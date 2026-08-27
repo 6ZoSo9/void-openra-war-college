@@ -10,7 +10,7 @@ on:
       - .github/workflows/conditional-engagement-v2-1-history-window-repair.yml
   push:
     branches:
-      - ren/v2-1-history-window-evidence-repair-v1
+      - main
     paths:
       - openra_env/analysis/_spar_conditional_v2_1.py
       - tests/test_spar_conditional_engagement_v2_1_history_window.py
