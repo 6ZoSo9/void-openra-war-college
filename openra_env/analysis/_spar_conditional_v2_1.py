@@ -30,6 +30,7 @@ RUN_SCHEMA = "void.apollyon.conditional-engagement-run-binding.v2.1"
 PREPARED_SCHEMA = "void.apollyon.conditional-engagement-prepared-round.v2.1"
 ACCEPTED_SCHEMA = "void.apollyon.conditional-engagement-accepted-round.v2.1"
 DECISION_SCHEMA = "void.apollyon.conditional-engagement-decision.v2.1"
+REVIEWED_V21_HISTORY_WINDOW_ROUNDS = 6
 MODES = (
     "REBUILD_FORCE",
     "ATTRITION_BRAKE",
@@ -165,7 +166,17 @@ def _round_binding(
     if selected not in allowed:
         raise ContractError("V2.1 accepted tool was not in prepared tool surface")
     _bool(accepted.get("function_was_offered"), "V2.1 function_was_offered", True)
-    _int(accepted.get("history_size"), "V2.1 history_size", 1, 5)
+    history_size = _int(
+        accepted.get("history_size"),
+        "V2.1 history_size",
+        1,
+        REVIEWED_V21_HISTORY_WINDOW_ROUNDS,
+    )
+    expected_history_size = min(round_number, REVIEWED_V21_HISTORY_WINDOW_ROUNDS)
+    if history_size != expected_history_size:
+        raise ContractError(
+            "V2.1 history_size does not match reviewed bounded-history evolution"
+        )
     return mode
 
 
