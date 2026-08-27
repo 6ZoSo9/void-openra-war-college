@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from openra_env.coaching import ConditionalEngagementSessionV2
+from tools import conditional_engagement_v2_duel_wrapper as wrapper_module
 from tools.conditional_engagement_v2_duel_wrapper import (
     ConditionalV2Hooks,
     V2_CANDIDATE_SHA256,
@@ -243,3 +244,14 @@ def test_restore_returns_legacy_functions_and_wrapper_args_do_not_consume_duel_f
     )
     assert namespace.v2_source_dir == "/tmp/reviewed-v2"
     assert remaining == ["--seed", "2060", "--doctrine", "RUSHER", "--rounds", "72"]
+
+
+def test_cli_reports_wrapper_contract_failure_as_terminal_hold(monkeypatch, capsys) -> None:
+    def fail(_argv=None):
+        raise WrapperError("fixture contract drift")
+
+    monkeypatch.setattr(wrapper_module, "main", fail)
+    assert wrapper_module.cli([]) == 2
+    captured = capsys.readouterr()
+    assert "VOID_CONDITIONAL_ENGAGEMENT_V2_WRAPPER_HOLD" in captured.err
+    assert "blocker=fixture contract drift" in captured.err
