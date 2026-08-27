@@ -285,5 +285,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+def cli(argv: Sequence[str] | None = None) -> int:
+    try:
+        return main(argv)
+    except WrapperError as error:
+        print("VOID_CONDITIONAL_ENGAGEMENT_V2_WRAPPER_HOLD", file=sys.stderr)
+        print(f"blocker={error}", file=sys.stderr)
+        return 2
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(cli())
