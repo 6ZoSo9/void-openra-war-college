@@ -19,6 +19,7 @@ on:
   push:
     branches:
       - main
+      - ren/conditional-engagement-v2-pair-comparator-v1
     paths:
       - __init__.py
       - openra_env/__init__.py
@@ -55,6 +56,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install focused test dependency
         run: python -m pip install --disable-pip-version-check pytest
+      - name: Attest reviewed V2 source hashes
+        run: |
+          sha256sum \
+            openra_env/coaching/conditional_engagement_v2.py \
+            openra_env/coaching/conditional_engagement_session_v2.py \
+            tools/conditional_engagement_v2_duel_wrapper.py
       - name: Compile focused source
         run: |
           python -m py_compile \
