@@ -203,6 +203,7 @@ class OpenRAEnvironment(MCPEnvironment):
         config: Optional[OpenRARLConfig] = None,
         multi_session: bool = False,
         shared_channel: Optional[Any] = None,
+        player: str = "",
     ):
         # ── Load unified config ──────────────────────────────────────
         if config is not None:
@@ -250,6 +251,7 @@ class OpenRAEnvironment(MCPEnvironment):
 
         self._multi_session = multi_session
         self._shared_channel = shared_channel
+        self._player = player
         self._config = OpenRAConfig(
             openra_path=cfg.game.openra_path,
             mod=cfg.game.mod,
@@ -268,6 +270,7 @@ class OpenRAEnvironment(MCPEnvironment):
         self._bridge = BridgeClient(
             port=cfg.game.grpc_port,
             shared_channel=shared_channel,
+            player=player,
         )
         rw = RewardWeights(
             survival=cfg.reward.survival,

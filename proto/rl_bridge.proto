@@ -19,6 +19,10 @@ service RLBridge {
   // Bypasses streaming — works reliably on all platforms.
   rpc FastAdvance(FastAdvanceRequest) returns (GameObservation);
 
+  // Atomic duel step: both external players commit actions at one frozen tick,
+  // then the shared world advances once and returns both perspectives.
+  rpc JointAdvance(JointAdvanceRequest) returns (JointAdvanceResponse);
+
   // Session management (multi-session mode)
   rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
   rpc DestroySession(DestroySessionRequest) returns (DestroySessionResponse);
@@ -203,10 +207,12 @@ message GameState {
   int32 player_count = 5;
   string player_faction = 6;  // Player faction internal name (e.g. "england", "ukraine")
   string enemy_faction = 7;   // Opponent faction internal name (if known)
+  string player_internal_name = 8; // Perspective used for this state
 }
 
 message StateRequest {
   string session_id = 1;  // Route to specific session (multi-session mode)
+  string player = 2;      // Optional player internal name; empty preserves legacy routing
 }
 
 // ─── Fast Advance (Unary) ───────────────────────────────────────────────────
@@ -221,6 +227,30 @@ message FastAdvanceRequest {
   // 0 = disabled (legacy behavior: advance full ticks, no interrupt checks).
   int32 check_events_every = 4;
   repeated string enabled_interrupts = 5;  // Signal names: "enemy_spotted", "building_discovered", etc.
+  string player = 6;      // Optional player internal name; empty preserves legacy routing
+}
+
+message PlayerCommandBatch {
+  string player = 1;
+  repeated Command commands = 2;
+}
+
+message PlayerObservation {
+  string player = 1;
+  GameObservation observation = 2;
+}
+
+message JointAdvanceRequest {
+  string session_id = 1;
+  int32 ticks = 2;
+  repeated PlayerCommandBatch player_actions = 3;
+}
+
+message JointAdvanceResponse {
+  string session_id = 1;
+  int32 start_tick = 2;
+  int32 end_tick = 3;
+  repeated PlayerObservation player_observations = 4;
 }
 
 // ─── Session Management (Multi-Session Mode) ────────────────────────────────

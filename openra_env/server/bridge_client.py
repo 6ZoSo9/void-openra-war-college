@@ -33,11 +33,13 @@ class BridgeClient:
     """
 
     def __init__(self, host: str = "localhost", port: int = 9999, timeout_s: float = 30.0,
-                 session_id: str = "", shared_channel: Optional[grpc.Channel] = None):
+                 session_id: str = "", shared_channel: Optional[grpc.Channel] = None,
+                 player: str = ""):
         self.host = host
         self.port = port
         self.timeout_s = timeout_s
         self.session_id = session_id
+        self.player = player
         self._shared_channel = shared_channel
         self._channel: Optional[grpc.Channel] = None
         self._stub: Optional[rl_bridge_pb2_grpc.RLBridgeStub] = None
@@ -115,7 +117,11 @@ class BridgeClient:
         if not self._connected:
             self.connect()
 
-        request = rl_bridge_pb2.FastAdvanceRequest(ticks=ticks, session_id=self.session_id)
+        request = rl_bridge_pb2.FastAdvanceRequest(
+            ticks=ticks,
+            session_id=self.session_id,
+            player=self.player,
+        )
         if check_events_every > 0:
             logger.info("FastAdvance: ticks=%d, check_events_every=%d, interrupts=%s",
                         ticks, check_events_every, enabled_interrupts)
@@ -128,11 +134,37 @@ class BridgeClient:
 
         return self._stub.FastAdvance(request, timeout=120.0)
 
+    def joint_advance_unary(
+        self,
+        ticks: int,
+        player_commands: dict[str, list],
+    ) -> rl_bridge_pb2.JointAdvanceResponse:
+        # Atomically commit two player command sets, then advance one shared world.
+        if not self._connected:
+            self.connect()
+        if not self.session_id:
+            raise RuntimeError("JointAdvance requires a multi-session session_id")
+        if len(player_commands) != 2:
+            raise ValueError("JointAdvance requires exactly two players")
+
+        request = rl_bridge_pb2.JointAdvanceRequest(
+            session_id=self.session_id,
+            ticks=ticks,
+        )
+        for player in sorted(player_commands):
+            batch = request.player_actions.add(player=player)
+            batch.commands.extend(player_commands[player] or [])
+
+        return self._stub.JointAdvance(request, timeout=120.0)
+
     def get_state(self) -> rl_bridge_pb2.GameState:
         """Query current game state via unary RPC."""
         if not self._connected or self._stub is None:
             raise RuntimeError("Not connected. Call connect() first.")
-        request = rl_bridge_pb2.StateRequest(session_id=self.session_id)
+        request = rl_bridge_pb2.StateRequest(
+            session_id=self.session_id,
+            player=self.player,
+        )
         return self._stub.GetState(request, timeout=self.timeout_s)
 
     def create_session(self, map_name: str, bots: str, seed: int = 0) -> str:
