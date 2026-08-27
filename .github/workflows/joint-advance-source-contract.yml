@@ -35,7 +35,7 @@ jobs:
       - name: Compile source contract
         run: python -m py_compile bench_joint_advance.py test_bench_joint_advance.py
       - name: Run source contract tests
-        run: python -m unittest -v
+        run: python -m unittest -v test_bench_joint_advance.py
       - name: Verify source-only plan
         run: |
           python bench_joint_advance.py plan \
