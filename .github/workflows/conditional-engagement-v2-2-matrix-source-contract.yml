@@ -49,7 +49,7 @@ jobs:
               REVIEWED_GAIN_SEED,
               REVIEWED_REGRESSION_SEED,
           )
-          assert MATRIX_SCHEMA == 'void.apollyon.conditional-engagement-v2-2-pair-matrix.v1'
+          assert MATRIX_SCHEMA == 'void.apollyon.conditional-engagement-v2-2-pair-matrix.v2'
           assert REVIEWED_REGRESSION_SEED == 2051
           assert REVIEWED_GAIN_SEED == 2055
           assert MINIMUM_HELD_OUT_SEED_COUNT == 3
