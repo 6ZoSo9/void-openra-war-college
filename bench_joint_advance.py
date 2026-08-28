@@ -581,8 +581,15 @@ class BoundedLogCapture:
             }
 
 
-def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+def _fsync_directory(path_or_descriptor: Path | int) -> None:
+    """Fsync either a directory path or an already-retained directory fd."""
+    if isinstance(path_or_descriptor, int):
+        os.fsync(path_or_descriptor)
+        return
+    descriptor = os.open(
+        path_or_descriptor,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
     try:
         os.fsync(descriptor)
     finally:
@@ -652,37 +659,69 @@ def _assert_path_generation(path: Path, descriptor: int, label: str) -> None:
         raise ContractError(f"{label} evidence name changed contract before commit")
 
 
-def _link_open_inode_create_only(descriptor: int, destination: Path) -> None:
-    """Link the retained open inode without re-resolving its mutable source name."""
-    parent_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    parent_descriptor = os.open(destination.parent, parent_flags)
+def _assert_parent_path_generation(parent: Path, descriptor: int) -> None:
     try:
-        library = ctypes.CDLL(ctypes.util.find_library("c") or None, use_errno=True)
-        linkat = library.linkat
-        linkat.argtypes = [
-            ctypes.c_int,
-            ctypes.c_char_p,
-            ctypes.c_int,
-            ctypes.c_char_p,
-            ctypes.c_int,
-        ]
-        linkat.restype = ctypes.c_int
-        result = linkat(
-            descriptor,
-            b"",
-            parent_descriptor,
-            os.fsencode(destination.name),
-            0x1000,  # Linux AT_EMPTY_PATH: retained descriptor is link authority.
-        )
-        if result != 0:
-            error_number = ctypes.get_errno()
-            raise OSError(
-                error_number,
-                os.strerror(error_number),
-                os.fspath(destination),
-            )
-    finally:
-        os.close(parent_descriptor)
+        named = os.stat(parent, follow_symlinks=False)
+    except FileNotFoundError as error:
+        raise ContractError("evidence parent namespace disappeared before commit") from error
+    opened = os.fstat(descriptor)
+    if not os.path.samestat(named, opened):
+        raise ContractError("evidence parent namespace changed generation before commit")
+    if not stat.S_ISDIR(named.st_mode):
+        raise ContractError("evidence parent namespace changed contract before commit")
+
+
+def _entry_exists(parent_descriptor: int, name: str) -> bool:
+    try:
+        os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _assert_entry_generation(
+    parent_descriptor: int,
+    name: str,
+    descriptor: int,
+    label: str,
+) -> None:
+    try:
+        named = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
+    except FileNotFoundError as error:
+        raise ContractError(f"{label} evidence name disappeared before commit") from error
+    opened = os.fstat(descriptor)
+    if not os.path.samestat(named, opened):
+        raise ContractError(f"{label} evidence name changed generation before commit")
+    if not stat.S_ISREG(named.st_mode) or stat.S_IMODE(named.st_mode) != 0o400:
+        raise ContractError(f"{label} evidence name changed contract before commit")
+
+
+def _link_open_inode_create_only(
+    descriptor: int,
+    parent_descriptor: int,
+    destination_name: str,
+) -> None:
+    """Link the retained inode into the retained parent directory generation."""
+    library = ctypes.CDLL(ctypes.util.find_library("c") or None, use_errno=True)
+    linkat = library.linkat
+    linkat.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+    ]
+    linkat.restype = ctypes.c_int
+    result = linkat(
+        descriptor,
+        b"",
+        parent_descriptor,
+        os.fsencode(destination_name),
+        0x1000,  # Linux AT_EMPTY_PATH: retained descriptor is link authority.
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number), destination_name)
 
 
 def _validate_recoverable_evidence(
@@ -801,10 +840,13 @@ def _pending_path(path: Path) -> Path:
     return path.parent / f".{path.name}.pending"
 
 
-def _retire_pending(staging: Path, parent: Path) -> tuple[bool, str | None]:
+def _retire_pending(
+    parent_descriptor: int,
+    staging_name: str,
+) -> tuple[bool, str | None]:
     try:
-        staging.unlink()
-        _fsync_directory(parent)
+        os.unlink(staging_name, dir_fd=parent_descriptor)
+        _fsync_directory(parent_descriptor)
         return True, None
     except OSError as error:
         # The final link was already fenced.  A retained owned alias is recovery
@@ -819,11 +861,15 @@ class EvidenceReservation:
     path: Path
     staging: Path
     descriptor: int | None
+    parent_descriptor: int | None
 
     def close(self) -> None:
         if self.descriptor is not None:
             os.close(self.descriptor)
             self.descriptor = None
+        if self.parent_descriptor is not None:
+            os.close(self.parent_descriptor)
+            self.parent_descriptor = None
 
 
 def require_unused_evidence_namespace(path: Path) -> None:
@@ -855,26 +901,71 @@ def reserve_evidence_namespace(path: Path) -> EvidenceReservation:
     explicit reconciliation and can never be mistaken for completed evidence.
     """
     path = Path(os.path.abspath(os.fspath(path)))
-    require_unused_evidence_namespace(path)
     staging = _pending_path(path)
+    parent_flags = (
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        parent_descriptor = os.open(path.parent, parent_flags)
+    except FileNotFoundError as error:
+        raise FileNotFoundError(
+            f"evidence output parent must pre-exist: {path.parent}"
+        ) from error
+    try:
+        _assert_parent_path_generation(path.parent, parent_descriptor)
+        if _entry_exists(parent_descriptor, path.name):
+            raise FileExistsError(f"evidence output already exists: {path}")
+        if _entry_exists(parent_descriptor, staging.name):
+            raise ContractError(
+                "pending evidence requires explicit reconciliation; automatic recovery "
+                "is disabled because producer provenance is not authenticated"
+            )
+    except Exception:
+        os.close(parent_descriptor)
+        raise
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(staging, flags, 0o400)
+    descriptor = os.open(staging.name, flags, 0o400, dir_fd=parent_descriptor)
     try:
         os.fchmod(descriptor, 0o400)
         os.fsync(descriptor)
-        _fsync_directory(path.parent)
-        _assert_path_generation(staging, descriptor, "pending reservation")
-        if os.path.lexists(path):
+        _fsync_directory(parent_descriptor)
+        _assert_entry_generation(
+            parent_descriptor, staging.name, descriptor, "pending reservation",
+        )
+        _assert_parent_path_generation(path.parent, parent_descriptor)
+        if _entry_exists(parent_descriptor, path.name):
             raise FileExistsError(
                 f"evidence output appeared while reserving the attempt: {path}"
             )
-        return EvidenceReservation(path=path, staging=staging, descriptor=descriptor)
+        return EvidenceReservation(
+            path=path,
+            staging=staging,
+            descriptor=descriptor,
+            parent_descriptor=parent_descriptor,
+        )
     except Exception:
         os.close(descriptor)
+        os.close(parent_descriptor)
         # Preserve the exact reservation name after any ambiguous durability or
         # namespace terminal.  It is not execution evidence and grants no retry
         # authority, but it truthfully fences this interrupted attempt.
         raise
+
+
+def _write_reserved_payload(reservation: EvidenceReservation, payload: bytes) -> None:
+    if reservation.descriptor is None or reservation.parent_descriptor is None:
+        raise ContractError("evidence reservation is already closed")
+    if len(payload) > MAX_EVIDENCE_BYTES:
+        raise ContractError(f"evidence payload exceeds {MAX_EVIDENCE_BYTES} bytes")
+    _validate_recoverable_evidence(payload)
+    descriptor = reservation.descriptor
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    os.ftruncate(descriptor, 0)
+    with os.fdopen(descriptor, "wb", closefd=False) as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fchmod(stream.fileno(), 0o400)
+        os.fsync(stream.fileno())
 
 
 def publish_evidence_create_only(
@@ -887,46 +978,56 @@ def publish_evidence_create_only(
     if len(payload) > MAX_EVIDENCE_BYTES:
         raise ContractError(f"evidence payload exceeds {MAX_EVIDENCE_BYTES} bytes")
 
+    owns_reservation = reservation is None
     if reservation is None:
         reservation = reserve_evidence_namespace(path)
     if reservation.path != path or reservation.staging != _pending_path(path):
         raise ContractError("evidence reservation does not match the output path")
-    if reservation.descriptor is None:
+    if reservation.descriptor is None or reservation.parent_descriptor is None:
         raise ContractError("evidence reservation is already closed")
 
     staging = reservation.staging
     descriptor = reservation.descriptor
+    parent_descriptor = reservation.parent_descriptor
     retired = False
     retirement_error: str | None = None
+    succeeded = False
     try:
-        _validate_recoverable_evidence(payload)
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        os.ftruncate(descriptor, 0)
-        with os.fdopen(descriptor, "wb", closefd=False) as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fchmod(stream.fileno(), 0o400)
-            os.fsync(stream.fileno())
+        _write_reserved_payload(reservation, payload)
         # The pending name was made durable by reserve_evidence_namespace before
-        # runtime contact. Retain that exact descriptor so final publication
-        # cannot resolve a replacement generation through the mutable pathname.
-        _assert_path_generation(staging, descriptor, "pending")
-        _link_open_inode_create_only(descriptor, path)
-        _fsync_directory(path.parent)
+        # runtime contact. Retain both its exact descriptor and exact parent
+        # directory so neither source nor destination authority is re-resolved.
+        _assert_entry_generation(parent_descriptor, staging.name, descriptor, "pending")
+        _assert_parent_path_generation(path.parent, parent_descriptor)
+        if _entry_exists(parent_descriptor, path.name):
+            raise FileExistsError(f"evidence output already exists: {path}")
+        _link_open_inode_create_only(descriptor, parent_descriptor, path.name)
+        _fsync_directory(parent_descriptor)
+        _assert_entry_generation(parent_descriptor, path.name, descriptor, "final")
+        _assert_parent_path_generation(path.parent, parent_descriptor)
         try:
-            _assert_path_generation(staging, descriptor, "pending")
+            _assert_entry_generation(parent_descriptor, staging.name, descriptor, "pending")
         except ContractError as error:
             # A replacement alias is not ours to remove after the exact owned
             # inode has been committed through the retained descriptor.
             retirement_error = f"{type(error).__name__}:{error}"
         else:
-            retired, retirement_error = _retire_pending(staging, path.parent)
+            retired, retirement_error = _retire_pending(
+                parent_descriptor, staging.name,
+            )
+        _assert_entry_generation(parent_descriptor, path.name, descriptor, "final")
+        _assert_parent_path_generation(path.parent, parent_descriptor)
+        succeeded = True
     except Exception:
         # The immutable pending inode is the recovery authority.  Never unlink
         # it after an ambiguous final-link or directory-durability terminal.
         raise
     finally:
-        reservation.close()
+        # Callers that reserved before runtime retain the exact inode after a
+        # publication error so they can persist the truthful output_error
+        # terminal. Standalone helper calls own and always close their lease.
+        if owns_reservation or succeeded:
+            reservation.close()
     return {
         "path": str(path),
         "sha256": hashlib.sha256(payload).hexdigest(),
@@ -1705,6 +1806,21 @@ def main(argv: list[str] | None = None) -> int:
                         "error": str(error),
                     })
                     report = json.loads(json.dumps(report, allow_nan=False))
+                    # The same retained inode that held the attempted completed
+                    # report must carry the process's authoritative failure
+                    # terminal. Otherwise explicit reconciliation could count a
+                    # durable `completed` artifact after canonical publication
+                    # failed and stdout truthfully reported `output_error`.
+                    try:
+                        _write_reserved_payload(
+                            reservation,
+                            stable_json(report).encode("utf-8"),
+                        )
+                    except (OSError, ContractError) as persistence_error:
+                        report["run"]["publication_terminal_persistence_error"] = (
+                            f"{type(persistence_error).__name__}:{persistence_error}"
+                        )
+                        report = json.loads(json.dumps(report, allow_nan=False))
             finally:
                 reservation.close()
             print(human_summary(report), file=sys.stderr)

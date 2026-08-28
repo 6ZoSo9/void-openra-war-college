@@ -486,9 +486,9 @@ class EvidencePublicationTests(unittest.TestCase):
                 order.append("directory_fsync")
                 return real_fsync_directory(path)
 
-            def record_link(descriptor, destination):
+            def record_link(descriptor, parent_descriptor, destination_name):
                 order.append("link")
-                return real_link(descriptor, destination)
+                return real_link(descriptor, parent_descriptor, destination_name)
 
             with mock.patch(
                 "bench_joint_advance._fsync_directory", side_effect=record_directory_fsync,
@@ -521,26 +521,92 @@ class EvidencePublicationTests(unittest.TestCase):
             pending = Path(directory) / ".evidence.json.pending"
             payload = self.payload()
             foreign = b"foreign-generation"
-            real_assert = bench._assert_path_generation
+            real_assert = bench._assert_entry_generation
             replaced = False
 
-            def replace_then_assert(path, descriptor, label):
+            def replace_then_assert(parent_descriptor, name, descriptor, label):
                 nonlocal replaced
                 if not replaced:
                     replaced = True
                     pending.unlink()
                     pending.write_bytes(foreign)
                     pending.chmod(0o400)
-                return real_assert(path, descriptor, label)
+                return real_assert(parent_descriptor, name, descriptor, label)
 
             with mock.patch(
-                "bench_joint_advance._assert_path_generation",
+                "bench_joint_advance._assert_entry_generation",
                 side_effect=replace_then_assert,
             ):
                 with self.assertRaisesRegex(bench.ContractError, "changed generation"):
                     bench.publish_evidence_create_only(output, payload)
             self.assertFalse(output.exists())
             self.assertEqual(pending.read_bytes(), foreign)
+
+    def test_parent_replacement_before_link_cannot_redirect_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent = root / "current"
+            moved = root / "owned-attempt"
+            parent.mkdir()
+            output = parent / "evidence.json"
+            payload = self.payload()
+            real_link = bench._link_open_inode_create_only
+            replaced = False
+
+            def replace_parent_then_link(descriptor, parent_descriptor, destination_name):
+                nonlocal replaced
+                if not replaced:
+                    replaced = True
+                    parent.rename(moved)
+                    parent.mkdir()
+                return real_link(descriptor, parent_descriptor, destination_name)
+
+            with mock.patch(
+                "bench_joint_advance._link_open_inode_create_only",
+                side_effect=replace_parent_then_link,
+            ):
+                with self.assertRaisesRegex(
+                    bench.ContractError, "parent namespace changed generation",
+                ):
+                    bench.publish_evidence_create_only(output, payload)
+
+            self.assertTrue(parent.is_dir())
+            self.assertEqual(list(parent.iterdir()), [])
+            self.assertEqual((moved / "evidence.json").read_bytes(), payload)
+            self.assertEqual((moved / ".evidence.json.pending").read_bytes(), payload)
+
+    def test_parent_replacement_after_link_before_fsync_cannot_return_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent = root / "current"
+            moved = root / "owned-attempt"
+            parent.mkdir()
+            output = parent / "evidence.json"
+            payload = self.payload()
+            real_fsync_directory = bench._fsync_directory
+            calls = 0
+
+            def replace_parent_before_second_fsync(path_or_descriptor):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    parent.rename(moved)
+                    parent.mkdir()
+                return real_fsync_directory(path_or_descriptor)
+
+            with mock.patch(
+                "bench_joint_advance._fsync_directory",
+                side_effect=replace_parent_before_second_fsync,
+            ):
+                with self.assertRaisesRegex(
+                    bench.ContractError, "parent namespace changed generation",
+                ):
+                    bench.publish_evidence_create_only(output, payload)
+
+            self.assertTrue(parent.is_dir())
+            self.assertEqual(list(parent.iterdir()), [])
+            self.assertEqual((moved / "evidence.json").read_bytes(), payload)
+            self.assertEqual((moved / ".evidence.json.pending").read_bytes(), payload)
 
     def test_preexisting_valid_pending_is_preserved_without_validation_or_adoption(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -935,8 +1001,47 @@ class RetryRecoveryTests(unittest.TestCase):
             self.assertTrue(pending.exists())
             self.assertEqual(pending.stat().st_mode & 0o777, 0o400)
             pending_report = json.loads(pending.read_bytes())
-            self.assertEqual(pending_report["run"]["terminal"], "completed")
-            self.assertEqual(json.loads(stdout.getvalue())["run"]["terminal"], "output_error")
+            stdout_report = json.loads(stdout.getvalue())
+            self.assertEqual(pending_report["run"]["terminal"], "output_error")
+            self.assertEqual(stdout_report["run"]["terminal"], "output_error")
+            self.assertEqual(pending_report, stdout_report)
+
+    def test_parent_generation_failure_persists_one_output_error_terminal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent = root / "current"
+            moved = root / "owned-attempt"
+            parent.mkdir()
+            output = parent / "evidence.json"
+            argv, payload = self.invocation(str(parent), output)
+            real_link = bench._link_open_inode_create_only
+
+            async def execute_runtime(*_args, **_kwargs):
+                return self.completed_outcome(payload)
+
+            def replace_parent_then_link(descriptor, parent_descriptor, destination_name):
+                parent.rename(moved)
+                parent.mkdir()
+                return real_link(descriptor, parent_descriptor, destination_name)
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch(
+                "bench_joint_advance.execute_runtime", side_effect=execute_runtime,
+            ) as runtime, mock.patch(
+                "bench_joint_advance._link_open_inode_create_only",
+                side_effect=replace_parent_then_link,
+            ), mock.patch("sys.stdout", stdout), mock.patch("sys.stderr", stderr):
+                self.assertEqual(bench.main(argv), 1)
+
+            runtime.assert_called_once()
+            self.assertEqual(list(parent.iterdir()), [])
+            stdout_report = json.loads(stdout.getvalue())
+            pending_report = json.loads((moved / ".evidence.json.pending").read_bytes())
+            final_report = json.loads((moved / "evidence.json").read_bytes())
+            self.assertEqual(stdout_report["run"]["terminal"], "output_error")
+            self.assertEqual(pending_report, stdout_report)
+            self.assertEqual(final_report, stdout_report)
 
     def test_pending_retry_fails_closed_before_runtime_contact(self):
         with tempfile.TemporaryDirectory() as directory:
