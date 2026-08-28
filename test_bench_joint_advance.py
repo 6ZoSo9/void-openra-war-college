@@ -520,6 +520,8 @@ class EvidencePublicationTests(unittest.TestCase):
 
         self.assertEqual(terminal, "rpc_error")
         self.assertEqual(failure["completed_repetitions"], 2)
+        self.assertEqual(failure["prior_cell_terminal"], "success")
+        self.assertIsNone(failure["prior_cell_failure"])
         self.assertTrue(failure["daemon_identity_lost"])
         self.assertTrue(failure["containment_required"])
         self.assertIn("daemon_retirement_required", failure["cleanup_terminals"])
@@ -554,7 +556,7 @@ class EvidencePublicationTests(unittest.TestCase):
         })
 
         terminal, failure = bench.bind_post_cell_daemon_identity(
-            "rpc_error",
+            "timeout",
             partial_failure,
             {
                 "concurrency": success["concurrency"],
@@ -567,11 +569,25 @@ class EvidencePublicationTests(unittest.TestCase):
         self.assertEqual(terminal, "rpc_error")
         self.assertEqual(failure["completed_repetitions"], 1)
         self.assertEqual(failure["error_type"], "DaemonIdentityError")
+        self.assertEqual(failure["prior_cell_terminal"], "timeout")
+        self.assertEqual(failure["prior_cell_failure"], {
+            "terminal": "timeout",
+            "error_type": "TimeoutError",
+            "error": "cell deadline expired",
+        })
         self.assertTrue(failure["containment_required"])
         bench._validate_cell_evidence(
             {"key": "c1-t1", "terminal": terminal, **failure},
             report["parameters"],
         )
+        contradictory = {**failure, "prior_cell_terminal": "success"}
+        with self.assertRaisesRegex(
+            bench.ContractError, "successful prior cell cannot claim",
+        ):
+            bench._validate_cell_evidence(
+                {"key": "c1-t1", "terminal": terminal, **contradictory},
+                report["parameters"],
+            )
 
     def test_create_only_publication_is_immutable(self):
         with tempfile.TemporaryDirectory() as directory:
