@@ -21,7 +21,7 @@ from typing import Callable, Sequence
 
 
 MARKER = "VOID_WAR_COLLEGE_LAB_CHECKOUT_CONTRACT_V1"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 WAR_COLLEGE_FROZEN_COMMIT = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 ENGINE_FROZEN_COMMIT = "1607a7a6501d42a47638393ecef8b22831064932"
 GENERATION = "ad1926569b12466c"
@@ -31,6 +31,12 @@ ENGINE_REPOSITORY_URL = "https://github.com/6ZoSo9/void-openra-engine.git"
 
 class VerificationError(RuntimeError):
     """Raised when repository evidence cannot be obtained unambiguously."""
+
+    def __init__(
+        self, message: str, *, reason_code: str = "repository_evidence_unavailable"
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
 
 
 @dataclass(frozen=True)
@@ -59,18 +65,48 @@ class RepositorySnapshot:
     ignored_runtime_inputs_absent: bool
 
 
+def _invoke_git(root: Path, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    """Invoke Git while preserving one machine-readable probe-failure terminal."""
+    try:
+        root_is_directory = root.is_dir()
+    except OSError as error:
+        raise VerificationError(
+            f"cannot inspect repository root: {error}",
+            reason_code="repo_root_unavailable",
+        ) from error
+    if not root_is_directory:
+        raise VerificationError(
+            f"repository root is not an available directory: {root}",
+            reason_code="repo_root_unavailable",
+        )
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except FileNotFoundError as error:
+        reason_code = "git_unavailable" if error.filename == "git" else "git_probe_failed"
+        raise VerificationError(
+            f"cannot start git probe: {error}", reason_code=reason_code
+        ) from error
+    except OSError as error:
+        raise VerificationError(
+            f"cannot start git probe: {error}", reason_code="git_probe_failed"
+        ) from error
+
+
 def _run_git(root: Path, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=root,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    result = _invoke_git(root, args)
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "unknown git error"
-        raise VerificationError(f"git {' '.join(args)} failed: {detail}")
+        raise VerificationError(
+            f"git {' '.join(args)} failed: {detail}",
+            reason_code="git_probe_failed",
+        )
     return result
 
 
@@ -184,7 +220,10 @@ def read_engine_repository_url(root: Path) -> str:
     try:
         content = modules.read_text(encoding="utf-8")
     except OSError as error:
-        raise VerificationError(f"cannot read .gitmodules: {error}") from error
+        raise VerificationError(
+            f"cannot read .gitmodules: {error}",
+            reason_code="repository_metadata_unavailable",
+        ) from error
     parser = configparser.ConfigParser(interpolation=None)
     try:
         parser.read_string(content)
@@ -194,28 +233,34 @@ def read_engine_repository_url(root: Path) -> str:
 
 
 def _is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
-    result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
-        cwd=root,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    result = _invoke_git(root, ["merge-base", "--is-ancestor", ancestor, descendant])
     if result.returncode == 0:
         return True
     if result.returncode == 1:
         return False
     detail = result.stderr.strip() or result.stdout.strip() or "unknown git error"
-    raise VerificationError(f"cannot prove frozen War College ancestry: {detail}")
+    raise VerificationError(
+        f"cannot prove frozen War College ancestry: {detail}",
+        reason_code="git_probe_failed",
+    )
 
 
 def collect_probe(
     root: Path, *, phase_hook: Callable[[str], None] | None = None
 ) -> Probe:
     repository_root = Path(_run_git(root, ["rev-parse", "--show-toplevel"]).stdout.strip())
-    if repository_root.resolve() != root.resolve():
-        raise VerificationError("--repo-root is not the War College repository root")
+    try:
+        root_matches = repository_root.resolve() == root.resolve()
+    except OSError as error:
+        raise VerificationError(
+            f"cannot resolve repository root: {error}",
+            reason_code="repo_root_unavailable",
+        ) from error
+    if not root_matches:
+        raise VerificationError(
+            "--repo-root is not the War College repository root",
+            reason_code="repo_root_unavailable",
+        )
 
     parent_initial = repository_snapshot(
         root, war_college_ignored_runtime_path, ignore_submodules=True
@@ -313,11 +358,11 @@ def evaluate_probe(probe: Probe, *, source_only: bool = False) -> dict[str, obje
         "engine_gitlink_is_frozen",
         "engine_repository_url_is_exact",
         "war_college_tracked_checkout_clean",
+        "war_college_snapshot_stable",
     )
     checkout_keys = source_keys + (
         "war_college_exact_checkout_clean",
         "war_college_ignored_runtime_inputs_absent",
-        "war_college_snapshot_stable",
         "engine_checkout_present",
         "engine_checkout_matches_gitlink",
         "engine_checkout_is_frozen",
@@ -413,7 +458,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 else None
             ),
             "exact_checkout_evidence": False,
-            "holds": [str(error)],
+            "probe_failure": {
+                "reason_code": error.reason_code,
+                "detail": str(error),
+            },
+            "holds": [error.reason_code],
         }
     print(canonical_json(report))
     if report.get("source_contract") != "GREEN":
