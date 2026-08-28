@@ -1,0 +1,79 @@
+name: general-brain-g1-challenger-source-contract
+
+on:
+  pull_request:
+    paths:
+      - openra_env/learning/general_brain_runtime.py
+      - openra_env/analysis/general_brain_g1_runtime_evidence.py
+      - openra_env/analysis/general_brain_challenger_pair.py
+      - openra_env/analysis/general_brain_challenger_campaign.py
+      - tools/conditional_engagement_v2_2_g1_duel_wrapper.py
+      - tests/test_general_brain_challenger_eval.py
+      - .github/workflows/general-brain-g1-challenger-source-contract.yml
+  push:
+    branches:
+      - main
+      - ren/general-brain-g1-challenger-eval-v1
+    paths:
+      - openra_env/learning/general_brain_runtime.py
+      - openra_env/analysis/general_brain_g1_runtime_evidence.py
+      - openra_env/analysis/general_brain_challenger_pair.py
+      - openra_env/analysis/general_brain_challenger_campaign.py
+      - tools/conditional_engagement_v2_2_g1_duel_wrapper.py
+      - tests/test_general_brain_challenger_eval.py
+      - .github/workflows/general-brain-g1-challenger-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Python ${{ matrix.python-version }} General Brain G1 challenger
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install focused dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile challenger source
+        run: |
+          python -m py_compile \
+            openra_env/learning/general_brain_runtime.py \
+            openra_env/analysis/general_brain_g1_runtime_evidence.py \
+            openra_env/analysis/general_brain_challenger_pair.py \
+            openra_env/analysis/general_brain_challenger_campaign.py \
+            tools/conditional_engagement_v2_2_g1_duel_wrapper.py \
+            tests/test_general_brain_challenger_eval.py
+      - name: Run General Brain source walls
+        run: |
+          python -m pytest -q \
+            tests/test_general_brain_generation.py \
+            tests/test_general_brain_training.py \
+            tests/test_general_brain_challenger_eval.py
+      - name: Prove challenger cannot widen authority
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from openra_env.learning.general_brain_generation import NONTRAINABLE_AUTHORITY_ENVELOPE
+          from openra_env.learning.general_brain_runtime import BRAIN_RUN_SCHEMA
+          from openra_env.analysis.general_brain_challenger_campaign import REQUIRED_PAIR_COUNT
+
+          assert BRAIN_RUN_SCHEMA == 'void.general-brain-runtime-binding.v1'
+          assert REQUIRED_PAIR_COUNT == 15
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['authority_policy_trainable'] is False
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['role_hierarchy_trainable'] is False
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['sovereign_directives_trainable'] is False
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['tool_authorization_trainable'] is False
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['promotion_authority_trainable'] is False
+          print('GENERAL_BRAIN_G1_CHALLENGER_AUTHORITY_WALL_GREEN')
+          PY
