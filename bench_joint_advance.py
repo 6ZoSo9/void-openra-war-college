@@ -33,6 +33,8 @@ MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
 SCHEMA_VERSION = 1
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
 PUBLICATION_RECEIPT_SCHEMA_VERSION = 1
+LOCAL_EVIDENCE_MARKER = "VOID_WAR_COLLEGE_UNTRUSTED_LOCAL_EVIDENCE_V1"
+LOCAL_EVIDENCE_SCHEMA_VERSION = 1
 OPERATION_SCHEMA = "void.war-college.joint-advance-operation.v1"
 FROZEN_ENGINE_SHA = "1607a7a6501d42a47638393ecef8b22831064932"
 FROZEN_WAR_COLLEGE_SHA = "973802ef0a614e5afa782ff20e231e18966ae3e5"
@@ -1284,32 +1286,49 @@ def _validate_commit_receipt(
     return receipt
 
 
-def load_committed_evidence(
+def load_locally_committed_evidence(
     path: Path,
     expected_operation: dict[str, Any] | None = None,
-    *,
-    trusted_producer_validator: Any | None = None,
 ) -> dict[str, Any]:
-    """Load countable evidence only after its separate durable commit point.
+    """Load durable local bytes without granting producer or countability authority.
 
     A schema-valid pending or final report and its locally self-issued commit
     receipt prove publication durability, not designated-host producer identity.
-    Consumers must additionally supply a separately trusted validator. The
-    callback receives the closed report and receipt and must return exact True.
+    The explicit wrapper prevents a local receipt from being confused with a
+    producer-authenticated acceptance record.
     """
     path = Path(os.path.abspath(os.fspath(path)))
     evidence_payload = _read_regular_read_only(path)
     report = _validate_recoverable_evidence(evidence_payload, expected_operation)
     receipt_payload = _read_regular_read_only(_commit_receipt_path(path))
     receipt = _validate_commit_receipt(receipt_payload, path, evidence_payload)
-    if not callable(trusted_producer_validator):
-        raise ContractError(
-            "committed evidence is not countable without separately trusted "
-            "producer authentication"
-        )
-    if trusted_producer_validator(report, receipt) is not True:
-        raise ContractError("trusted producer authentication rejected committed evidence")
-    return report
+    return {
+        "marker": LOCAL_EVIDENCE_MARKER,
+        "schema_version": LOCAL_EVIDENCE_SCHEMA_VERSION,
+        "countable": False,
+        "producer_authentication": "ABSENT",
+        "report": report,
+        "commit_receipt": receipt,
+    }
+
+
+def load_committed_evidence(
+    path: Path,
+    expected_operation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Fail closed: this source generation has no countable-evidence trust root.
+
+    A future consumer may authenticate a producer-issued attestation only when
+    its verifier and immutable trust root are owned outside the evidence
+    claimant and reviewed as a separate authority boundary.  This benchmark
+    intentionally accepts no callbacks, verifier objects, paths, environment
+    variables, or caller-supplied keys as substitutes for that boundary.
+    """
+    load_locally_committed_evidence(path, expected_operation)
+    raise ContractError(
+        "committed evidence is not countable: trusted producer attestation "
+        "and an externally bound immutable trust root are not implemented"
+    )
 
 
 def _retire_pending(
