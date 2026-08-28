@@ -15,22 +15,6 @@ on:
       - tests/test_spar_v22_matrix.py
       - tests/test_spar_v22_campaign.py
       - .github/workflows/conditional-engagement-v2-2-post-conversion-gate-source-contract.yml
-  push:
-    branches:
-      - ren/v2-2-post-conversion-pair-gate-v1
-    paths:
-      - openra_env/analysis/spar_training_utility.py
-      - openra_env/analysis/spar_v22_conversion_utility.py
-      - openra_env/analysis/spar_v22_pair_comparison.py
-      - openra_env/analysis/spar_v22_pair_binding.py
-      - openra_env/analysis/spar_v22_matrix.py
-      - openra_env/analysis/spar_v22_campaign.py
-      - tests/test_spar_training_utility_v22_conversion.py
-      - tests/test_spar_v22_conversion_utility.py
-      - tests/test_spar_v22_pair_comparison.py
-      - tests/test_spar_v22_matrix.py
-      - tests/test_spar_v22_campaign.py
-      - .github/workflows/conditional-engagement-v2-2-post-conversion-gate-source-contract.yml
 
 permissions:
   contents: read
