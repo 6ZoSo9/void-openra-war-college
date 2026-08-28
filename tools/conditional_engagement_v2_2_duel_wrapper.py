@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools import conditional_engagement_v2_duel_wrapper as parent
 
-V22_SOURCE_COMMIT = "16d7b9c7c4bb6cbe81e8bf4174e783402a4083f1"
+V22_SOURCE_COMMIT = "c7084294253793b101cc2826726a8cfa0b294c37"
 V22_CANDIDATE_SHA256 = "92f10e87f01a388882f621a09989783d561302cc46583a5344e8108c81d864ab"
 PARENT_V21_CANDIDATE_SHA256 = "a0b08f7a7ea807de53416f589790059e2540404f680d6b470395bdbdc067f460"
 V22_FIXTURE = Path("fixtures/training/conditional_engagement_candidate_v2_2.json")
