@@ -345,6 +345,17 @@ class RuntimeBoundaryTests(unittest.TestCase):
         finally:
             listener.close()
 
+    def test_final_cell_rss_observation_is_included_in_peak(self):
+        with mock.patch(
+            "bench_joint_advance.rss_bytes", side_effect=[100, 100, 300],
+        ):
+            sampler = bench.RssSampler(123)
+            sampler.begin_cell()
+            self.assertEqual(
+                sampler.end_cell(),
+                {"before": 100, "peak": 300, "after": 300},
+            )
+
     def test_remaining_matrix_cells_are_explicitly_terminal(self):
         ledger = bench.CellLedger()
         ledger.finalize("c1-t1", "timeout", {})
@@ -547,6 +558,20 @@ class EvidencePublicationTests(unittest.TestCase):
                 bench.ContractError, "create latency population is inconsistent",
             ):
                 bench._validate_cell_evidence(candidate, parameters)
+
+    def test_rss_peak_covers_observed_cell_endpoints(self):
+        report = json.loads(self.payload())
+        cell = report["cells"][0]
+        for rss in (
+            {"before": 2049, "peak": 2048, "after": 1536},
+            {"before": 1024, "peak": 2048, "after": 2049},
+        ):
+            candidate = json.loads(json.dumps(cell))
+            candidate["process_rss_bytes"] = rss
+            with self.subTest(rss=rss), self.assertRaisesRegex(
+                bench.ContractError, "RSS peak does not cover observed endpoints",
+            ):
+                bench._validate_cell_evidence(candidate, report["parameters"])
 
     def test_post_cell_daemon_identity_loss_is_publishable_and_requires_retirement(self):
         report = json.loads(self.payload())
