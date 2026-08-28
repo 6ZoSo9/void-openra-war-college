@@ -10,14 +10,20 @@ verification failure may be reported but may never rewrite the committed report
 inode or downgrade its terminal.
 """
 
+import sys as _BootstrapSys
 from pathlib import Path as _BootstrapPath
 
 _BOOTSTRAP_NAME = __name__
 _BOOTSTRAP_FILE = __file__
 _CORE_PATH = _BootstrapPath(__file__).resolve().with_name("bench_joint_advance_core.py")
 _CORE_BYTES = _CORE_PATH.read_bytes()
+_CORE_EXEC_MODULE = "bench_joint_advance"
 
-globals()["__name__"] = "bench_joint_advance_core_embedded"
+# dataclasses consult sys.modules[class.__module__] while the preserved source is
+# executing.  Register the public module identity before exec; this also keeps
+# the core's own __main__ guard dormant when this facade is invoked as a script.
+_BootstrapSys.modules[_CORE_EXEC_MODULE] = _BootstrapSys.modules[_BOOTSTRAP_NAME]
+globals()["__name__"] = _CORE_EXEC_MODULE
 globals()["__file__"] = str(_CORE_PATH)
 exec(compile(_CORE_BYTES, str(_CORE_PATH), "exec"), globals())
 globals()["__name__"] = _BOOTSTRAP_NAME
