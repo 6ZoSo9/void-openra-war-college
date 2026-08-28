@@ -971,6 +971,11 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
     for value in rss.values():
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
             raise ContractError("matrix-cell RSS scalar is invalid")
+    for endpoint in ("before", "after"):
+        if rss[endpoint] is not None and (
+            rss["peak"] is None or rss[endpoint] > rss["peak"]
+        ):
+            raise ContractError("matrix-cell RSS peak does not cover observed endpoints")
     _require_string_list(cell["teardown_failures"], "matrix-cell teardown failures")
     _require_string_list(cell["teardown_attempted_session_ids"], "matrix-cell attempted")
     _require_string_list(cell["teardown_destroyed_session_ids"], "matrix-cell destroyed")
@@ -1693,6 +1698,8 @@ class RssSampler:
 
     def end_cell(self) -> dict[str, int | None]:
         after = rss_bytes(self.pid)
+        if after is not None and (self.cell_peak is None or after > self.cell_peak):
+            self.cell_peak = after
         result = {"before": self.cell_before, "peak": self.cell_peak, "after": after}
         self.cell_before = None
         self.cell_peak = None
