@@ -45,6 +45,24 @@ class InputContractTests(unittest.TestCase):
         with self.assertRaises(bench.ContractError):
             bench.build_matrix(tuple(range(1, 10)), tuple(range(1, 10)))
 
+    def test_seed_slot_range_stays_within_runtime_integer_domain(self):
+        base = [
+            "plan",
+            "--engine-sha", bench.FROZEN_ENGINE_SHA,
+            "--war-college-sha", bench.FROZEN_WAR_COLLEGE_SHA,
+            "--benchmark-source-sha", BENCHMARK_SOURCE_SHA,
+        ]
+        accepted = bench.parser().parse_args(
+            base + ["--seed", "2147483647", "--concurrency", "1"],
+        )
+        self.assertEqual(bench.normalized_args(accepted)["seed"], 2_147_483_647)
+
+        rejected = bench.parser().parse_args(
+            base + ["--seed", "2147483647", "--concurrency", "1,8"],
+        )
+        with self.assertRaisesRegex(bench.ContractError, "runtime integer domain"):
+            bench.normalized_args(rejected)
+
 
 class StatisticsTests(unittest.TestCase):
     def test_nearest_rank(self):
@@ -563,6 +581,10 @@ class EvidencePublicationTests(unittest.TestCase):
         candidate = json.loads(payload)
         candidate["cells"][0]["same_seed_deterministic"] = False
         variants["success-not-deterministic"] = candidate
+
+        candidate = json.loads(payload)
+        candidate["cells"][0]["repetitions"][0]["seed_by_slot"]["0"] = 2051
+        variants["seed-not-bound-to-operation"] = candidate
 
         candidate = json.loads(payload)
         candidate["run"]["containment"]["daemon_retired"] = False
