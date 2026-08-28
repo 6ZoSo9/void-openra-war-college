@@ -81,7 +81,35 @@ def test_force_conversion_coaching_names_offered_move_units_and_preserves_surfac
     assert "TOOL_SURFACE_UNCHANGED=true" in coaching
     assert "Do not choose attack_move this round" in coaching
     assert "PREFERRED_OFFERED_ALTERNATIVE=move_units" in coaching
+    assert 'PREFERRED_MOVE_UNITS_SELECTOR=unit_ids="all_combat"' in coaching
+    assert 'SELECTOR_INTEGRITY_RULE=When choosing move_units for FORCE_CONVERSION, use unit_ids="all_combat" exactly' in coaching
     assert "CURRENT_ALLOWED_TOOL_NAMES=attack_move,move_units,build_unit" in coaching
+
+
+def test_force_conversion_selector_hint_only_exists_when_move_units_is_offered():
+    value = candidate()
+    decision = select_mode(
+        value,
+        snapshot_from_state(state(), round_no=3),
+        [history_row(1, tool="attack_move"), history_row(2, tool="attack_move")],
+    )
+    coaching = format_coaching_v22(decision, ["attack_move", "build_unit"])
+    assert "PREFERRED_OFFERED_ALTERNATIVE=move_units" not in coaching
+    assert "PREFERRED_MOVE_UNITS_SELECTOR" not in coaching
+    assert "SELECTOR_INTEGRITY_RULE" not in coaching
+
+
+def test_non_force_conversion_never_injects_selector_hint():
+    value = candidate()
+    decision = select_mode(
+        value,
+        snapshot_from_state(state(visible=1), round_no=3),
+        [history_row(1, tool="attack_move"), history_row(2, tool="attack_move")],
+    )
+    assert decision["mode"] != "FORCE_CONVERSION"
+    coaching = format_coaching_v22(decision, ["attack_move", "move_units"])
+    assert "PREFERRED_MOVE_UNITS_SELECTOR" not in coaching
+    assert "SELECTOR_INTEGRITY_RULE" not in coaching
 
 
 def test_session_marks_action_compliance_without_filtering_any_tool():
