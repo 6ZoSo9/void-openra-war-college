@@ -486,13 +486,17 @@ class EvidencePublicationTests(unittest.TestCase):
             self.assertTrue(receipt.exists())
             self.assertEqual(receipt.stat().st_mode & 0o777, 0o400)
             self.assertEqual(result["commit_receipt"]["path"], str(receipt))
+            local = bench.load_locally_committed_evidence(
+                output, self.operation(payload),
+            )
+            self.assertEqual(local["marker"], bench.LOCAL_EVIDENCE_MARKER)
+            self.assertEqual(local["schema_version"], 1)
+            self.assertIs(local["countable"], False)
+            self.assertEqual(local["producer_authentication"], "ABSENT")
+            self.assertEqual(local["report"], json.loads(payload))
             self.assertEqual(
-                bench.load_committed_evidence(
-                    output,
-                    self.operation(payload),
-                    trusted_producer_validator=lambda _report, _receipt: True,
-                ),
-                json.loads(payload),
+                local["commit_receipt"]["evidence_sha256"],
+                hashlib.sha256(payload).hexdigest(),
             )
             with self.assertRaises(FileExistsError):
                 bench.publish_evidence_create_only(output, b"replacement")
@@ -504,15 +508,40 @@ class EvidencePublicationTests(unittest.TestCase):
             payload = self.payload()
             bench.publish_evidence_create_only(output, payload)
             with self.assertRaisesRegex(
-                bench.ContractError, "separately trusted producer authentication",
+                bench.ContractError, "externally bound immutable trust root",
             ):
                 bench.load_committed_evidence(output, self.operation(payload))
-            with self.assertRaisesRegex(bench.ContractError, "rejected"):
+            with self.assertRaisesRegex(TypeError, "trusted_producer_validator"):
                 bench.load_committed_evidence(
                     output,
                     self.operation(payload),
                     trusted_producer_validator=lambda _report, _receipt: False,
                 )
+
+    def test_claimant_callback_cannot_promote_publicly_constructible_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = self.payload()
+            bench.publish_evidence_create_only(output, payload)
+
+            local = bench.load_locally_committed_evidence(
+                output, self.operation(payload),
+            )
+            self.assertEqual(local["report"]["runtime_evidence"], "EXECUTED")
+            self.assertEqual(local["report"]["run"]["terminal"], "completed")
+            self.assertIs(local["countable"], False)
+
+            claimant_validator = lambda _report, _receipt: True
+            with self.assertRaisesRegex(TypeError, "trusted_producer_validator"):
+                bench.load_committed_evidence(
+                    output,
+                    self.operation(payload),
+                    trusted_producer_validator=claimant_validator,
+                )
+            with self.assertRaisesRegex(
+                bench.ContractError, "not countable",
+            ):
+                bench.load_committed_evidence(output, self.operation(payload))
 
     def test_first_publication_rejects_skeletal_and_cross_field_evidence(self):
         payload = self.payload()
