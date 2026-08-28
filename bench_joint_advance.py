@@ -1905,7 +1905,15 @@ async def run_repetition(
             for slot, elapsed_ms, envelope in advanced:
                 advance_latencies.append(elapsed_ms)
                 final_by_slot[slot] = envelope["response"]
-                validation_by_slot.setdefault(slot, []).append(envelope["validation"])
+                interval_chain = validation_by_slot.setdefault(slot, [])
+                if (
+                    interval_chain
+                    and envelope["validation"]["start_tick"] != interval_chain[-1]["end_tick"]
+                ):
+                    raise ContractError(
+                        "JointAdvance responses do not prove continuous tick advancement"
+                    )
+                interval_chain.append(envelope["validation"])
 
         for slot, response in sorted(final_by_slot.items()):
             hashes[str(slot)] = canonical_state_hash(response)
