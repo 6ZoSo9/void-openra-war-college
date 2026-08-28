@@ -368,22 +368,104 @@ class EvidencePublicationTests(unittest.TestCase):
                 BENCHMARK_SOURCE_SHA,
                 bench.GENERATION,
             )
-        parameters = {"concurrency": [1], "tick_batches": [1]}
+        parameters = {
+            "concurrency": [1], "tick_batches": [1], "samples": 1,
+            "repetitions": 2, "seed": 2050, "rpc_timeout_s": 60,
+            "cell_timeout_s": 900, "teardown_timeout_s": 10,
+            "ready_timeout_s": 30, "port": 9999,
+            "map_name": bench.MAP_NAME, "bots": bench.BOTS,
+        }
         operation = bench.operation_descriptor(
             provenance,
             parameters,
             designated_hostname="fixture",
             openra_dir=Path("/tmp/frozen-openra"),
         )
+        digest = "b" * 64
+
+        def repetition(index):
+            session_id = f"session-{index}"
+            latency = {"count": 1, "min_ms": 1.0, "p50_ms": 1.0,
+                       "p95_ms": 1.0, "max_ms": 1.0}
+            return {
+                "repetition": index,
+                "seed_by_slot": {"0": 2050},
+                "session_id_by_slot": {"0": session_id},
+                "create_latency": latency,
+                "joint_advance_latency": latency,
+                "joint_advance_calls": 1,
+                "ticks_advanced_validated": 1,
+                "validated_ticks_per_second": 1.0,
+                "canonical_hash_by_slot": {"0": digest},
+                "joint_advance_validation_by_slot": {
+                    "0": {"start_tick": 10, "end_tick": 11,
+                          "players": ["Multi0", "Multi1"]},
+                },
+                "teardown": {
+                    "failures": [], "latency": latency,
+                    "latency_samples_ms": [1.0],
+                    "attempted_session_ids": [session_id],
+                    "destroyed_session_ids": [session_id],
+                    "unretired_session_ids": [],
+                    "teardown_total_deadline_s": 10,
+                    "cleanup_terminal": "complete",
+                    "create_commit_response_ambiguous": False,
+                    "cleanup_after_work_cancellation": False,
+                    "containment_required": False,
+                },
+                "wall_seconds": 1.0,
+            }
+
+        repetitions = [repetition(0), repetition(1)]
+        cell = {
+            "key": "c1-t1", "terminal": "success", "concurrency": 1,
+            "ticks_per_joint_advance": 1, "process_rss_bytes": {
+                "before": 1024, "peak": 2048, "after": 1536,
+            },
+            "repetitions": repetitions, "same_seed_deterministic": True,
+            "hashes_by_slot": {"0": [digest, digest]}, "cell_wall_seconds": 2.0,
+            "teardown_failures": [],
+            "teardown_latency": {"count": 2, "min_ms": 1.0, "p50_ms": 1.0,
+                                  "p95_ms": 1.0, "max_ms": 1.0},
+            "teardown_attempted_session_ids": ["session-0", "session-1"],
+            "teardown_destroyed_session_ids": ["session-0", "session-1"],
+            "teardown_unretired_session_ids": [],
+            "create_commit_response_ambiguous": False,
+            "cleanup_after_work_cancellation": False,
+            "containment_required": False,
+            "cleanup_terminals": ["complete", "complete"],
+        }
         report = bench.build_report(
             provenance=provenance,
             parameters=parameters,
-            cells=[{"key": "c1-t1", "terminal": "success"}],
+            cells=[cell],
             executed_designated_host=True,
             generated_at_utc="2026-08-27T00:00:00Z",
             command=["unit-test"],
-            run={"terminal": "completed"},
-            host={"hostname": "fixture"},
+            run={
+                "terminal": "completed", "stage": "matrix_complete",
+                "error_type": None, "error": None,
+                "listener_identity": {"pid": 123, "port": 9999,
+                                      "socket_inode": "456", "proc_table": "tcp"},
+                "runtime_provenance": {
+                    "benchmark_source_git_head": BENCHMARK_SOURCE_SHA,
+                    "benchmark_source_sha256": "c" * 64,
+                    "frozen_war_college_comparison_sha": bench.FROZEN_WAR_COLLEGE_SHA,
+                    "engine_git_head": bench.FROZEN_ENGINE_SHA,
+                    "openra_binary_sha256": "d" * 64,
+                    "dotnet_version": "10.0.0",
+                    "dotnet_version_sha256": "e" * 64,
+                },
+                "daemon_log": {"total_bytes": 0, "sha256": hashlib.sha256(b"").hexdigest(),
+                               "tail_utf8": "", "tail_bytes": 0, "drain_error": None,
+                               "drain_thread_retired": True},
+                "cleanup": {"failures": []},
+                "containment": {"required_by_cell": False, "boundary": "not_required",
+                                "daemon_retired": True},
+                "daemon_returncode": 0,
+            },
+            host={"hostname": "fixture", "designated_hostname": "fixture",
+                  "platform": "fixture-platform", "python": "3.10.0", "cpu_count": 2},
             operation=operation,
         )
         return bench.stable_json(report).encode("utf-8")
@@ -405,12 +487,67 @@ class EvidencePublicationTests(unittest.TestCase):
             self.assertEqual(receipt.stat().st_mode & 0o777, 0o400)
             self.assertEqual(result["commit_receipt"]["path"], str(receipt))
             self.assertEqual(
-                bench.load_committed_evidence(output, self.operation(payload)),
+                bench.load_committed_evidence(
+                    output,
+                    self.operation(payload),
+                    trusted_producer_validator=lambda _report, _receipt: True,
+                ),
                 json.loads(payload),
             )
             with self.assertRaises(FileExistsError):
                 bench.publish_evidence_create_only(output, b"replacement")
             self.assertEqual(output.read_bytes(), payload)
+
+    def test_locally_self_issued_receipt_is_not_producer_authentication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = self.payload()
+            bench.publish_evidence_create_only(output, payload)
+            with self.assertRaisesRegex(
+                bench.ContractError, "separately trusted producer authentication",
+            ):
+                bench.load_committed_evidence(output, self.operation(payload))
+            with self.assertRaisesRegex(bench.ContractError, "rejected"):
+                bench.load_committed_evidence(
+                    output,
+                    self.operation(payload),
+                    trusted_producer_validator=lambda _report, _receipt: False,
+                )
+
+    def test_first_publication_rejects_skeletal_and_cross_field_evidence(self):
+        payload = self.payload()
+        report = json.loads(payload)
+        variants = {}
+
+        candidate = json.loads(payload)
+        candidate["host"] = {"hostname": "fixture"}
+        variants["skeletal-host"] = candidate
+
+        candidate = json.loads(payload)
+        candidate["run"] = {"terminal": "completed"}
+        variants["skeletal-run"] = candidate
+
+        candidate = json.loads(payload)
+        candidate["cells"][0] = {"key": "c1-t1", "terminal": "success"}
+        variants["skeletal-cell"] = candidate
+
+        candidate = json.loads(payload)
+        candidate["cells"][0]["same_seed_deterministic"] = False
+        variants["success-not-deterministic"] = candidate
+
+        candidate = json.loads(payload)
+        candidate["run"]["containment"]["daemon_retired"] = False
+        variants["completed-daemon-not-retired"] = candidate
+
+        for label, candidate in variants.items():
+            with self.subTest(label=label):
+                candidate_payload = bench.stable_json(candidate).encode("utf-8")
+                with self.assertRaises(bench.ContractError):
+                    bench._validate_recoverable_evidence(candidate_payload)
+                with tempfile.TemporaryDirectory() as directory:
+                    output = Path(directory) / "evidence.json"
+                    with self.assertRaises(bench.ContractError):
+                        bench.publish_evidence_create_only(output, candidate_payload)
 
     def test_commit_receipt_is_required_and_content_binds_final_report(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1002,6 +1139,10 @@ class RetryRecoveryTests(unittest.TestCase):
                 "--war-college-sha", bench.FROZEN_WAR_COLLEGE_SHA,
                 "--benchmark-source-sha", BENCHMARK_SOURCE_SHA,
                 "--generation", bench.GENERATION,
+                "--concurrency", "1",
+                "--tick-batches", "1",
+                "--samples", "1",
+                "--repetitions", "2",
                 "--execute-designated-host",
                 "--openra-dir", directory,
                 "--output", str(output),
@@ -1022,33 +1163,8 @@ class RetryRecoveryTests(unittest.TestCase):
             designated_hostname=hostname,
             openra_dir=Path(directory),
         )
-        cells = sorted(
-            (
-                {
-                    "key": (
-                        f"c{cell['concurrency']}-"
-                        f"t{cell['ticks_per_joint_advance']}"
-                    ),
-                    "terminal": "success",
-                }
-                for cell in bench.build_matrix(
-                    parameters["concurrency"], parameters["tick_batches"],
-                )
-            ),
-            key=lambda cell: cell["key"],
-        )
-        report = bench.build_report(
-            provenance=provenance,
-            parameters=parameters,
-            cells=cells,
-            executed_designated_host=True,
-            generated_at_utc="2026-08-27T00:00:00Z",
-            command=argv,
-            run={"terminal": "completed"},
-            host={"hostname": hostname},
-            operation=operation,
-        )
-        return argv, bench.stable_json(report).encode("utf-8")
+        del provenance, parameters, operation
+        return argv, EvidencePublicationTests.payload()
 
     @staticmethod
     def completed_outcome(payload):
