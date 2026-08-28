@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
 PUBLICATION_RECEIPT_SCHEMA_VERSION = 1
 LOCAL_EVIDENCE_MARKER = "VOID_WAR_COLLEGE_UNTRUSTED_LOCAL_EVIDENCE_V1"
@@ -59,6 +59,17 @@ CANONICAL_POSITIVE_INT = re.compile(r"^[1-9][0-9]*$")
 
 class ContractError(ValueError):
     """Raised when benchmark input or evidence violates the source contract."""
+
+
+class IncompatibleEvidenceSchemaError(ContractError):
+    """Raised when preserved evidence uses a known but unsupported schema."""
+
+    def __init__(self, actual: int, expected: int) -> None:
+        self.actual = actual
+        self.expected = expected
+        super().__init__(
+            f"pending evidence schema {actual} is incompatible with current schema {expected}"
+        )
 
 
 def require_sha40(value: str, label: str) -> str:
@@ -1264,8 +1275,10 @@ def _validate_recoverable_evidence(
     }
     if set(report) != expected_fields:
         raise ContractError("pending evidence report fields are not exact")
+    if type(report["schema_version"]) is not int:
+        raise ContractError("pending evidence schema version is not an exact integer")
     if report["schema_version"] != SCHEMA_VERSION:
-        raise ContractError("pending evidence schema mismatch")
+        raise IncompatibleEvidenceSchemaError(report["schema_version"], SCHEMA_VERSION)
     if report["runtime_evidence"] != "EXECUTED":
         raise ContractError("pending evidence is not an executed runtime attempt")
 

@@ -96,6 +96,42 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertFalse(report["countable"])
             self.assertEqual(report["producer_authentication"], "ABSENT")
 
+    def test_prior_report_schema_is_preserved_as_incompatible_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = bench.stable_json({
+                "marker": bench.MARKER,
+                "schema_version": 1,
+                "runtime_evidence": "EXECUTED",
+                "generated_at_utc": "2026-08-28T00:00:00Z",
+                "provenance": {},
+                "command": ["prior-schema-fixture"],
+                "host": {},
+                "run": {},
+                "parameters": {},
+                "operation": {},
+                "cells": [],
+            }).encode("utf-8")
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+            before = {str(p): generation(p) for p in (output, receipt)}
+
+            report = INSPECT.inspect_namespace(output)
+
+            self.assertEqual(before, {str(p): generation(p) for p in (output, receipt)})
+            self.assertEqual(report["classification"], "INCOMPATIBLE_SCHEMA_HOLD")
+            self.assertFalse(report["final"]["report_schema_valid"])
+            self.assertFalse(report["final"]["report_schema_compatible"])
+            self.assertEqual(report["final"]["report_schema_version"], 1)
+            self.assertTrue(
+                report["final"]["validation_error"].startswith("INCOMPATIBLE_SCHEMA_HOLD:")
+            )
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_rewrite"])
+
     def test_committed_final_with_hard_link_pending_is_exact_alias(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"

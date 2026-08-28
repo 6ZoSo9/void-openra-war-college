@@ -98,6 +98,8 @@ def _artifact(
         "payload_sha256": None,
         "payload_bytes": None,
         "report_schema_valid": None,
+        "report_schema_compatible": None,
+        "report_schema_version": None,
         "report_terminal": None,
         "validation_error": None,
     }
@@ -123,11 +125,18 @@ def _artifact(
         else:
             try:
                 report = bench._validate_recoverable_evidence(payload)
+            except bench.IncompatibleEvidenceSchemaError as error:
+                row["report_schema_valid"] = False
+                row["report_schema_compatible"] = False
+                row["report_schema_version"] = error.actual
+                row["validation_error"] = f"INCOMPATIBLE_SCHEMA_HOLD:{error}"
             except (OSError, bench.ContractError) as error:
                 row["report_schema_valid"] = False
                 row["validation_error"] = f"{type(error).__name__}:{error}"
             else:
                 row["report_schema_valid"] = True
+                row["report_schema_compatible"] = True
+                row["report_schema_version"] = report["schema_version"]
                 row["report_terminal"] = report["run"]["terminal"]
     return row, payload, descriptor
 
@@ -211,6 +220,9 @@ def _classify(
     has_pending = bool(pending["present"])
     has_receipt = bool(receipt["present"])
 
+    primary_report = final if has_final else pending
+    if primary_report.get("report_schema_compatible") is False:
+        return "INCOMPATIBLE_SCHEMA_HOLD"
     if not has_final and not has_pending and not has_receipt:
         return "EMPTY"
     if has_receipt and not has_final:
