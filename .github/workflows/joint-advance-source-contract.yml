@@ -26,8 +26,9 @@ jobs:
       matrix:
         python-version: ['3.10', '3.11', '3.12']
     env:
+      EVENT_NAME: ${{ github.event_name }}
       SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      SOURCE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
       INTEGRATION_SHA: ${{ github.sha }}
       REVIEWED_ENGINE_SHA: 1607a7a6501d42a47638393ecef8b22831064932
       REVIEWED_WAR_COLLEGE_SHA: 973802ef0a614e5afa782ff20e231e18966ae3e5
@@ -53,6 +54,20 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$INTEGRATION_SHA"
           test "$(git -C exact-head rev-parse HEAD)" = "$SOURCE_HEAD_SHA"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            read -r integration_base_sha integration_source_sha extra_parent \
+              <<< "$(git show -s --format=%P HEAD)"
+            test -n "$integration_base_sha"
+            test -n "$integration_source_sha"
+            test -z "${extra_parent:-}"
+            test "$integration_source_sha" = "$SOURCE_HEAD_SHA"
+          else
+            integration_base_sha="$EVENT_BASE_SHA"
+          fi
+          export INTEGRATION_BASE_SHA="$integration_base_sha"
+          printf 'INTEGRATION_BASE_SHA=%s\n' "$INTEGRATION_BASE_SHA" >> "$GITHUB_ENV"
+
           python - <<'PY'
           import hashlib
           import json
@@ -65,8 +80,13 @@ jobs:
               ".github/workflows/joint-advance-source-contract.yml",
           )
           manifest = {
+              "event_base_sha": os.environ["EVENT_BASE_SHA"],
+              "integration_base_sha": os.environ["INTEGRATION_BASE_SHA"],
               "integration_sha": os.environ["INTEGRATION_SHA"],
               "source_head_sha": os.environ["SOURCE_HEAD_SHA"],
+              "event_base_matches_integration_base": (
+                  os.environ["EVENT_BASE_SHA"] == os.environ["INTEGRATION_BASE_SHA"]
+              ),
               "paths": {},
           }
           for rel in paths:
@@ -93,13 +113,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git -C exact-head cat-file -e "${SOURCE_BASE_SHA}^{commit}"
+          git -C exact-head cat-file -e "${INTEGRATION_BASE_SHA}^{commit}"
           git -C exact-head cat-file -e "${SOURCE_HEAD_SHA}^{commit}"
-          MERGE_BASE_SHA="$(git -C exact-head merge-base "$SOURCE_BASE_SHA" "$SOURCE_HEAD_SHA")"
+          MERGE_BASE_SHA="$(git -C exact-head merge-base "$INTEGRATION_BASE_SHA" "$SOURCE_HEAD_SHA")"
           test -n "$MERGE_BASE_SHA"
           git -C exact-head diff --check "${MERGE_BASE_SHA}...${SOURCE_HEAD_SHA}"
-          printf 'source_base_sha=%s\nsource_head_sha=%s\nmerge_base_sha=%s\nintegration_sha=%s\n' \
-            "$SOURCE_BASE_SHA" "$SOURCE_HEAD_SHA" "$MERGE_BASE_SHA" "$INTEGRATION_SHA"
+          printf 'event_base_sha=%s\nintegration_base_sha=%s\nsource_head_sha=%s\nmerge_base_sha=%s\nintegration_sha=%s\n' \
+            "$EVENT_BASE_SHA" "$INTEGRATION_BASE_SHA" "$SOURCE_HEAD_SHA" "$MERGE_BASE_SHA" "$INTEGRATION_SHA"
       - name: Verify pushed-head hygiene
         if: github.event_name == 'push'
         shell: bash
