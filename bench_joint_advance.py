@@ -812,76 +812,33 @@ def _retire_pending(staging: Path, parent: Path) -> tuple[bool, str | None]:
         return False, f"{type(error).__name__}:{error}"
 
 
-def recover_owned_evidence(
-    path: Path,
-    expected_operation: dict[str, Any],
-) -> bytes | None:
-    """Converge an exact owned pending/final publication without runtime contact."""
+def require_unused_evidence_namespace(path: Path) -> None:
+    """Fail closed on evidence from an earlier process or attempt.
+
+    A source-only report and its public operation digest cannot authenticate the
+    designated host that allegedly produced it.  Automatic recovery is therefore
+    forbidden until a separately trusted producer-issued binding exists.  Keep
+    any pending artifact intact for explicit reconciliation.
+    """
     path = Path(os.path.abspath(os.fspath(path)))
     if not path.parent.is_dir():
         raise FileNotFoundError(f"evidence output parent must pre-exist: {path.parent}")
     staging = _pending_path(path)
-    final_exists = os.path.lexists(path)
-    pending_exists = os.path.lexists(staging)
-    if not final_exists and not pending_exists:
-        return None
-    if final_exists and not pending_exists:
+    if os.path.lexists(path):
         raise FileExistsError(f"evidence output already exists: {path}")
-
-    # A prior attempt may have failed while fencing the pending directory entry.
-    # Re-establish that fence before trusting the surviving name as recovery
-    # authority or using it as the source of a final hard link.
-    _fsync_directory(path.parent)
-    pending_descriptor, pending_payload, pending_metadata = _open_regular_read_only(staging)
-    try:
-        # Invocation identity is checked on bytes consumed from the retained
-        # descriptor before that exact inode can become final authority.
-        _validate_recoverable_evidence(pending_payload, expected_operation)
-        _assert_path_generation(staging, pending_descriptor, "pending")
-        if final_exists:
-            final_descriptor, final_payload, final_metadata = _open_regular_read_only(path)
-            try:
-                if not os.path.samestat(final_metadata, pending_metadata):
-                    raise ContractError("final evidence is not the owned pending inode")
-                if final_payload != pending_payload:
-                    raise ContractError("owned final and pending evidence bytes differ")
-            finally:
-                os.close(final_descriptor)
-        else:
-            _link_open_inode_create_only(pending_descriptor, path)
-
-        os.fsync(pending_descriptor)
-        _fsync_directory(path.parent)
-        try:
-            _assert_path_generation(staging, pending_descriptor, "pending")
-        except ContractError:
-            # Never unlink a foreign generation that replaced the owned alias.
-            return pending_payload
-        _retire_pending(staging, path.parent)
-        return pending_payload
-    finally:
-        os.close(pending_descriptor)
+    if os.path.lexists(staging):
+        raise ContractError(
+            "pending evidence requires explicit reconciliation; automatic recovery "
+            "is disabled because producer provenance is not authenticated"
+        )
 
 
 def publish_evidence_create_only(path: Path, payload: bytes) -> dict[str, Any]:
     path = Path(os.path.abspath(os.fspath(path)))
     if len(payload) > MAX_EVIDENCE_BYTES:
         raise ContractError(f"evidence payload exceeds {MAX_EVIDENCE_BYTES} bytes")
-    if not path.parent.is_dir():
-        raise FileNotFoundError(f"evidence output parent must pre-exist: {path.parent}")
-    if os.path.lexists(path) and not os.path.lexists(_pending_path(path)):
-        raise FileExistsError(f"evidence output already exists: {path}")
-    requested_report = _validate_recoverable_evidence(payload)
-    requested_operation = requested_report["operation"]
-    recovered = recover_owned_evidence(path, requested_operation)
-    if recovered is not None:
-        return {
-            "path": str(path),
-            "sha256": hashlib.sha256(recovered).hexdigest(),
-            "bytes": len(recovered),
-            "recovered": True,
-            "payload_matches_request": recovered == payload,
-        }
+    require_unused_evidence_namespace(path)
+    _validate_recoverable_evidence(payload)
 
     staging = _pending_path(path)
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -1660,12 +1617,9 @@ def main(argv: list[str] | None = None) -> int:
                 designated_hostname=args.designated_hostname,
                 openra_dir=Path(args.openra_dir),
             )
-            recovered_payload = recover_owned_evidence(Path(args.output), operation)
-            if recovered_payload is not None:
-                report = _validate_recoverable_evidence(recovered_payload, operation)
-                print(human_summary(report), file=sys.stderr)
-                print(json.dumps(report, indent=2, sort_keys=True))
-                return terminal_exit_code(report)
+            # A pre-positioned report is not designated-host authority.  Refuse
+            # it before runtime contact and preserve it for explicit review.
+            require_unused_evidence_namespace(Path(args.output))
             outcome = asyncio.run(execute_runtime(args, parameters, provenance))
             report = build_report(
                 provenance=provenance,

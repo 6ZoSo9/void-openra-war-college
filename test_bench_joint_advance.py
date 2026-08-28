@@ -401,7 +401,7 @@ class EvidencePublicationTests(unittest.TestCase):
                 bench.publish_evidence_create_only(output, b"replacement")
             self.assertEqual(output.read_bytes(), payload)
 
-    def test_interrupted_publication_leaves_recognizable_pending_file(self):
+    def test_interrupted_publication_requires_explicit_reconciliation(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
             payload = self.payload()
@@ -415,12 +415,12 @@ class EvidencePublicationTests(unittest.TestCase):
             pending = list(Path(directory).glob(".evidence.json.pending"))
             self.assertEqual(len(pending), 1)
             self.assertEqual(pending[0].read_bytes(), payload)
-            recovered = bench.recover_owned_evidence(output, self.operation(payload))
-            self.assertEqual(recovered, payload)
-            self.assertEqual(output.read_bytes(), payload)
-            self.assertFalse(pending[0].exists())
+            with self.assertRaisesRegex(bench.ContractError, "automatic recovery"):
+                bench.require_unused_evidence_namespace(output)
+            self.assertFalse(output.exists())
+            self.assertEqual(pending[0].read_bytes(), payload)
 
-    def test_recovery_requires_closed_canonical_report_schema(self):
+    def test_preexisting_pending_is_never_automatic_authority(self):
         payload = self.payload()
         report = json.loads(payload)
         variants = {}
@@ -445,12 +445,12 @@ class EvidencePublicationTests(unittest.TestCase):
                 pending = Path(directory) / ".evidence.json.pending"
                 pending.write_bytes(candidate_payload)
                 pending.chmod(0o400)
-                with self.assertRaises(bench.ContractError):
-                    bench.recover_owned_evidence(output, self.operation(payload))
+                with self.assertRaisesRegex(bench.ContractError, "automatic recovery"):
+                    bench.require_unused_evidence_namespace(output)
                 self.assertFalse(output.exists())
                 self.assertEqual(pending.read_bytes(), candidate_payload)
 
-    def test_post_link_directory_fsync_failure_is_recoverable(self):
+    def test_post_link_directory_fsync_failure_requires_reconciliation(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
             payload = self.payload()
@@ -469,10 +469,10 @@ class EvidencePublicationTests(unittest.TestCase):
                     bench.publish_evidence_create_only(output, payload)
                 self.assertTrue(output.exists())
                 self.assertTrue((Path(directory) / ".evidence.json.pending").exists())
-                self.assertEqual(
-                    bench.recover_owned_evidence(output, self.operation(payload)), payload
-                )
-            self.assertFalse((Path(directory) / ".evidence.json.pending").exists())
+                with self.assertRaises(FileExistsError):
+                    bench.require_unused_evidence_namespace(output)
+            self.assertTrue((Path(directory) / ".evidence.json.pending").exists())
+            self.assertEqual(output.read_bytes(), payload)
 
     def test_pending_name_is_fenced_before_final_link(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -542,61 +542,39 @@ class EvidencePublicationTests(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertEqual(pending.read_bytes(), foreign)
 
-    def test_recovery_replacement_after_validation_cannot_be_adopted_or_deleted(self):
+    def test_preexisting_valid_pending_is_preserved_without_validation_or_adoption(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
             pending = Path(directory) / ".evidence.json.pending"
             payload = self.payload()
-            foreign = b"foreign-generation"
             pending.write_bytes(payload)
             pending.chmod(0o400)
-            real_validate = bench._validate_recoverable_evidence
-
-            def validate_then_replace(candidate, expected_operation=None):
-                result = real_validate(candidate, expected_operation)
-                pending.unlink()
-                pending.write_bytes(foreign)
-                pending.chmod(0o400)
-                return result
-
             with mock.patch(
                 "bench_joint_advance._validate_recoverable_evidence",
-                side_effect=validate_then_replace,
-            ):
-                with self.assertRaisesRegex(bench.ContractError, "changed generation"):
-                    bench.recover_owned_evidence(output, self.operation(payload))
+            ) as validate:
+                with self.assertRaisesRegex(bench.ContractError, "automatic recovery"):
+                    bench.require_unused_evidence_namespace(output)
+            validate.assert_not_called()
             self.assertFalse(output.exists())
-            self.assertEqual(pending.read_bytes(), foreign)
+            self.assertEqual(pending.read_bytes(), payload)
 
-    def test_retry_refences_surviving_pending_name_before_recovery(self):
+    def test_retry_does_not_open_or_refence_pending_candidate(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
             payload = self.payload()
             pending = Path(directory) / ".evidence.json.pending"
             pending.write_bytes(payload)
             pending.chmod(0o400)
-            order = []
-            real_fsync_directory = bench._fsync_directory
-            real_open = bench._open_regular_read_only
-
-            def record_directory_fsync(path):
-                order.append("directory_fsync")
-                return real_fsync_directory(path)
-
-            def record_open(path):
-                order.append("open")
-                return real_open(path)
-
             with mock.patch(
-                "bench_joint_advance._fsync_directory", side_effect=record_directory_fsync,
-            ), mock.patch(
-                "bench_joint_advance._open_regular_read_only", side_effect=record_open,
-            ):
-                recovered = bench.recover_owned_evidence(
-                    output, self.operation(payload),
-                )
-            self.assertEqual(recovered, payload)
-            self.assertEqual(order[:2], ["directory_fsync", "open"])
+                "bench_joint_advance._fsync_directory",
+            ) as directory_fsync, mock.patch(
+                "bench_joint_advance._open_regular_read_only",
+            ) as open_pending:
+                with self.assertRaisesRegex(bench.ContractError, "automatic recovery"):
+                    bench.require_unused_evidence_namespace(output)
+            directory_fsync.assert_not_called()
+            open_pending.assert_not_called()
+            self.assertEqual(pending.read_bytes(), payload)
 
     def test_committed_final_is_not_downgraded_by_pending_cleanup_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -899,7 +877,7 @@ class RetryRecoveryTests(unittest.TestCase):
         )
         return argv, bench.stable_json(report).encode("utf-8")
 
-    def test_pending_retry_recovers_before_runtime_contact(self):
+    def test_pending_retry_fails_closed_before_runtime_contact(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
             pending = Path(directory) / ".evidence.json.pending"
@@ -911,11 +889,14 @@ class RetryRecoveryTests(unittest.TestCase):
             with mock.patch("bench_joint_advance.execute_runtime") as execute_runtime, mock.patch(
                 "sys.stdout", stdout,
             ), mock.patch("sys.stderr", stderr):
-                self.assertEqual(bench.main(argv), 0)
+                self.assertEqual(bench.main(argv), 2)
             execute_runtime.assert_not_called()
-            self.assertEqual(json.loads(stdout.getvalue())["run"]["terminal"], "completed")
-            self.assertFalse(pending.exists())
-            self.assertTrue(output.exists())
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("automatic recovery is disabled", stderr.getvalue())
+            self.assertTrue(pending.exists())
+            self.assertEqual(pending.read_bytes(), payload)
+            self.assertEqual(pending.stat().st_mode & 0o777, 0o400)
+            self.assertFalse(output.exists())
 
     def test_changed_invocation_cannot_publish_pending_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
