@@ -936,15 +936,17 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
         _require_exact_fields(
             cell,
             {"key", "terminal", "concurrency", "ticks_per_joint_advance", "blocked_by",
-             "reason", "process_rss_bytes"}, "not-executed matrix cell",
+             "reason", "process_rss_bytes", "process_cpu_seconds"},
+            "not-executed matrix cell",
         )
         if not isinstance(cell["blocked_by"], str) or not isinstance(cell["reason"], str):
             raise ContractError("not-executed matrix-cell reason is invalid")
-        if cell["process_rss_bytes"] is not None:
-            raise ContractError("not-executed matrix cell must not claim RSS evidence")
+        if cell["process_rss_bytes"] is not None or cell["process_cpu_seconds"] is not None:
+            raise ContractError("not-executed matrix cell must not claim resource evidence")
         return
     common = {
         "key", "terminal", "concurrency", "ticks_per_joint_advance", "process_rss_bytes",
+        "process_cpu_seconds",
         "teardown_failures", "teardown_latency", "teardown_attempted_session_ids",
         "teardown_destroyed_session_ids", "teardown_unretired_session_ids",
         "create_commit_response_ambiguous", "cleanup_after_work_cancellation",
@@ -976,6 +978,21 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
             rss["peak"] is None or rss[endpoint] > rss["peak"]
         ):
             raise ContractError("matrix-cell RSS peak does not cover observed endpoints")
+    cpu = _require_exact_fields(
+        cell["process_cpu_seconds"], {"before", "after", "delta"},
+        "matrix-cell CPU",
+    )
+    for field in ("before", "after", "delta"):
+        value = cpu[field]
+        if value is not None and (
+            type(value) is not float or not math.isfinite(value) or value < 0
+        ):
+            raise ContractError("matrix-cell CPU scalar is invalid")
+    if cpu["before"] is None or cpu["after"] is None:
+        if cpu["delta"] is not None:
+            raise ContractError("matrix-cell CPU delta requires both endpoints")
+    elif cpu["after"] < cpu["before"] or cpu["delta"] != cpu["after"] - cpu["before"]:
+        raise ContractError("matrix-cell CPU delta is not endpoint-bound")
     _require_string_list(cell["teardown_failures"], "matrix-cell teardown failures")
     _require_string_list(cell["teardown_attempted_session_ids"], "matrix-cell attempted")
     _require_string_list(cell["teardown_destroyed_session_ids"], "matrix-cell destroyed")
@@ -1664,6 +1681,40 @@ def rss_bytes(pid: int) -> int | None:
     return None
 
 
+def process_cpu_seconds(pid: int) -> float | None:
+    """Return daemon user+system CPU time from Linux procfs.
+
+    The process name in ``/proc/<pid>/stat`` may contain spaces, so fields
+    are indexed only after its final closing parenthesis. Missing process data
+    is represented as ``None``, never fabricated as zero work.
+    """
+    try:
+        stat_line = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        fields = stat_line[stat_line.rindex(")") + 2:].split()
+        # fields[0] is procfs field 3 (state); utime/stime are fields 14/15.
+        clock_ticks = os.sysconf("SC_CLK_TCK")
+        if not isinstance(clock_ticks, int) or clock_ticks <= 0:
+            return None
+        ticks = int(fields[11]) + int(fields[12])
+        if ticks < 0:
+            return None
+        return ticks / clock_ticks
+    except (
+        FileNotFoundError, PermissionError, ProcessLookupError, ValueError,
+        IndexError, OSError,
+    ):
+        return None
+
+
+def process_cpu_interval(
+    before: float | None, after: float | None,
+) -> dict[str, float | None]:
+    """Build one fail-closed monotonic daemon CPU interval."""
+    if before is None or after is None or after < before:
+        return {"before": before, "after": after, "delta": None}
+    return {"before": before, "after": after, "delta": after - before}
+
+
 class RssSampler:
     def __init__(self, pid: int) -> None:
         self.pid = pid
@@ -2112,6 +2163,7 @@ def bind_post_cell_daemon_identity(
     payload: dict[str, Any],
     cell: dict[str, int],
     process_rss_bytes: dict[str, int | None],
+    process_cpu_seconds: dict[str, float | None],
     *,
     identity_intact: bool,
 ) -> tuple[str, dict[str, Any]]:
@@ -2120,6 +2172,7 @@ def bind_post_cell_daemon_identity(
         **payload,
         **cell,
         "process_rss_bytes": process_rss_bytes,
+        "process_cpu_seconds": process_cpu_seconds,
     }
     if identity_intact:
         return terminal, bound
@@ -2153,6 +2206,7 @@ def bind_post_cell_daemon_identity(
     failure = {
         **cell,
         "process_rss_bytes": process_rss_bytes,
+        "process_cpu_seconds": process_cpu_seconds,
         "teardown_failures": bound["teardown_failures"],
         "teardown_latency": bound["teardown_latency"],
         "teardown_attempted_session_ids": bound["teardown_attempted_session_ids"],
@@ -2188,6 +2242,7 @@ def finalize_unexecuted_cells(
             "blocked_by": blocked_by,
             "reason": "matrix retired after first non-success terminal",
             "process_rss_bytes": None,
+            "process_cpu_seconds": None,
         })
 
 
@@ -2266,6 +2321,7 @@ async def execute_runtime(
             if process_listener_identity(daemon.pid, args.port) != listener_identity:
                 raise ContractError(f"spawned daemon listener identity changed before {key}")
             sampler.begin_cell()
+            cpu_before = process_cpu_seconds(daemon.pid)
             terminal, payload = await run_cell(
                 stub=stub,
                 pb2=pb2,
@@ -2279,11 +2335,13 @@ async def execute_runtime(
                 cell_timeout_s=args.cell_timeout_s,
                 teardown_timeout_s=args.teardown_timeout_s,
             )
+            cpu_after = process_cpu_seconds(daemon.pid)
             terminal, payload = bind_post_cell_daemon_identity(
                 terminal,
                 payload,
                 cell,
                 sampler.end_cell(),
+                process_cpu_interval(cpu_before, cpu_after),
                 identity_intact=(
                     daemon.poll() is None
                     and process_listener_identity(daemon.pid, args.port) == listener_identity

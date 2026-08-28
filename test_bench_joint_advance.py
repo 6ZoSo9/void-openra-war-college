@@ -356,6 +356,29 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 {"before": 100, "peak": 300, "after": 300},
             )
 
+    def test_process_cpu_seconds_parses_procfs_after_spaced_command_name(self):
+        fields = ["S"] + ["0"] * 48
+        fields[11] = "25"
+        fields[12] = "75"
+        with mock.patch.object(
+            bench.Path, "read_text", return_value="123 (OpenRA helper) " + " ".join(fields),
+        ), mock.patch("bench_joint_advance.os.sysconf", return_value=100):
+            self.assertEqual(bench.process_cpu_seconds(123), 1.0)
+
+    def test_process_cpu_interval_fails_closed_without_monotonic_endpoints(self):
+        self.assertEqual(
+            bench.process_cpu_interval(1.25, 1.75),
+            {"before": 1.25, "after": 1.75, "delta": 0.5},
+        )
+        self.assertEqual(
+            bench.process_cpu_interval(2.0, 1.0),
+            {"before": 2.0, "after": 1.0, "delta": None},
+        )
+        self.assertEqual(
+            bench.process_cpu_interval(None, 1.0),
+            {"before": None, "after": 1.0, "delta": None},
+        )
+
     def test_remaining_matrix_cells_are_explicitly_terminal(self):
         ledger = bench.CellLedger()
         ledger.finalize("c1-t1", "timeout", {})
@@ -450,6 +473,9 @@ class EvidencePublicationTests(unittest.TestCase):
             "key": "c1-t1", "terminal": "success", "concurrency": 1,
             "ticks_per_joint_advance": 1, "process_rss_bytes": {
                 "before": 1024, "peak": 2048, "after": 1536,
+            },
+            "process_cpu_seconds": {
+                "before": 1.25, "after": 1.75, "delta": 0.5,
             },
             "repetitions": repetitions, "same_seed_deterministic": True,
             "hashes_by_slot": {"0": [digest, digest]}, "cell_wall_seconds": 2.0,
@@ -573,6 +599,22 @@ class EvidencePublicationTests(unittest.TestCase):
             ):
                 bench._validate_cell_evidence(candidate, report["parameters"])
 
+    def test_cpu_delta_is_exactly_bound_to_monotonic_endpoints(self):
+        report = json.loads(self.payload())
+        cell = report["cells"][0]
+        for cpu, message in (
+            ({"before": 1.25, "after": 1.75, "delta": 0.49}, "endpoint-bound"),
+            ({"before": 1.75, "after": 1.25, "delta": None}, "endpoint-bound"),
+            ({"before": None, "after": 1.25, "delta": 0.0}, "requires both endpoints"),
+            ({"before": 1, "after": 1.25, "delta": 0.25}, "scalar is invalid"),
+        ):
+            candidate = json.loads(json.dumps(cell))
+            candidate["process_cpu_seconds"] = cpu
+            with self.subTest(cpu=cpu), self.assertRaisesRegex(
+                bench.ContractError, message,
+            ):
+                bench._validate_cell_evidence(candidate, report["parameters"])
+
     def test_post_cell_daemon_identity_loss_is_publishable_and_requires_retirement(self):
         report = json.loads(self.payload())
         success = report["cells"][0]
@@ -581,12 +623,13 @@ class EvidencePublicationTests(unittest.TestCase):
             "ticks_per_joint_advance": success["ticks_per_joint_advance"],
         }
         process_rss = success["process_rss_bytes"]
+        process_cpu = success["process_cpu_seconds"]
         payload = {
             key: value
             for key, value in success.items()
             if key not in {
                 "key", "terminal", "concurrency", "ticks_per_joint_advance",
-                "process_rss_bytes",
+                "process_rss_bytes", "process_cpu_seconds",
             }
         }
 
@@ -595,6 +638,7 @@ class EvidencePublicationTests(unittest.TestCase):
             payload,
             cell,
             process_rss,
+            process_cpu,
             identity_intact=False,
         )
 
@@ -643,6 +687,7 @@ class EvidencePublicationTests(unittest.TestCase):
                 "ticks_per_joint_advance": success["ticks_per_joint_advance"],
             },
             success["process_rss_bytes"],
+            success["process_cpu_seconds"],
             identity_intact=False,
         )
 
