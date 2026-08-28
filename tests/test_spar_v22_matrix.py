@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import copy
-
 import pytest
 
 from openra_env.analysis._spar_conditional_v2_2_reviewed_identity import REVIEWED_V22_IDENTITY
@@ -21,6 +19,8 @@ def pair(
     delta: float = 0.0,
     protocol_clean: bool = True,
     force: bool = True,
+    overall_contact: bool = True,
+    post_conversion: bool = True,
     contact: bool = True,
     attack_move: bool = True,
 ) -> dict:
@@ -41,6 +41,8 @@ def pair(
             "net_kill_cost_delta": delta,
             "protocol_clean": protocol_clean,
             "force_preservation_pass": force,
+            "overall_productive_contact_pass": overall_contact,
+            "post_conversion_productivity_pass": post_conversion,
             "productive_contact_pass": contact,
             "attack_move_reduction_pass": attack_move,
         },
@@ -60,6 +62,7 @@ def three(seed: int, specs: list[tuple[str, float]], **kwargs) -> list[dict]:
 def test_empty_matrix_is_pending():
     report = evaluate_matrix([])
     assert report["schema"] == MATRIX_SCHEMA
+    assert report["schema"].endswith("pair-matrix.v2")
     assert report["status"] == "PENDING"
     assert report["pair_count"] == 0
 
@@ -94,6 +97,20 @@ def test_reviewed_identity_drift_is_rejected():
         evaluate_matrix([row])
 
 
+def test_old_pair_schema_is_rejected():
+    row = pair(2051, 1)
+    row["schema"] = "void.apollyon.conditional-engagement-v2-2-pair-comparison.v1"
+    with pytest.raises(PairContractError, match="schema drift"):
+        evaluate_matrix([row])
+
+
+def test_missing_post_conversion_field_is_rejected():
+    row = pair(2051, 1)
+    row["comparison"].pop("post_conversion_productivity_pass")
+    with pytest.raises(PairContractError, match="post_conversion_productivity_pass"):
+        evaluate_matrix([row])
+
+
 def test_regression_seed_allows_one_worse_with_nonnegative_median():
     rows = three(2051, [("WORSE", -100), ("TIE", 0), ("BETTER", 100)])
     report = evaluate_matrix(rows)
@@ -120,6 +137,15 @@ def test_gain_seed_requires_positive_median_and_two_better():
     failing = three(2055, [("BETTER", 100), ("TIE", 0), ("TIE", 0)])
     report = evaluate_matrix(failing)
     assert report["by_seed"]["2055"]["gate_pass"] is False
+    assert report["status"] == "REJECT"
+
+
+def test_post_conversion_failure_rejects_complete_seed_even_if_old_behavior_fields_pass():
+    rows = three(2051, [("BETTER", 100), ("BETTER", 100), ("BETTER", 100)])
+    rows[1]["comparison"]["post_conversion_productivity_pass"] = False
+    report = evaluate_matrix(rows)
+    assert report["by_seed"]["2051"]["all_behavioral_gates_pass"] is False
+    assert report["by_seed"]["2051"]["gate_pass"] is False
     assert report["status"] == "REJECT"
 
 
