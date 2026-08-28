@@ -1,0 +1,93 @@
+name: general-brain-generation-source-contract
+
+on:
+  pull_request:
+    paths:
+      - openra_env/learning/**
+      - fixtures/learning/**
+      - tests/test_general_brain_generation.py
+      - .github/workflows/general-brain-generation-source-contract.yml
+  push:
+    branches:
+      - main
+      - ren/general-brain-generation-v1
+    paths:
+      - openra_env/learning/**
+      - fixtures/learning/**
+      - tests/test_general_brain_generation.py
+      - .github/workflows/general-brain-generation-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Python ${{ matrix.python-version }} General Brain contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install focused dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile General Brain source
+        run: |
+          python -m py_compile \
+            openra_env/learning/__init__.py \
+            openra_env/learning/general_brain_generation.py \
+            tests/test_general_brain_generation.py
+      - name: Run General Brain contract tests
+        run: python -m pytest -q tests/test_general_brain_generation.py
+      - name: Prove learning/authority separation
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from openra_env.learning.general_brain_generation import (
+              NONTRAINABLE_AUTHORITY_ENVELOPE,
+              classify_apollyon_v22_pair_for_training,
+              make_generation_zero,
+          )
+
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['authority_policy_trainable'] is False
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['role_hierarchy_trainable'] is False
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['sovereign_directives_trainable'] is False
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['tool_authorization_trainable'] is False
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['promotion_authority_trainable'] is False
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['host_tool_gate_enforced'] is True
+          assert NONTRAINABLE_AUTHORITY_ENVELOPE['external_alignment_gate_enforced'] is True
+
+          for general in ('apollyon', 'abaddon'):
+              path = Path(f'fixtures/learning/{general}-brain-generation-0.json')
+              assert json.loads(path.read_text()) == make_generation_zero(general)
+
+          dirty = {
+              'schema': 'void.apollyon.conditional-engagement-v2-2-pair-comparison.v2',
+              'candidate_only': True,
+              'warm_start_binding': {'semantic_match': True},
+              'candidate': {'reviewed_identity_verified': True, 'trajectory_sha256': 'a' * 64},
+              'comparison': {
+                  'verdict': 'WORSE',
+                  'protocol_clean': False,
+                  'force_preservation_pass': True,
+                  'productive_contact_pass': False,
+                  'attack_move_reduction_pass': True,
+              },
+          }
+          result = classify_apollyon_v22_pair_for_training(dirty)
+          assert result['eligible'] is False
+          assert result['automatic_corpus_admission'] is False
+          assert result['automatic_weight_mutation'] is False
+          assert result['automatic_promotion'] is False
+          print('GENERAL_BRAIN_GENERATION_COMPETENCE_AUTHORITY_SEPARATION_GREEN')
+          PY
