@@ -587,6 +587,20 @@ class EvidencePublicationTests(unittest.TestCase):
         variants["seed-not-bound-to-operation"] = candidate
 
         candidate = json.loads(payload)
+        candidate["cells"][0]["repetitions"][0]["validated_ticks_per_second"] = 1.0000000000000002
+        variants["throughput-not-bound-to-validated-ticks-and-wall-time"] = candidate
+
+        candidate = json.loads(payload)
+        candidate["cells"][0]["repetitions"][0]["wall_seconds"] = 0.0
+        candidate["cells"][0]["repetitions"][0]["validated_ticks_per_second"] = 0.0
+        variants["positive-validated-work-with-zero-wall-time"] = candidate
+
+        candidate = json.loads(payload)
+        candidate["cells"][0]["repetitions"][0]["wall_seconds"] = 1
+        candidate["cells"][0]["repetitions"][0]["validated_ticks_per_second"] = 1
+        variants["throughput-operands-not-canonical-floats"] = candidate
+
+        candidate = json.loads(payload)
         candidate["run"]["containment"]["daemon_retired"] = False
         variants["completed-daemon-not-retired"] = candidate
 
