@@ -877,6 +877,67 @@ class RetryRecoveryTests(unittest.TestCase):
         )
         return argv, bench.stable_json(report).encode("utf-8")
 
+    @staticmethod
+    def completed_outcome(payload):
+        report = json.loads(payload)
+        return {
+            "cells": report["cells"],
+            "run": report["run"],
+            "host": report["host"],
+        }
+
+    def test_main_durably_reserves_exact_pending_inode_before_runtime_contact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = Path(directory) / ".evidence.json.pending"
+            argv, payload = self.invocation(directory, output)
+
+            async def execute_runtime(*_args, **_kwargs):
+                self.assertTrue(pending.exists())
+                self.assertEqual(pending.stat().st_mode & 0o777, 0o400)
+                self.assertEqual(pending.stat().st_size, 0)
+                with self.assertRaisesRegex(bench.ContractError, "automatic recovery"):
+                    bench.reserve_evidence_namespace(output)
+                return self.completed_outcome(payload)
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch(
+                "bench_joint_advance.execute_runtime", side_effect=execute_runtime,
+            ) as runtime, mock.patch("sys.stdout", stdout), mock.patch("sys.stderr", stderr):
+                self.assertEqual(bench.main(argv), 0)
+            runtime.assert_called_once()
+            self.assertTrue(output.exists())
+            self.assertFalse(pending.exists())
+            self.assertEqual(output.stat().st_mode & 0o777, 0o400)
+            self.assertEqual(json.loads(stdout.getvalue())["run"]["terminal"], "completed")
+
+    def test_final_name_race_preserves_foreign_final_and_exact_pending_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = Path(directory) / ".evidence.json.pending"
+            argv, payload = self.invocation(directory, output)
+            foreign = b"foreign-final-generation"
+
+            async def execute_runtime(*_args, **_kwargs):
+                self.assertTrue(pending.exists())
+                output.write_bytes(foreign)
+                return self.completed_outcome(payload)
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch(
+                "bench_joint_advance.execute_runtime", side_effect=execute_runtime,
+            ) as runtime, mock.patch("sys.stdout", stdout), mock.patch("sys.stderr", stderr):
+                self.assertEqual(bench.main(argv), 1)
+            runtime.assert_called_once()
+            self.assertEqual(output.read_bytes(), foreign)
+            self.assertTrue(pending.exists())
+            self.assertEqual(pending.stat().st_mode & 0o777, 0o400)
+            pending_report = json.loads(pending.read_bytes())
+            self.assertEqual(pending_report["run"]["terminal"], "completed")
+            self.assertEqual(json.loads(stdout.getvalue())["run"]["terminal"], "output_error")
+
     def test_pending_retry_fails_closed_before_runtime_contact(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"

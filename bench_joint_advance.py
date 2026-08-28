@@ -812,6 +812,20 @@ def _retire_pending(staging: Path, parent: Path) -> tuple[bool, str | None]:
         return False, f"{type(error).__name__}:{error}"
 
 
+@dataclass
+class EvidenceReservation:
+    """Retained exact-inode authority for one evidence publication attempt."""
+
+    path: Path
+    staging: Path
+    descriptor: int | None
+
+    def close(self) -> None:
+        if self.descriptor is not None:
+            os.close(self.descriptor)
+            self.descriptor = None
+
+
 def require_unused_evidence_namespace(path: Path) -> None:
     """Fail closed on evidence from an earlier process or attempt.
 
@@ -833,28 +847,69 @@ def require_unused_evidence_namespace(path: Path) -> None:
         )
 
 
-def publish_evidence_create_only(path: Path, payload: bytes) -> dict[str, Any]:
+def reserve_evidence_namespace(path: Path) -> EvidenceReservation:
+    """Durably reserve the exact pending inode before any runtime contact.
+
+    The reservation is deliberately a mode-0400 empty pending artifact until the
+    benchmark report is complete.  An interrupted attempt therefore requires
+    explicit reconciliation and can never be mistaken for completed evidence.
+    """
+    path = Path(os.path.abspath(os.fspath(path)))
+    require_unused_evidence_namespace(path)
+    staging = _pending_path(path)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(staging, flags, 0o400)
+    try:
+        os.fchmod(descriptor, 0o400)
+        os.fsync(descriptor)
+        _fsync_directory(path.parent)
+        _assert_path_generation(staging, descriptor, "pending reservation")
+        if os.path.lexists(path):
+            raise FileExistsError(
+                f"evidence output appeared while reserving the attempt: {path}"
+            )
+        return EvidenceReservation(path=path, staging=staging, descriptor=descriptor)
+    except Exception:
+        os.close(descriptor)
+        # Preserve the exact reservation name after any ambiguous durability or
+        # namespace terminal.  It is not execution evidence and grants no retry
+        # authority, but it truthfully fences this interrupted attempt.
+        raise
+
+
+def publish_evidence_create_only(
+    path: Path,
+    payload: bytes,
+    *,
+    reservation: EvidenceReservation | None = None,
+) -> dict[str, Any]:
     path = Path(os.path.abspath(os.fspath(path)))
     if len(payload) > MAX_EVIDENCE_BYTES:
         raise ContractError(f"evidence payload exceeds {MAX_EVIDENCE_BYTES} bytes")
-    require_unused_evidence_namespace(path)
-    _validate_recoverable_evidence(payload)
 
-    staging = _pending_path(path)
-    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(staging, flags, 0o600)
+    if reservation is None:
+        reservation = reserve_evidence_namespace(path)
+    if reservation.path != path or reservation.staging != _pending_path(path):
+        raise ContractError("evidence reservation does not match the output path")
+    if reservation.descriptor is None:
+        raise ContractError("evidence reservation is already closed")
+
+    staging = reservation.staging
+    descriptor = reservation.descriptor
     retired = False
     retirement_error: str | None = None
     try:
+        _validate_recoverable_evidence(payload)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.ftruncate(descriptor, 0)
         with os.fdopen(descriptor, "wb", closefd=False) as stream:
             stream.write(payload)
             stream.flush()
             os.fchmod(stream.fileno(), 0o400)
             os.fsync(stream.fileno())
-        # Make the pending name durable before it becomes recovery authority.
-        # Retain the written descriptor so the later final link cannot resolve
-        # a replacement generation through the mutable staging pathname.
-        _fsync_directory(path.parent)
+        # The pending name was made durable by reserve_evidence_namespace before
+        # runtime contact. Retain that exact descriptor so final publication
+        # cannot resolve a replacement generation through the mutable pathname.
         _assert_path_generation(staging, descriptor, "pending")
         _link_open_inode_create_only(descriptor, path)
         _fsync_directory(path.parent)
@@ -871,7 +926,7 @@ def publish_evidence_create_only(path: Path, payload: bytes) -> dict[str, Any]:
         # it after an ambiguous final-link or directory-durability terminal.
         raise
     finally:
-        os.close(descriptor)
+        reservation.close()
     return {
         "path": str(path),
         "sha256": hashlib.sha256(payload).hexdigest(),
@@ -1619,34 +1674,39 @@ def main(argv: list[str] | None = None) -> int:
             )
             # A pre-positioned report is not designated-host authority.  Refuse
             # it before runtime contact and preserve it for explicit review.
-            require_unused_evidence_namespace(Path(args.output))
-            outcome = asyncio.run(execute_runtime(args, parameters, provenance))
-            report = build_report(
-                provenance=provenance,
-                parameters=parameters,
-                cells=outcome["cells"],
-                executed_designated_host=True,
-                generated_at_utc=utc_now(),
-                command=sys.argv if argv is None else [Path(sys.argv[0]).name, *argv],
-                run=outcome["run"],
-                host=outcome["host"],
-                operation=operation,
-            )
+            reservation = reserve_evidence_namespace(Path(args.output))
             try:
-                payload = stable_json(report).encode("utf-8")
-                publication = publish_evidence_create_only(Path(args.output), payload)
-                if not publication["payload_matches_request"]:
-                    report = _validate_recoverable_evidence(
-                        _read_regular_read_only(Path(args.output).resolve())
+                outcome = asyncio.run(execute_runtime(args, parameters, provenance))
+                report = build_report(
+                    provenance=provenance,
+                    parameters=parameters,
+                    cells=outcome["cells"],
+                    executed_designated_host=True,
+                    generated_at_utc=utc_now(),
+                    command=sys.argv if argv is None else [Path(sys.argv[0]).name, *argv],
+                    run=outcome["run"],
+                    host=outcome["host"],
+                    operation=operation,
+                )
+                try:
+                    payload = stable_json(report).encode("utf-8")
+                    publication = publish_evidence_create_only(
+                        Path(args.output), payload, reservation=reservation,
                     )
-            except (OSError, ContractError) as error:
-                report["run"].update({
-                    "terminal": "output_error",
-                    "stage": "evidence_publication",
-                    "error_type": type(error).__name__,
-                    "error": str(error),
-                })
-                report = json.loads(json.dumps(report, allow_nan=False))
+                    if not publication["payload_matches_request"]:
+                        report = _validate_recoverable_evidence(
+                            _read_regular_read_only(Path(args.output).resolve())
+                        )
+                except (OSError, ContractError) as error:
+                    report["run"].update({
+                        "terminal": "output_error",
+                        "stage": "evidence_publication",
+                        "error_type": type(error).__name__,
+                        "error": str(error),
+                    })
+                    report = json.loads(json.dumps(report, allow_nan=False))
+            finally:
+                reservation.close()
             print(human_summary(report), file=sys.stderr)
         else:
             if args.execute_designated_host:
