@@ -956,6 +956,8 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
     failure = common | {"error", "completed_repetitions"}
     if terminal == "rpc_error":
         failure |= {"error_type"}
+        if cell.get("daemon_identity_lost") is True:
+            failure |= {"prior_cell_terminal", "prior_cell_failure"}
     _require_exact_fields(
         cell, success if terminal in {"success", "teardown_error"} else failure,
         "matrix cell",
@@ -986,6 +988,26 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
         or cell["daemon_identity_lost"]
     ) or cell["containment_required"] != ("daemon_retirement_required" in terminals):
         raise ContractError("matrix-cell containment accounting is inconsistent")
+    if cell["daemon_identity_lost"]:
+        if terminal != "rpc_error":
+            raise ContractError("daemon identity loss requires an RPC-error terminal")
+        prior_terminal = cell["prior_cell_terminal"]
+        prior_failure = cell["prior_cell_failure"]
+        if prior_terminal not in {"success", "timeout", "rpc_error", "teardown_error"}:
+            raise ContractError("daemon identity loss prior terminal is invalid")
+        if prior_terminal == "success":
+            if prior_failure is not None:
+                raise ContractError("successful prior cell cannot claim a prior failure")
+        else:
+            prior_failure = _require_exact_fields(
+                prior_failure,
+                {"terminal", "error_type", "error"},
+                "daemon identity loss prior cell failure",
+            )
+            if prior_failure["terminal"] != prior_terminal or not isinstance(
+                prior_failure["error_type"], str
+            ) or not isinstance(prior_failure["error"], str):
+                raise ContractError("daemon identity loss prior failure is inconsistent")
     if terminal in {"success", "teardown_error"}:
         if not isinstance(cell["repetitions"], list) or not cell["repetitions"]:
             raise ContractError("completed matrix cell lacks repetition evidence")
@@ -2094,6 +2116,29 @@ def bind_post_cell_daemon_identity(
     cleanup_terminals = list(bound["cleanup_terminals"])
     if "daemon_retirement_required" not in cleanup_terminals:
         cleanup_terminals.append("daemon_retirement_required")
+    if terminal == "success":
+        prior_failure = None
+    elif terminal == "timeout":
+        prior_failure = {
+            "terminal": terminal,
+            "error_type": "TimeoutError",
+            "error": bound["error"],
+        }
+    elif terminal == "rpc_error":
+        prior_failure = {
+            "terminal": terminal,
+            "error_type": bound["error_type"],
+            "error": bound["error"],
+        }
+    elif terminal == "teardown_error":
+        prior_failure = {
+            "terminal": terminal,
+            "error_type": "TeardownError",
+            "error": ";".join(bound["teardown_failures"])
+            or "session teardown requires disposable-daemon containment",
+        }
+    else:
+        raise ContractError(f"unsupported pre-identity-loss cell terminal: {terminal}")
     failure = {
         **cell,
         "process_rss_bytes": process_rss_bytes,
@@ -2109,6 +2154,8 @@ def bind_post_cell_daemon_identity(
         "cleanup_terminals": cleanup_terminals,
         "error_type": "DaemonIdentityError",
         "error": "spawned daemon/listener ownership lost during cell",
+        "prior_cell_terminal": terminal,
+        "prior_cell_failure": prior_failure,
         "completed_repetitions": bound.get(
             "completed_repetitions",
             len(bound.get("repetitions", [])),
