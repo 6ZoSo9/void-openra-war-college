@@ -73,17 +73,30 @@ class GeneralBrainOverlayHooks:
         )
 
         original_tool_call = helper.ollama_tool_call
+        if overlay["prompt_injected"]:
+            _require(bool(overlay["coaching"]), "applied General Brain preference has empty coaching")
 
-        def brain_tool_call(system, user, tools):
-            return original_tool_call(system, user + "\n" + overlay["coaching"], tools)
+            def brain_tool_call(system, user, tools):
+                return original_tool_call(system, user + "\n" + overlay["coaching"], tools)
 
-        helper.ollama_tool_call = brain_tool_call
-        try:
+            helper.ollama_tool_call = brain_tool_call
+            try:
+                result = self._original_decision(
+                    base, helper, state, pending, pb2, doctrine, round_no
+                )
+            finally:
+                helper.ollama_tool_call = original_tool_call
+        else:
+            _require(
+                overlay["preference_applied"] is False and overlay["coaching"] == "",
+                "silent General Brain round unexpectedly carries prompt coaching",
+            )
+            # Do not wrap helper.ollama_tool_call at all. This keeps the model
+            # prompt behaviorally untouched when this generation has learned no
+            # applicable positive preference for the current tactical mode.
             result = self._original_decision(
                 base, helper, state, pending, pb2, doctrine, round_no
             )
-        finally:
-            helper.ollama_tool_call = original_tool_call
 
         name, args, commands, attempts, accepted_contract = result
         actual_names = list(accepted_contract["offered_tool_names"])
@@ -200,6 +213,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("general_brain_generation=1")
     print("challenger_only=true")
     print("tool_surface_filtering=false")
+    print("unlearned_mode_prompt_injection=false")
     print("authority_envelope_trainable=false")
     print("sovereign_directives_trainable=false")
     print("tool_authorization_trainable=false")
