@@ -1253,6 +1253,41 @@ def _validate_host_and_run(host: Any, run: Any, descriptor: dict[str, Any]) -> N
         raise ContractError("completed runtime terminal lacks complete runtime provenance")
 
 
+def _validate_run_global_cpu_evidence(
+    cells: list[dict[str, Any]],
+    planned: list[dict[str, int]],
+) -> None:
+    """Conserve one daemon CPU counter lineage across the planned matrix order."""
+    cells_by_key = {cell["key"]: cell for cell in cells}
+    clock_ticks_per_second: int | None = None
+    previous_after_ticks: int | None = None
+    for planned_cell in planned:
+        key = (
+            f"c{planned_cell['concurrency']}-"
+            f"t{planned_cell['ticks_per_joint_advance']}"
+        )
+        cell = cells_by_key.get(key)
+        if cell is None or cell["terminal"] == "not_executed":
+            continue
+        cpu = cell["process_cpu_seconds"]
+        before_ticks = cpu["before_ticks"]
+        after_ticks = cpu["after_ticks"]
+        if before_ticks is None or after_ticks is None:
+            continue
+        current_clock = cpu["clock_ticks_per_second"]
+        if clock_ticks_per_second is None:
+            clock_ticks_per_second = current_clock
+        elif current_clock != clock_ticks_per_second:
+            raise ContractError(
+                "run-global CPU clock tick rate is inconsistent across matrix cells"
+            )
+        if previous_after_ticks is not None and before_ticks < previous_after_ticks:
+            raise ContractError(
+                "run-global CPU cumulative ticks regress across matrix cells"
+            )
+        previous_after_ticks = after_ticks
+
+
 def _validate_recoverable_evidence(
     payload: bytes,
     expected_operation: dict[str, Any] | None = None,
@@ -1332,6 +1367,7 @@ def _validate_recoverable_evidence(
         raise ContractError("pending evidence matrix-cell keys are not unique")
     if any(key not in expected_cell_keys for key in actual_cell_keys):
         raise ContractError("pending evidence contains an unplanned matrix cell")
+    _validate_run_global_cpu_evidence(cells, planned)
     if run["terminal"] == "completed" and actual_cell_keys != expected_cell_keys:
         raise ContractError("completed pending evidence does not close the planned matrix")
 

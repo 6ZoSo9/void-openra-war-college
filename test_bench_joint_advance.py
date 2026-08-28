@@ -565,6 +565,28 @@ class EvidencePublicationTests(unittest.TestCase):
     def operation(payload):
         return json.loads(payload)["operation"]
 
+    @staticmethod
+    def two_cell_payload():
+        report = json.loads(EvidencePublicationTests.payload())
+        report["parameters"]["tick_batches"] = [1, 8]
+        report["operation"] = bench.operation_descriptor(
+            report["provenance"],
+            report["parameters"],
+            designated_hostname="fixture",
+            openra_dir=Path("/tmp/frozen-openra"),
+        )
+        second = json.loads(json.dumps(report["cells"][0]))
+        second["key"] = "c1-t8"
+        second["ticks_per_joint_advance"] = 8
+        for repetition in second["repetitions"]:
+            repetition["ticks_advanced_validated"] = 8
+            repetition["validated_ticks_per_second"] = 8.0
+            for validations in repetition["joint_advance_validation_by_slot"].values():
+                for validation in validations:
+                    validation["end_tick"] = validation["start_tick"] + 8
+        report["cells"].append(second)
+        return bench.stable_json(report).encode("utf-8")
+
     def concurrency_two_cell(self):
         report = json.loads(self.payload())
         parameters = report["parameters"]
@@ -655,6 +677,65 @@ class EvidencePublicationTests(unittest.TestCase):
                 bench.ContractError, message,
             ):
                 bench._validate_cell_evidence(candidate, report["parameters"])
+
+    def test_run_global_cpu_clock_rate_is_bound_across_matrix_cells(self):
+        report = json.loads(self.two_cell_payload())
+        second_cpu = report["cells"][1]["process_cpu_seconds"]
+        second_cpu.update({
+            "clock_ticks_per_second": 1000,
+            "before_ticks": 200,
+            "after_ticks": 210,
+            "delta_ticks": 10,
+            "delta_seconds": 0.01,
+        })
+        with self.assertRaisesRegex(
+            bench.ContractError, "run-global CPU clock tick rate is inconsistent",
+        ):
+            bench._validate_recoverable_evidence(
+                bench.stable_json(report).encode("utf-8")
+            )
+
+    def test_run_global_cpu_counter_cannot_regress_between_matrix_cells(self):
+        report = json.loads(self.two_cell_payload())
+        second_cpu = report["cells"][1]["process_cpu_seconds"]
+        second_cpu.update({
+            "clock_ticks_per_second": 100,
+            "before_ticks": 150,
+            "after_ticks": 160,
+            "delta_ticks": 10,
+            "delta_seconds": 0.1,
+        })
+        with self.assertRaisesRegex(
+            bench.ContractError, "run-global CPU cumulative ticks regress",
+        ):
+            bench._validate_recoverable_evidence(
+                bench.stable_json(report).encode("utf-8")
+            )
+
+    def test_run_global_cpu_counter_allows_unmeasured_cells_and_positive_gaps(self):
+        report = json.loads(self.two_cell_payload())
+        second_cpu = report["cells"][1]["process_cpu_seconds"]
+        second_cpu.update({
+            "clock_ticks_per_second": 100,
+            "before_ticks": 200,
+            "after_ticks": 210,
+            "delta_ticks": 10,
+            "delta_seconds": 0.1,
+        })
+        bench._validate_recoverable_evidence(
+            bench.stable_json(report).encode("utf-8")
+        )
+
+        report["cells"][0]["process_cpu_seconds"] = {
+            "clock_ticks_per_second": None,
+            "before_ticks": None,
+            "after_ticks": None,
+            "delta_ticks": None,
+            "delta_seconds": None,
+        }
+        bench._validate_recoverable_evidence(
+            bench.stable_json(report).encode("utf-8")
+        )
 
     def test_post_cell_daemon_identity_loss_is_publishable_and_requires_retirement(self):
         report = json.loads(self.payload())
