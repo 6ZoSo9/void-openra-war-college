@@ -26,11 +26,11 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Iterable
+from typing import Any, Awaitable, Callable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
 PUBLICATION_RECEIPT_SCHEMA_VERSION = 1
 LOCAL_EVIDENCE_MARKER = "VOID_WAR_COLLEGE_UNTRUSTED_LOCAL_EVIDENCE_V1"
@@ -827,6 +827,7 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
         "joint_advance_validation_by_slot", "teardown", "wall_seconds",
         "workload_profile", "bootstrap_joint_advance_calls",
         "bootstrap_ticks_advanced_validated", "bootstrap_validation_by_slot",
+        "end_to_end_wall_seconds",
     }
     value = _require_exact_fields(value, fields, label)
     for field in (
@@ -839,10 +840,19 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
         raise ContractError(f"{label} completed work accounting must be positive")
     throughput = value["validated_ticks_per_second"]
     wall_seconds = value["wall_seconds"]
+    end_to_end_wall_seconds = value["end_to_end_wall_seconds"]
     if type(throughput) is not float or not math.isfinite(throughput) or throughput < 0:
         raise ContractError(f"{label}.throughput must be an exact finite float")
     if type(wall_seconds) is not float or not math.isfinite(wall_seconds) or wall_seconds <= 0:
         raise ContractError(f"{label}.wall_seconds must be an exact finite positive float")
+    if (
+        type(end_to_end_wall_seconds) is not float
+        or not math.isfinite(end_to_end_wall_seconds)
+        or end_to_end_wall_seconds < wall_seconds
+    ):
+        raise ContractError(
+            f"{label}.end_to_end_wall_seconds must cover measured wall time"
+        )
     expected_throughput = value["ticks_advanced_validated"] / wall_seconds
     if throughput != expected_throughput:
         raise ContractError(
@@ -2156,6 +2166,7 @@ async def run_repetition(
     teardown_timeout_s: float,
     teardown_records: list[dict[str, Any]],
     workload_profile: str = "noop_control",
+    monotonic_clock: Callable[[], float] = time.monotonic,
 ) -> dict[str, Any]:
     if workload_profile not in WORKLOAD_PROFILES:
         raise ContractError("unsupported workload profile")
@@ -2171,7 +2182,8 @@ async def run_repetition(
     }
     create_phase_started = False
     create_phase_complete = False
-    started = time.monotonic()
+    end_to_end_started = monotonic_clock()
+    measured_wall_s: float | None = None
     try:
         async def create(slot: int) -> tuple[int, str, float]:
             t0 = time.monotonic()
@@ -2241,6 +2253,7 @@ async def run_repetition(
 
         final_by_slot: dict[int, dict[str, Any]] = {}
         validation_by_slot: dict[int, list[dict[str, Any]]] = {}
+        measured_started = monotonic_clock()
         for _sample in range(samples):
             async def advance(slot: int, session_id: str) -> tuple[int, float, dict[str, Any]]:
                 command_expectation = None
@@ -2295,6 +2308,10 @@ async def run_repetition(
                     )
                 interval_chain.append(envelope["validation"])
 
+        measured_wall_s = monotonic_clock() - measured_started
+        if measured_wall_s <= 0:
+            raise ContractError("measured JointAdvance phase wall time must be positive")
+
         for slot, response in sorted(final_by_slot.items()):
             hashes[str(slot)] = canonical_state_hash(response)
     finally:
@@ -2324,7 +2341,9 @@ async def run_repetition(
         if cancelled_during_cleanup:
             raise asyncio.CancelledError
 
-    wall_s = time.monotonic() - started
+    end_to_end_wall_s = monotonic_clock() - end_to_end_started
+    if measured_wall_s is None:
+        raise ContractError("measured JointAdvance phase did not complete")
     return {
         "repetition": repetition,
         "seed_by_slot": {str(slot): seed_base + slot for slot in range(concurrency)},
@@ -2342,13 +2361,14 @@ async def run_repetition(
             str(slot): validation
             for slot, validation in sorted(bootstrap_validation_by_slot.items())
         },
-        "validated_ticks_per_second": (len(advance_latencies) * ticks) / wall_s if wall_s > 0 else 0,
+        "validated_ticks_per_second": (len(advance_latencies) * ticks) / measured_wall_s,
         "canonical_hash_by_slot": hashes,
         "joint_advance_validation_by_slot": {
             str(slot): validation for slot, validation in sorted(validation_by_slot.items())
         },
         "teardown": teardown,
-        "wall_seconds": wall_s,
+        "wall_seconds": measured_wall_s,
+        "end_to_end_wall_seconds": end_to_end_wall_s,
     }
 
 

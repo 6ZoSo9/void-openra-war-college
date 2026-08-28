@@ -513,6 +513,7 @@ class EvidencePublicationTests(unittest.TestCase):
                     "containment_required": False,
                 },
                 "wall_seconds": 1.0,
+                "end_to_end_wall_seconds": 1.0,
             }
 
         repetitions = [repetition(0), repetition(1)]
@@ -957,6 +958,10 @@ class EvidencePublicationTests(unittest.TestCase):
         candidate["cells"][0]["repetitions"][0]["wall_seconds"] = 1
         candidate["cells"][0]["repetitions"][0]["validated_ticks_per_second"] = 1
         variants["throughput-operands-not-canonical-floats"] = candidate
+
+        candidate = json.loads(payload)
+        candidate["cells"][0]["repetitions"][0]["end_to_end_wall_seconds"] = 0.5
+        variants["end-to-end-clock-does-not-cover-measured-phase"] = candidate
 
         candidate = json.loads(payload)
         candidate["run"]["containment"]["daemon_retired"] = False
@@ -1613,6 +1618,56 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             [item["order_count_after"] for item in validations],
             [{"Multi0": 1, "Multi1": 1}, {"Multi0": 2, "Multi1": 2}],
         )
+
+    async def test_measured_throughput_excludes_create_bootstrap_and_teardown_clock(self):
+        class FakeClock:
+            def __init__(self):
+                self.value = 0.0
+
+            def __call__(self):
+                return self.value
+
+            def advance(self, seconds):
+                self.value += seconds
+
+        clock = FakeClock()
+
+        class PhaseDelayStub(self.Stub):
+            async def CreateSession(inner_self, request):
+                clock.advance(100.0)
+                return await super(PhaseDelayStub, inner_self).CreateSession(request)
+
+            async def JointAdvance(inner_self, request):
+                command_count = sum(
+                    len(getattr(batch, "commands", ()))
+                    for batch in request.player_actions
+                )
+                clock.advance(5.0 if command_count else 200.0)
+                return await super(PhaseDelayStub, inner_self).JointAdvance(request)
+
+            async def DestroySession(inner_self, request):
+                clock.advance(300.0)
+                return await super(PhaseDelayStub, inner_self).DestroySession(request)
+
+        result = await bench.run_repetition(
+            stub=PhaseDelayStub(),
+            pb2=self.Pb2,
+            message_to_dict=self.as_dict,
+            concurrency=1,
+            ticks=8,
+            samples=1,
+            seed_base=2050,
+            repetition=0,
+            rpc_timeout_s=1,
+            teardown_timeout_s=1,
+            teardown_records=[],
+            workload_profile="stop_owned_unit",
+            monotonic_clock=clock,
+        )
+        self.assertEqual(result["wall_seconds"], 5.0)
+        self.assertEqual(result["validated_ticks_per_second"], 8 / 5.0)
+        self.assertEqual(result["end_to_end_wall_seconds"], 605.0)
+        self.assertEqual(result["bootstrap_ticks_advanced_validated"], 1)
 
     async def test_failed_advance_retires_sibling_before_teardown(self):
         stub = self.Stub(fail_advance=True)
