@@ -36,6 +36,8 @@ def pair(seed: int, trial: int, delta: float, *, behavior: bool = True, protocol
             "net_kill_cost_delta": delta,
             "protocol_clean": protocol,
             "force_preservation_pass": behavior,
+            "overall_productive_contact_pass": behavior,
+            "post_conversion_productivity_pass": behavior,
             "productive_contact_pass": behavior,
             "attack_move_reduction_pass": behavior,
         },
@@ -147,6 +149,13 @@ def test_duplicate_trajectory_evidence_is_rejected_by_matrix_contract():
         evaluate_campaign([first, duplicate])
 
 
+def test_old_pair_schema_cannot_enter_campaign():
+    row = pair(2051, 1, 0)
+    row["schema"] = "void.apollyon.conditional-engagement-v2-2-pair-comparison.v1"
+    with pytest.raises(PairContractError, match="schema drift"):
+        evaluate_campaign([row])
+
+
 def test_complete_reviewed_campaign_passes_only_with_matrix_pass():
     out = evaluate_campaign(full_pass_pairs())
     assert out["status"] == "PASS"
@@ -167,6 +176,16 @@ def test_complete_gain_seed_failure_rejects_campaign_and_stops_planning():
     assert out["status"] == "REJECT"
     assert out["next_tranche"] == []
     assert out["matrix"]["by_seed"]["2055"]["gate_pass"] is False
+
+
+def test_post_conversion_behavioral_failure_rejects_early_and_stops_planning():
+    rows = [pair(2051, 1, 0), pair(2051, 2, 100), pair(2051, 3, -100)]
+    rows[2]["comparison"]["post_conversion_productivity_pass"] = False
+    out = evaluate_campaign(rows)
+    assert out["status"] == "REJECT"
+    assert out["campaign_complete"] is False
+    assert out["next_tranche"] == []
+    assert out["matrix"]["by_seed"]["2051"]["gate_pass"] is False
 
 
 def test_behavioral_failure_on_complete_seed_rejects_early_and_stops_planning():
