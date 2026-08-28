@@ -166,26 +166,31 @@ def tactical_overlay(
     if mode == "FORCE_CONVERSION" and preferred_tool == "move_units":
         preferred_arguments = {"unit_ids": "all_combat"}
 
-    lines = [
-        "GENERAL_BRAIN_COMPETENCE_ADAPTER_V1",
-        "GENERAL_ID=apollyon",
-        "GENERAL_BRAIN_GENERATION=1",
-        f"TACTICAL_MODE={mode}",
-        "TACTICAL_WEIGHT_SCOPE=tactical_competence_only",
-        "OFFERED_TOOL_NAMES=" + ",".join(names),
-        "OFFERED_TACTICAL_WEIGHTS=" + ",".join(
-            f"{tool}:{offered_weights[tool]:g}" for tool in sorted(offered_weights)
-        ),
-        "AUTHORITY_ENVELOPE_TRAINABLE=false",
-        "TOOL_AUTHORIZATION_TRAINABLE=false",
-        "BOUNDARY=This adapter is tactical preference guidance only. Use only a currently offered host-authorized tool.",
-    ]
-    if preferred_tool is not None:
-        lines.append(f"LEARNED_PREFERRED_TOOL={preferred_tool}")
-        lines.append(f"LEARNED_PREFERENCE_WEIGHT={preferred_score:g}")
-    if preferred_arguments:
-        lines.append('LEARNED_PREFERRED_ARGUMENTS=unit_ids="all_combat"')
-    coaching = "\n".join(lines)
+    preference_applied = preferred_tool is not None
+    # Isolation invariant: if the adapter has no positive learned preference for
+    # this exact mode/tool surface, attaching Generation 1 must not perturb the
+    # model prompt at all.
+    coaching = ""
+    if preference_applied:
+        lines = [
+            "GENERAL_BRAIN_COMPETENCE_ADAPTER_V1",
+            "GENERAL_ID=apollyon",
+            "GENERAL_BRAIN_GENERATION=1",
+            f"TACTICAL_MODE={mode}",
+            "TACTICAL_WEIGHT_SCOPE=tactical_competence_only",
+            "OFFERED_TOOL_NAMES=" + ",".join(names),
+            "OFFERED_TACTICAL_WEIGHTS=" + ",".join(
+                f"{tool}:{offered_weights[tool]:g}" for tool in sorted(offered_weights)
+            ),
+            "AUTHORITY_ENVELOPE_TRAINABLE=false",
+            "TOOL_AUTHORIZATION_TRAINABLE=false",
+            "BOUNDARY=This adapter is tactical preference guidance only. Use only a currently offered host-authorized tool.",
+            f"LEARNED_PREFERRED_TOOL={preferred_tool}",
+            f"LEARNED_PREFERENCE_WEIGHT={preferred_score:g}",
+        ]
+        if preferred_arguments:
+            lines.append('LEARNED_PREFERRED_ARGUMENTS=unit_ids="all_combat"')
+        coaching = "\n".join(lines)
 
     return {
         "schema": BRAIN_ROUND_SCHEMA,
@@ -199,7 +204,8 @@ def tactical_overlay(
         "preferred_tool": preferred_tool,
         "preferred_score": preferred_score,
         "preferred_arguments": preferred_arguments,
-        "preference_applied": preferred_tool is not None,
+        "preference_applied": preference_applied,
+        "prompt_injected": preference_applied,
         "tool_surface_unchanged": True,
         "authority_envelope_trainable": False,
         "tool_authorization_trainable": False,
