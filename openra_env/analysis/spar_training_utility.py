@@ -16,6 +16,7 @@ from ._spar_conditional_v2_1 import validate_conditional_v21_evidence
 from ._spar_conditional_v2_2 import validate_conditional_v22_evidence
 from ._spar_contract import ContractError
 from ._spar_metrics import contact_episodes, trade_ratio, visible_count
+from .spar_v22_conversion_utility import analyze_conversion_productivity
 
 
 def analyze_trajectory(
@@ -51,9 +52,21 @@ def analyze_trajectory(
     )
     if present_count > 1:
         raise ContractError("trajectory contains multiple Conditional Engagement generations")
+
+    conversion: dict[str, Any] = {"present": False}
+    if v22.get("present") is True:
+        conversion = {
+            "present": True,
+            **analyze_conversion_productivity(
+                trajectory_path,
+                expected_trajectory_sha256=trajectory_sha,
+            ),
+        }
+
     report["conditional_engagement_v2"] = v2
     report["conditional_engagement_v2_1"] = v21
     report["conditional_engagement_v2_2"] = v22
+    report["conditional_engagement_v2_2_conversion_utility"] = conversion
     return report
 
 
