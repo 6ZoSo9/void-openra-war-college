@@ -9,7 +9,7 @@ from typing import Any
 
 from ._spar_conditional_v2_2_reviewed_identity import REVIEWED_V22_IDENTITY
 
-PAIR_SCHEMA = "void.apollyon.conditional-engagement-v2-2-pair-comparison.v1"
+PAIR_SCHEMA = "void.apollyon.conditional-engagement-v2-2-pair-comparison.v2"
 ANALYZER_MARKER = "VOID_WAR_COLLEGE_SPAR_TRAINING_UTILITY_V1"
 PAIR_FIELDS = (
     "curriculum_id",
@@ -122,6 +122,15 @@ def _require_reviewed_v22_identity(v22: Mapping[str, Any]) -> None:
         _require(v22.get(key) == expected, f"candidate reviewed V2.2 identity mismatch: {key}")
 
 
+def _conversion_utility(report: Mapping[str, Any], *, present: bool, label: str) -> Mapping[str, Any]:
+    utility = _obj(
+        report.get("conditional_engagement_v2_2_conversion_utility"),
+        f"{label}.conditional_engagement_v2_2_conversion_utility",
+    )
+    _require(utility.get("present") is present, f"{label} V2.2 conversion utility presence mismatch")
+    return utility
+
+
 def compare_reports(baseline: Mapping[str, Any], candidate: Mapping[str, Any]) -> dict[str, Any]:
     bp, bi, bs = _clean_report(baseline, "baseline")
     cp, ci, cs = _clean_report(candidate, "candidate")
@@ -137,6 +146,8 @@ def compare_reports(baseline: Mapping[str, Any], candidate: Mapping[str, Any]) -
 
     for key in ("conditional_engagement_v2", "conditional_engagement_v2_1", "conditional_engagement_v2_2"):
         _require_absent_generation(baseline, key, "baseline")
+    _conversion_utility(baseline, present=False, label="baseline")
+
     for key in ("conditional_engagement_v2", "conditional_engagement_v2_1"):
         _require_absent_generation(candidate, key, "candidate")
     cv22 = _obj(candidate.get("conditional_engagement_v2_2"), "candidate.conditional_engagement_v2_2")
@@ -146,6 +157,30 @@ def compare_reports(baseline: Mapping[str, Any], candidate: Mapping[str, Any]) -
         _require(cv22.get(key) is True, f"candidate V2.2 evidence not proven: {key}")
     _require(cv22.get("runtime_seed_branching") is False, "candidate V2.2 runtime seed branching detected")
     _require(cv22.get("rounds_verified") == ci.get("rounds_completed"), "candidate V2.2 verified-round count mismatch")
+
+    conversion = _conversion_utility(candidate, present=True, label="candidate")
+    _require(conversion.get("reviewed_identity_verified") is True, "candidate conversion utility lacks reviewed identity")
+    _require(
+        conversion.get("trajectory_sha256") == candidate_trajectory_sha,
+        "candidate conversion utility trajectory binding mismatch",
+    )
+    _require(
+        conversion.get("v2_2_candidate_sha256") == cv22.get("candidate_sha256"),
+        "candidate conversion utility candidate identity mismatch",
+    )
+    _require(
+        conversion.get("rounds_verified") == ci.get("rounds_completed"),
+        "candidate conversion utility verified-round count mismatch",
+    )
+    conversion_applicable = conversion.get("conversion_productivity_applicable")
+    _require(type(conversion_applicable) is bool, "candidate conversion applicability must be bool")
+    post_conversion_productivity_pass = conversion.get("post_conversion_productivity_pass")
+    _require(type(post_conversion_productivity_pass) is bool, "candidate post-conversion productivity must be bool")
+    first_conversion_round = conversion.get("first_conversion_round")
+    if conversion_applicable:
+        _require(type(first_conversion_round) is int and first_conversion_round >= 1, "candidate first conversion round malformed")
+    else:
+        _require(first_conversion_round is None, "candidate first conversion round present while not applicable")
 
     b_ap = _obj(bs["apollyon"], "baseline.apollyon")
     c_ap = _obj(cs["apollyon"], "candidate.apollyon")
@@ -168,7 +203,8 @@ def compare_reports(baseline: Mapping[str, Any], candidate: Mapping[str, Any]) -
 
     candidate_contact_rounds = list(_arr(c_ap["contact_rounds"], "candidate.apollyon.contact_rounds"))
     damage_inflicted = c_ap.get("first_damage_inflicted") is not None
-    productive_contact_pass = len(candidate_contact_rounds) >= 1 and damage_inflicted
+    overall_productive_contact_pass = len(candidate_contact_rounds) >= 1 and damage_inflicted
+    productive_contact_pass = overall_productive_contact_pass and post_conversion_productivity_pass
     attack_move_fraction = _tool_fraction(c_ap, "attack_move", c_rounds)
     attack_move_reduction_pass = attack_move_fraction <= ATTACK_MOVE_FRACTION_MAXIMUM
     force_preservation_pass = final_combat_delta >= 0
@@ -216,6 +252,14 @@ def compare_reports(baseline: Mapping[str, Any], candidate: Mapping[str, Any]) -
             "apollyon_attack_target_fraction": _tool_fraction(c_ap, "attack_target", c_rounds),
             "apollyon_contact_round_count": len(candidate_contact_rounds),
             "apollyon_damage_inflicted": damage_inflicted,
+            "conversion_productivity_applicable": conversion_applicable,
+            "post_conversion_productivity_pass": post_conversion_productivity_pass,
+            "first_conversion_round": first_conversion_round,
+            "first_contact_round_after_conversion": conversion.get("first_contact_round_after_conversion"),
+            "first_damage_round_after_conversion": conversion.get("first_damage_round_after_conversion"),
+            "post_conversion_contact_round_count": len(_arr(conversion.get("post_conversion_contact_rounds"), "candidate post_conversion_contact_rounds")),
+            "post_conversion_damage_round_count": len(_arr(conversion.get("post_conversion_damage_rounds"), "candidate post_conversion_damage_rounds")),
+            "post_conversion_attack_move_fraction": _num(conversion.get("post_conversion_attack_move_fraction"), "candidate post_conversion_attack_move_fraction"),
             "apollyon_retried_rounds": c_ap_retries,
             "abaddon_retried_rounds": c_ab_retries,
         },
@@ -225,6 +269,8 @@ def compare_reports(baseline: Mapping[str, Any], candidate: Mapping[str, Any]) -
             "net_kill_cost_delta": net_delta,
             "final_combat_delta": final_combat_delta,
             "force_preservation_pass": force_preservation_pass,
+            "overall_productive_contact_pass": overall_productive_contact_pass,
+            "post_conversion_productivity_pass": post_conversion_productivity_pass,
             "productive_contact_pass": productive_contact_pass,
             "attack_move_fraction_maximum": ATTACK_MOVE_FRACTION_MAXIMUM,
             "attack_move_reduction_pass": attack_move_reduction_pass,
