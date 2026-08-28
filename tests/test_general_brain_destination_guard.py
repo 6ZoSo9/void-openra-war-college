@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 from tools.conditional_engagement_v2_2_g1_destination_guard_duel_wrapper import (
     _destination_guard_text,
     _required_argument_names,
@@ -49,3 +53,23 @@ def test_destination_guard_forbids_sentinel_and_allows_backoff():
 def test_destination_guard_is_silent_for_other_tools():
     assert _destination_guard_text("attack_move", ["target_x", "target_y"]) == ""
     assert _destination_guard_text(None, []) == ""
+
+
+def test_destination_guard_absolute_path_startup_from_foreign_cwd(tmp_path):
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "tools"
+        / "conditional_engagement_v2_2_g1_destination_guard_duel_wrapper.py"
+    )
+    result = subprocess.run(
+        [sys.executable, str(script)],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode == 2
+    assert "ModuleNotFoundError" not in combined
+    assert "--v2-2-source-dir" in combined
+    assert "--general-brain-adapter" in combined
