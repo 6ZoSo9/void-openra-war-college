@@ -81,6 +81,10 @@ class EvaluationTests(unittest.TestCase):
         )
         self.assertEqual(report["source_contract"], "GREEN")
         self.assertEqual(report["checkout_contract"], "GREEN")
+        self.assertEqual(
+            report["requested_contract"],
+            "EXACT_WORKTREE_COMPOSITION_INCLUDING_UNTRACKED_AND_IGNORED",
+        )
         self.assertEqual(report["holds"], [])
 
     def test_wrong_gitlink_holds_source_contract(self):
@@ -168,6 +172,15 @@ class GitBackedCleanlinessTests(unittest.TestCase):
         subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True)
         subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
 
+    def _commit_ignore(self, root: Path, pattern: str) -> None:
+        (root / ".gitignore").write_text(pattern, encoding="utf-8")
+        subprocess.run(["git", "add", ".gitignore"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "commit", "-qm", "fixture ignore policy"],
+            cwd=root,
+            check=True,
+        )
+
     def test_untracked_war_college_benchmark_input_forces_exact_hold(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -199,6 +212,67 @@ class GitBackedCleanlinessTests(unittest.TestCase):
             )
             untracked.unlink()
             self.assertTrue(MODULE.git_checkout_clean(root, include_untracked=True))
+
+    def test_ignored_war_college_build_input_forces_exact_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._repository(root)
+            self._commit_ignore(root, "build/\n")
+            artifact = root / "build" / "stale-benchmark-input.json"
+            artifact.parent.mkdir()
+            artifact.write_text("{}\n", encoding="utf-8")
+            exact_clean = MODULE.git_checkout_clean(
+                root, include_untracked=True, include_ignored=True
+            )
+            report = MODULE.evaluate_probe(
+                probe(
+                    engine_checkout_present=True,
+                    engine_checkout_head=MODULE.ENGINE_FROZEN_COMMIT,
+                    engine_tracked_checkout_clean=True,
+                    engine_exact_checkout_clean=True,
+                    war_college_exact_checkout_clean=exact_clean,
+                )
+            )
+            self.assertFalse(exact_clean)
+            self.assertEqual(report["checkout_contract"], "HOLD")
+            self.assertIn("war_college_exact_checkout_clean", report["holds"])
+            artifact.unlink()
+            artifact.parent.rmdir()
+            self.assertTrue(
+                MODULE.git_checkout_clean(
+                    root, include_untracked=True, include_ignored=True
+                )
+            )
+
+    def test_ignored_engine_bin_input_forces_exact_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._repository(root)
+            self._commit_ignore(root, "bin/\n")
+            artifact = root / "bin" / "stale-runtime.dll"
+            artifact.parent.mkdir()
+            artifact.write_text("stale\n", encoding="utf-8")
+            exact_clean = MODULE.git_checkout_clean(
+                root, include_untracked=True, include_ignored=True
+            )
+            report = MODULE.evaluate_probe(
+                probe(
+                    engine_checkout_present=True,
+                    engine_checkout_head=MODULE.ENGINE_FROZEN_COMMIT,
+                    engine_tracked_checkout_clean=True,
+                    engine_exact_checkout_clean=exact_clean,
+                )
+            )
+            self.assertFalse(exact_clean)
+            self.assertEqual(report["checkout_contract"], "HOLD")
+            self.assertIn("engine_exact_checkout_clean", report["holds"])
+            artifact.unlink()
+            artifact.parent.rmdir()
+            self.assertTrue(
+                MODULE.git_checkout_clean(
+                    root, include_untracked=True, include_ignored=True
+                )
+            )
 
 
 if __name__ == "__main__":
