@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Falsify destructive or mode-ambiguous War College receipt publication."""
+
+from __future__ import annotations
+
+import os
+import stat
+import tempfile
+from pathlib import Path
+
+
+MARKER = "VOID_LAB_REPRODUCIBLE_SETUP_PROOF_V1"
+DOCUMENT = Path(__file__).parents[1] / "VOID_LAB_REPRODUCIBLE_SETUP_V1.md"
+KNOWN_BYTES = b"preserved-prior-receipt\n"
+
+
+def publish_create_only(temp: Path, destination: Path) -> None:
+    temp_stat = temp.lstat()
+    if not stat.S_ISREG(temp_stat.st_mode) or stat.S_IMODE(temp_stat.st_mode) != 0o600:
+        raise RuntimeError("temporary receipt must be one regular mode-0600 file")
+    os.link(temp, destination, follow_symlinks=False)
+    final_stat = destination.lstat()
+    if (
+        not stat.S_ISREG(final_stat.st_mode)
+        or stat.S_IMODE(final_stat.st_mode) != 0o600
+        or (final_stat.st_dev, final_stat.st_ino)
+        != (temp_stat.st_dev, temp_stat.st_ino)
+    ):
+        raise RuntimeError("published receipt identity or mode changed")
+
+
+def prove_document_contract() -> None:
+    text = DOCUMENT.read_text(encoding="utf-8")
+    required = (
+        'test ! -e "$VOID_LAB_RECEIPT"',
+        'test ! -L "$VOID_LAB_RECEIPT"',
+        'mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout.XXXXXX"',
+        'stat -c \'%a\' "$VOID_LAB_RECEIPT_TEMP"',
+        'ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"',
+        'stat -c \'%d:%i\' "$VOID_LAB_RECEIPT"',
+    )
+    for fragment in required:
+        if fragment not in text:
+            raise RuntimeError(f"documentation omits receipt guard: {fragment}")
+    if '> "$VOID_LAB_RECEIPT"' in text:
+        raise RuntimeError("documentation directly redirects over final receipt")
+
+
+def prove_existing_receipt_is_unchanged() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        destination = root / "receipt.json"
+        destination.write_bytes(KNOWN_BYTES)
+        destination.chmod(0o644)
+        before = destination.lstat()
+        temp = root / ".candidate"
+        temp.write_bytes(b"replacement\n")
+        temp.chmod(0o600)
+        try:
+            publish_create_only(temp, destination)
+        except FileExistsError:
+            pass
+        else:
+            raise RuntimeError("pre-existing receipt was not rejected")
+        after = destination.lstat()
+        if destination.read_bytes() != KNOWN_BYTES:
+            raise RuntimeError("pre-existing receipt bytes changed")
+        if (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino):
+            raise RuntimeError("pre-existing receipt identity changed")
+        if stat.S_IMODE(after.st_mode) != 0o644:
+            raise RuntimeError("pre-existing receipt mode changed")
+
+
+def prove_absent_path_publishes_mode_0600() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        destination = root / "receipt.json"
+        temp = root / ".candidate"
+        temp.write_bytes(b"validated\n")
+        temp.chmod(0o600)
+        publish_create_only(temp, destination)
+        published = destination.lstat()
+        candidate = temp.lstat()
+        if destination.read_bytes() != b"validated\n":
+            raise RuntimeError("published receipt bytes changed")
+        if stat.S_IMODE(published.st_mode) != 0o600:
+            raise RuntimeError("published receipt is not mode 0600")
+        if (published.st_dev, published.st_ino) != (
+            candidate.st_dev,
+            candidate.st_ino,
+        ):
+            raise RuntimeError("publication did not retain exact candidate identity")
+
+
+def main() -> int:
+    prove_document_contract()
+    prove_existing_receipt_is_unchanged()
+    prove_absent_path_publishes_mode_0600()
+    print(f"{MARKER} PASS")
+    print("preexisting_receipt_unchanged=true")
+    print("absent_path_mode_0600=true")
+    print("runtime_evidence=PENDING_DESIGNATED_HOST")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
