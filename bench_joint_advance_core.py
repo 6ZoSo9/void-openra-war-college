@@ -2009,11 +2009,20 @@ async def wait_session_playing(
 
 
 def _joint_observations_by_player(response: Any) -> dict[str, Any]:
-    observations = list(getattr(response, "player_observations", ()))
-    players = [getattr(observation, "player", None) for observation in observations]
+    wrappers = list(getattr(response, "player_observations", ()))
+    players = [getattr(wrapper, "player", None) for wrapper in wrappers]
     if len(players) != 2 or set(players) != {"Multi0", "Multi1"}:
         raise ContractError("JointAdvance response must contain exactly Multi0 and Multi1 perspectives")
-    return {observation.player: observation for observation in observations}
+    observations: dict[str, Any] = {}
+    for wrapper in wrappers:
+        has_field = getattr(wrapper, "HasField", None)
+        if callable(has_field) and not has_field("observation"):
+            raise ContractError(f"JointAdvance {wrapper.player} perspective lacks observation payload")
+        observation = getattr(wrapper, "observation", None)
+        if observation is None:
+            raise ContractError(f"JointAdvance {wrapper.player} perspective lacks observation payload")
+        observations[wrapper.player] = observation
+    return observations
 
 
 def _exact_order_count(observation: Any, player: str) -> int:

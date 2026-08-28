@@ -317,8 +317,8 @@ class RuntimeBoundaryTests(unittest.TestCase):
             start_tick=10,
             end_tick=18,
             player_observations=[
-                types.SimpleNamespace(player="Multi0"),
-                types.SimpleNamespace(player="Multi1"),
+                types.SimpleNamespace(player="Multi0", observation=types.SimpleNamespace()),
+                types.SimpleNamespace(player="Multi1", observation=types.SimpleNamespace()),
             ],
         )
         self.assertEqual(
@@ -341,6 +341,22 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 setattr(candidate, key, value)
             with self.subTest(mutation=mutation), self.assertRaises(bench.ContractError):
                 bench.validate_joint_response(candidate, "session-a", 8)
+
+        class MissingGeneratedPayload:
+            player = "Multi1"
+            observation = types.SimpleNamespace()
+
+            @staticmethod
+            def HasField(name):
+                return name != "observation"
+
+        missing_payload = types.SimpleNamespace(**good.__dict__)
+        missing_payload.player_observations = [
+            types.SimpleNamespace(player="Multi0", observation=types.SimpleNamespace()),
+            MissingGeneratedPayload(),
+        ]
+        with self.assertRaisesRegex(bench.ContractError, "lacks observation payload"):
+            bench.validate_joint_response(missing_payload, "session-a", 8)
 
     def test_occupied_endpoint_fails_before_runtime_contact(self):
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1467,17 +1483,21 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                 player_observations=[
                     types.SimpleNamespace(
                         player="Multi0",
-                        units=[types.SimpleNamespace(actor_id=100)],
-                        military=types.SimpleNamespace(order_count=self.order_count_by_session_player.get(
-                            (request.session_id, "Multi0"), 0,
-                        )),
+                        observation=types.SimpleNamespace(
+                            units=[types.SimpleNamespace(actor_id=100)],
+                            military=types.SimpleNamespace(order_count=self.order_count_by_session_player.get(
+                                (request.session_id, "Multi0"), 0,
+                            )),
+                        ),
                     ),
                     types.SimpleNamespace(
                         player="Multi1",
-                        units=[types.SimpleNamespace(actor_id=200)],
-                        military=types.SimpleNamespace(order_count=self.order_count_by_session_player.get(
-                            (request.session_id, "Multi1"), 0,
-                        )),
+                        observation=types.SimpleNamespace(
+                            units=[types.SimpleNamespace(actor_id=200)],
+                            military=types.SimpleNamespace(order_count=self.order_count_by_session_player.get(
+                                (request.session_id, "Multi1"), 0,
+                            )),
+                        ),
                     ),
                 ],
             )
@@ -1500,8 +1520,15 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             "player_observations": [
                 {
                     "player": item.player,
-                    "units": [{"actor_id": unit.actor_id} for unit in item.units],
-                    "military": {"order_count": item.military.order_count},
+                    "observation": {
+                        "units": [
+                            {"actor_id": unit.actor_id}
+                            for unit in item.observation.units
+                        ],
+                        "military": {
+                            "order_count": item.observation.military.order_count,
+                        },
+                    },
                 }
                 for item in response.player_observations
             ],
