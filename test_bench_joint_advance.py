@@ -493,6 +493,61 @@ class EvidencePublicationTests(unittest.TestCase):
     def operation(payload):
         return json.loads(payload)["operation"]
 
+    def concurrency_two_cell(self):
+        report = json.loads(self.payload())
+        parameters = report["parameters"]
+        parameters["concurrency"] = [2]
+        cell = report["cells"][0]
+        cell["key"] = "c2-t1"
+        cell["concurrency"] = 2
+        second_digest = "c" * 64
+        for index, repetition in enumerate(cell["repetitions"]):
+            second_session = f"session-{index}-slot1"
+            repetition["seed_by_slot"]["1"] = 2051
+            repetition["session_id_by_slot"]["1"] = second_session
+            repetition["create_latency"] = bench.latency_summary([1.0, 1.0])
+            repetition["joint_advance_latency"] = bench.latency_summary([1.0, 1.0])
+            repetition["joint_advance_calls"] = 2
+            repetition["ticks_advanced_validated"] = 2
+            repetition["validated_ticks_per_second"] = 2.0
+            repetition["canonical_hash_by_slot"]["1"] = second_digest
+            repetition["joint_advance_validation_by_slot"]["1"] = [{
+                "start_tick": 10,
+                "end_tick": 11,
+                "players": ["Multi0", "Multi1"],
+            }]
+            teardown = repetition["teardown"]
+            teardown["latency"] = bench.latency_summary([1.0, 1.0])
+            teardown["latency_samples_ms"] = [1.0, 1.0]
+            teardown["attempted_session_ids"].append(second_session)
+            teardown["destroyed_session_ids"].append(second_session)
+        cell["hashes_by_slot"]["1"] = [second_digest, second_digest]
+        records = [repetition["teardown"] for repetition in cell["repetitions"]]
+        cell["teardown_latency"] = bench.latency_summary([
+            sample for record in records for sample in record["latency_samples_ms"]
+        ])
+        cell["teardown_attempted_session_ids"] = [
+            session for record in records for session in record["attempted_session_ids"]
+        ]
+        cell["teardown_destroyed_session_ids"] = [
+            session for record in records for session in record["destroyed_session_ids"]
+        ]
+        bench._validate_cell_evidence(cell, parameters)
+        return parameters, cell
+
+    def test_create_latency_population_matches_cell_concurrency(self):
+        parameters, cell = self.concurrency_two_cell()
+        for bad_latency in (
+            bench.latency_summary([]),
+            bench.latency_summary([1.0]),
+        ):
+            candidate = json.loads(json.dumps(cell))
+            candidate["repetitions"][0]["create_latency"] = bad_latency
+            with self.subTest(count=bad_latency["count"]), self.assertRaisesRegex(
+                bench.ContractError, "create latency population is inconsistent",
+            ):
+                bench._validate_cell_evidence(candidate, parameters)
+
     def test_post_cell_daemon_identity_loss_is_publishable_and_requires_retirement(self):
         report = json.loads(self.payload())
         success = report["cells"][0]
