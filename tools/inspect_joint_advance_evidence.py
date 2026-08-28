@@ -228,6 +228,8 @@ def _classify(
     if has_receipt and not has_final:
         return "RECEIPT_WITHOUT_FINAL_HOLD"
     if has_final and has_receipt and receipt_binds_final:
+        if final.get("report_schema_valid") is not True:
+            return "CURRENT_SCHEMA_INVALID_HOLD"
         if not has_pending:
             return "COMMITTED_LOCAL_UNTRUSTED"
         if pending_aliases_final:

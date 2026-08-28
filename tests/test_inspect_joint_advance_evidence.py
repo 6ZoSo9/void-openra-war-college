@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 import bench_joint_advance as bench
+import test_bench_joint_advance as benchmark_tests
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +40,10 @@ def generation(path: Path):
         meta.st_ctime_ns,
         hashlib.sha256(path.read_bytes()).hexdigest(),
     )
+
+
+def valid_report_payload() -> bytes:
+    return benchmark_tests.EvidencePublicationTests.payload()
 
 
 class ReadOnlyInspectionTests(unittest.TestCase):
@@ -83,7 +88,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
     def test_receipt_binding_is_reported_local_untrusted_without_mutation(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
-            payload = b"opaque-final-bytes\n"
+            payload = valid_report_payload()
             write_0400(output, payload)
             receipt = bench._commit_receipt_path(output)
             write_0400(receipt, bench._commit_receipt_payload(output, payload))
@@ -92,9 +97,33 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             after = {str(p): generation(p) for p in (output, receipt)}
             self.assertEqual(before, after)
             self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertTrue(report["final"]["report_schema_valid"])
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
             self.assertEqual(report["producer_authentication"], "ABSENT")
+
+    def test_receipt_bound_current_schema_invalid_report_is_explicit_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            report_payload = json.loads(valid_report_payload())
+            teardown = report_payload["cells"][0]["repetitions"][0]["teardown"]
+            teardown["latency"] = bench.latency_summary([9.0])
+            payload = bench.stable_json(report_payload).encode("utf-8")
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+            before = {str(p): generation(p) for p in (output, receipt)}
+
+            report = INSPECT.inspect_namespace(output)
+
+            self.assertEqual(before, {str(p): generation(p) for p in (output, receipt)})
+            self.assertEqual(report["classification"], "CURRENT_SCHEMA_INVALID_HOLD")
+            self.assertFalse(report["final"]["report_schema_valid"])
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+            self.assertEqual(report["producer_authentication"], "ABSENT")
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_rewrite"])
 
     def test_prior_report_schema_is_preserved_as_incompatible_hold(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -137,7 +166,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             output = Path(directory) / "evidence.json"
             pending = bench._pending_path(output)
             receipt = bench._commit_receipt_path(output)
-            payload = b"opaque-final-bytes\n"
+            payload = valid_report_payload()
             write_0400(output, payload)
             os.link(output, pending)
             write_0400(receipt, bench._commit_receipt_payload(output, payload))
@@ -158,7 +187,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             output = Path(directory) / "evidence.json"
             pending = bench._pending_path(output)
             receipt = bench._commit_receipt_path(output)
-            payload = b"same-bytes-do-not-prove-alias\n"
+            payload = valid_report_payload()
             write_0400(output, payload)
             write_0400(pending, payload)
             write_0400(receipt, bench._commit_receipt_payload(output, payload))
