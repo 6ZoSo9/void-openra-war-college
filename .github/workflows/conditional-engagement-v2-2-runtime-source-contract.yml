@@ -1,0 +1,76 @@
+name: conditional-engagement-v2-2-runtime-source-contract
+
+on:
+  pull_request:
+    paths:
+      - openra_env/coaching/conditional_engagement_v2_2.py
+      - openra_env/coaching/conditional_engagement_session_v2_2.py
+      - tools/conditional_engagement_v2_2_duel_wrapper.py
+      - tests/test_conditional_engagement_v2_2.py
+      - tests/test_conditional_engagement_v2_2_duel_wrapper.py
+      - tests/test_conditional_engagement_v2_2_direct_exec.py
+      - .github/workflows/conditional-engagement-v2-2-runtime-source-contract.yml
+  push:
+    branches:
+      - ren/conditional-engagement-v2-2-runtime-evidence-v1
+    paths:
+      - openra_env/coaching/conditional_engagement_v2_2.py
+      - openra_env/coaching/conditional_engagement_session_v2_2.py
+      - tools/conditional_engagement_v2_2_duel_wrapper.py
+      - tests/test_conditional_engagement_v2_2.py
+      - tests/test_conditional_engagement_v2_2_duel_wrapper.py
+      - tests/test_conditional_engagement_v2_2_direct_exec.py
+      - .github/workflows/conditional-engagement-v2-2-runtime-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Python ${{ matrix.python-version }} V2.2 runtime contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install focused dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Attest V2.2 reviewed source hashes
+        run: |
+          sha256sum \
+            openra_env/coaching/conditional_engagement_v2_2.py \
+            openra_env/coaching/conditional_engagement_session_v2_2.py \
+            tools/conditional_engagement_v2_2_duel_wrapper.py
+      - name: Compile V2.2 runtime source
+        run: |
+          python -m py_compile \
+            openra_env/coaching/conditional_engagement_v2_2.py \
+            openra_env/coaching/conditional_engagement_session_v2_2.py \
+            tools/conditional_engagement_v2_2_duel_wrapper.py \
+            tests/test_conditional_engagement_v2_2.py \
+            tests/test_conditional_engagement_v2_2_duel_wrapper.py \
+            tests/test_conditional_engagement_v2_2_direct_exec.py
+      - name: Run V2.2 runtime tests
+        run: |
+          python -m pytest -q \
+            tests/test_conditional_engagement_v2_2.py \
+            tests/test_conditional_engagement_v2_2_duel_wrapper.py \
+            tests/test_conditional_engagement_v2_2_direct_exec.py
+      - name: Verify source commit and candidate pin
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from tools.conditional_engagement_v2_2_duel_wrapper import V22_CANDIDATE_SHA256, V22_SOURCE_COMMIT
+          assert V22_SOURCE_COMMIT == '16d7b9c7c4bb6cbe81e8bf4174e783402a4083f1'
+          assert V22_CANDIDATE_SHA256 == '92f10e87f01a388882f621a09989783d561302cc46583a5344e8108c81d864ab'
+          print('CONDITIONAL_ENGAGEMENT_V2_2_RUNTIME_SOURCE_GREEN')
+          PY
