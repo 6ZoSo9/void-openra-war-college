@@ -1,0 +1,70 @@
+name: joint-advance-evidence-inspection-source-contract
+
+on:
+  pull_request:
+    paths:
+      - tools/inspect_joint_advance_evidence.py
+      - tests/test_inspect_joint_advance_evidence.py
+      - bench_joint_advance.py
+      - .github/workflows/joint-advance-evidence-inspection-source-contract.yml
+  push:
+    branches:
+      - satoshi/joint-advance-throughput-accounting-v1
+      - main
+    paths:
+      - tools/inspect_joint_advance_evidence.py
+      - tests/test_inspect_joint_advance_evidence.py
+      - bench_joint_advance.py
+      - .github/workflows/joint-advance-evidence-inspection-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    name: Python ${{ matrix.python-version }} read-only evidence inspection
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile inspection source
+        run: python -m py_compile tools/inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_evidence.py
+      - name: Run read-only inspection tests
+        run: python -m unittest -v tests/test_inspect_joint_advance_evidence.py
+      - name: Prove no recovery or countability authority
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import json
+          import tempfile
+          from pathlib import Path
+
+          source = Path('tools/inspect_joint_advance_evidence.py').resolve()
+          spec = importlib.util.spec_from_file_location('inspect_joint_advance_evidence', source)
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+
+          with tempfile.TemporaryDirectory() as directory:
+              output = Path(directory) / 'evidence.json'
+              report = module.inspect_namespace(output)
+              assert report['classification'] == 'EMPTY'
+              assert report['countable'] is False
+              assert report['producer_authentication'] == 'ABSENT'
+              assert report['inspection_read_only'] is True
+              assert report['automatic_recovery'] is False
+              assert report['automatic_delete'] is False
+              assert report['automatic_link'] is False
+              assert report['automatic_rewrite'] is False
+              assert not output.exists()
+          print('VOID_WAR_COLLEGE_READ_ONLY_EVIDENCE_INSPECTION_GREEN')
+          PY
