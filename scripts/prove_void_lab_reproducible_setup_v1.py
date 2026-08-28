@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 import stat
 import tempfile
 from pathlib import Path
@@ -12,6 +14,14 @@ from pathlib import Path
 MARKER = "VOID_LAB_REPRODUCIBLE_SETUP_PROOF_V1"
 DOCUMENT = Path(__file__).parents[1] / "VOID_LAB_REPRODUCIBLE_SETUP_V1.md"
 KNOWN_BYTES = b"preserved-prior-receipt\n"
+ATTEMPT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+RUNTIME_PATH_EXECUTED = False
+
+
+def receipt_destination(root: Path, attempt_id: str) -> Path:
+    if ATTEMPT_ID.fullmatch(attempt_id) is None:
+        raise ValueError("invalid receipt attempt identifier")
+    return root / f"void-lab-checkout-c164a7d2-{attempt_id}.json"
 
 
 def publish_create_only(temp: Path, destination: Path) -> None:
@@ -32,12 +42,18 @@ def publish_create_only(temp: Path, destination: Path) -> None:
 def prove_document_contract() -> None:
     text = DOCUMENT.read_text(encoding="utf-8")
     required = (
+        'void_publish_lab_receipt() (',
+        'VOID_LAB_RECEIPT_ID="$1"',
+        '[a-z0-9][a-z0-9_-]{0,63}',
+        'void-lab-checkout-c164a7d2-$VOID_LAB_RECEIPT_ID.json',
         'test ! -e "$VOID_LAB_RECEIPT"',
         'test ! -L "$VOID_LAB_RECEIPT"',
         'mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout.XXXXXX"',
         'stat -c \'%a\' "$VOID_LAB_RECEIPT_TEMP"',
         'ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"',
         'stat -c \'%d:%i\' "$VOID_LAB_RECEIPT"',
+        'void_publish_lab_receipt setup-001',
+        'void_publish_lab_receipt prebuild-001',
     )
     for fragment in required:
         if fragment not in text:
@@ -92,13 +108,65 @@ def prove_absent_path_publishes_mode_0600() -> None:
             raise RuntimeError("publication did not retain exact candidate identity")
 
 
+def prove_repeat_verification_preserves_both_receipts() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        first = receipt_destination(root, "setup-001")
+        second = receipt_destination(root, "prebuild-001")
+        first_temp = root / ".first-candidate"
+        second_temp = root / ".second-candidate"
+        first_temp.write_bytes(b'{"attempt":"setup-001"}\n')
+        second_temp.write_bytes(b'{"attempt":"prebuild-001"}\n')
+        first_temp.chmod(0o600)
+        second_temp.chmod(0o600)
+
+        publish_create_only(first_temp, first)
+        first_before = first.lstat()
+        first_bytes = first.read_bytes()
+        first_digest = hashlib.sha256(first_bytes).hexdigest()
+
+        publish_create_only(second_temp, second)
+        first_after = first.lstat()
+        second_stat = second.lstat()
+        second_bytes = second.read_bytes()
+        second_digest = hashlib.sha256(second_bytes).hexdigest()
+
+        if first.read_bytes() != first_bytes:
+            raise RuntimeError("repeat verification changed the first receipt bytes")
+        if (first_after.st_dev, first_after.st_ino) != (
+            first_before.st_dev,
+            first_before.st_ino,
+        ):
+            raise RuntimeError("repeat verification changed the first receipt identity")
+        if stat.S_IMODE(first_after.st_mode) != 0o600:
+            raise RuntimeError("repeat verification changed the first receipt mode")
+        if (
+            not stat.S_ISREG(second_stat.st_mode)
+            or stat.S_IMODE(second_stat.st_mode) != 0o600
+        ):
+            raise RuntimeError("second receipt is not one regular mode-0600 file")
+        if (first_after.st_dev, first_after.st_ino) == (
+            second_stat.st_dev,
+            second_stat.st_ino,
+        ):
+            raise RuntimeError("repeat verification reused the first receipt identity")
+        if first_digest == second_digest:
+            raise RuntimeError("repeat verification did not bind a distinct receipt digest")
+        if RUNTIME_PATH_EXECUTED:
+            raise RuntimeError("source-only proof reached a runtime path")
+
+
 def main() -> int:
     prove_document_contract()
     prove_existing_receipt_is_unchanged()
     prove_absent_path_publishes_mode_0600()
+    prove_repeat_verification_preserves_both_receipts()
     print(f"{MARKER} PASS")
     print("preexisting_receipt_unchanged=true")
     print("absent_path_mode_0600=true")
+    print("repeat_verification_distinct_receipts=true")
+    print("prior_receipt_preserved=true")
+    print("runtime_path_executed=false")
     print("runtime_evidence=PENDING_DESIGNATED_HOST")
     return 0
 
