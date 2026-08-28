@@ -533,6 +533,46 @@ class EvidencePublicationTests(unittest.TestCase):
             report["parameters"],
         )
 
+    def test_post_cell_identity_loss_preserves_partial_failure_progress(self):
+        report = json.loads(self.payload())
+        success = report["cells"][0]
+        partial_failure = {
+            key: value
+            for key, value in success.items()
+            if key in {
+                "teardown_failures", "teardown_latency",
+                "teardown_attempted_session_ids", "teardown_destroyed_session_ids",
+                "teardown_unretired_session_ids", "create_commit_response_ambiguous",
+                "cleanup_after_work_cancellation", "daemon_identity_lost",
+                "containment_required", "cleanup_terminals",
+            }
+        }
+        partial_failure.update({
+            "error_type": "TimeoutError",
+            "error": "cell deadline expired",
+            "completed_repetitions": 1,
+        })
+
+        terminal, failure = bench.bind_post_cell_daemon_identity(
+            "rpc_error",
+            partial_failure,
+            {
+                "concurrency": success["concurrency"],
+                "ticks_per_joint_advance": success["ticks_per_joint_advance"],
+            },
+            success["process_rss_bytes"],
+            identity_intact=False,
+        )
+
+        self.assertEqual(terminal, "rpc_error")
+        self.assertEqual(failure["completed_repetitions"], 1)
+        self.assertEqual(failure["error_type"], "DaemonIdentityError")
+        self.assertTrue(failure["containment_required"])
+        bench._validate_cell_evidence(
+            {"key": "c1-t1", "terminal": terminal, **failure},
+            report["parameters"],
+        )
+
     def test_create_only_publication_is_immutable(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
