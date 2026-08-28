@@ -529,7 +529,7 @@ class EvidencePublicationTests(unittest.TestCase):
                     "containment_required": False,
                 },
                 "wall_seconds": 1.0,
-                "end_to_end_wall_seconds": 1.0,
+                "end_to_end_wall_seconds": 1.002,
             }
 
         repetitions = [repetition(0), repetition(1)]
@@ -672,6 +672,22 @@ class EvidencePublicationTests(unittest.TestCase):
                 bench.ContractError, "create latency population is inconsistent",
             ):
                 bench._validate_cell_evidence(candidate, parameters)
+
+    def test_end_to_end_wall_covers_observed_nonoverlapping_phase_maxima(self):
+        report = json.loads(self.payload())
+        repetition = report["cells"][0]["repetitions"][0]
+        repetition["create_latency"] = bench.latency_summary([100.0])
+        repetition["teardown"]["latency"] = bench.latency_summary([200.0])
+        repetition["teardown"]["latency_samples_ms"] = [200.0]
+        repetition["end_to_end_wall_seconds"] = 1.3
+        bench._validate_repetition_evidence(repetition, "repetition")
+
+        contradiction = copy.deepcopy(repetition)
+        contradiction["end_to_end_wall_seconds"] = 1.299
+        with self.assertRaisesRegex(
+            bench.ContractError, "does not cover observed nonoverlapping phases",
+        ):
+            bench._validate_repetition_evidence(contradiction, "repetition")
 
     def test_rss_peak_covers_observed_cell_endpoints(self):
         report = json.loads(self.payload())
@@ -978,6 +994,10 @@ class EvidencePublicationTests(unittest.TestCase):
         candidate = json.loads(payload)
         candidate["cells"][0]["repetitions"][0]["end_to_end_wall_seconds"] = 0.5
         variants["end-to-end-clock-does-not-cover-measured-phase"] = candidate
+
+        candidate = json.loads(payload)
+        candidate["cells"][0]["repetitions"][0]["end_to_end_wall_seconds"] = 1.001
+        variants["end-to-end-clock-does-not-cover-observed-create-and-teardown"] = candidate
 
         candidate = json.loads(payload)
         candidate["run"]["containment"]["daemon_retired"] = False

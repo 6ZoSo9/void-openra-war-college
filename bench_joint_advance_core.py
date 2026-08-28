@@ -973,6 +973,27 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
                 raise ContractError(f"{label} validated tick intervals are not continuous")
             previous_end_tick = validation["end_tick"]
     _validate_teardown_evidence(value["teardown"], f"{label}.teardown")
+    create_latency = value["create_latency"]
+    create_max_s = (
+        float(create_latency["max_ms"]) / 1000
+        if create_latency["count"]
+        else 0.0
+    )
+    teardown_latency = value["teardown"]["latency"]
+    teardown_max_s = (
+        float(teardown_latency["max_ms"]) / 1000
+        if teardown_latency["count"]
+        else 0.0
+    )
+    observed_phase_lower_bound = wall_seconds + create_max_s + teardown_max_s
+    rounding_slack = 8 * max(
+        math.ulp(end_to_end_wall_seconds),
+        math.ulp(observed_phase_lower_bound),
+    )
+    if end_to_end_wall_seconds + rounding_slack < observed_phase_lower_bound:
+        raise ContractError(
+            f"{label}.end_to_end_wall_seconds does not cover observed nonoverlapping phases"
+        )
 
 
 def _validate_parameters_evidence(parameters: Any) -> dict[str, Any]:
