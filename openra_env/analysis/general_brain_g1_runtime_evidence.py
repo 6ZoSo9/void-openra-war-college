@@ -46,7 +46,7 @@ def _run_binding(header: Mapping[str, Any]) -> dict[str, Any] | None:
     adapter_file_sha = _pattern(raw.get("adapter_file_sha256"), "General Brain adapter file SHA", SHA256)
     manifest_sha = _pattern(
         raw.get("challenger_manifest_sha256"),
-        "General Brain challenger manifest SHA",
+        "General Brain challenger manifest semantic SHA",
         SHA256,
     )
     manifest_file_sha = _pattern(
@@ -56,8 +56,9 @@ def _run_binding(header: Mapping[str, Any]) -> dict[str, Any] | None:
     )
     if adapter_sha != adapter_file_sha:
         raise ContractError("General Brain adapter semantic/file SHA mismatch")
-    if manifest_sha != manifest_file_sha:
-        raise ContractError("General Brain manifest semantic/file SHA mismatch")
+    # Brain manifests intentionally use a semantic-object SHA while the JSON
+    # artifact has its own byte/file SHA. Both are independently bound and
+    # therefore MUST NOT be required to equal one another.
     for key in (
         "authority_envelope_trainable",
         "sovereign_directives_trainable",
@@ -73,7 +74,9 @@ def _run_binding(header: Mapping[str, Any]) -> dict[str, Any] | None:
         "generation": 1,
         "challenger_only": True,
         "adapter_sha256": adapter_sha,
+        "adapter_file_sha256": adapter_file_sha,
         "challenger_manifest_sha256": manifest_sha,
+        "challenger_manifest_file_sha256": manifest_file_sha,
         "authority_envelope_trainable": False,
         "sovereign_directives_trainable": False,
         "tool_authorization_trainable": False,
