@@ -85,12 +85,33 @@ def _artifact(path: Path, *, validate_report: bool = False) -> tuple[dict[str, A
     return row, payload
 
 
+def _pending_aliases_final(
+    final: dict[str, Any],
+    pending: dict[str, Any],
+) -> bool:
+    final_generation = final.get("generation")
+    pending_generation = pending.get("generation")
+    if not isinstance(final_generation, dict) or not isinstance(pending_generation, dict):
+        return False
+    same_inode = (
+        final_generation.get("device") == pending_generation.get("device")
+        and final_generation.get("inode") == pending_generation.get("inode")
+    )
+    same_payload = (
+        final.get("payload_sha256") is not None
+        and final.get("payload_sha256") == pending.get("payload_sha256")
+        and final.get("payload_bytes") == pending.get("payload_bytes")
+    )
+    return bool(same_inode and same_payload)
+
+
 def _classify(
     *,
     final: dict[str, Any],
     pending: dict[str, Any],
     receipt: dict[str, Any],
     receipt_binds_final: bool,
+    pending_aliases_final: bool,
 ) -> str:
     has_final = bool(final["present"])
     has_pending = bool(pending["present"])
@@ -101,11 +122,11 @@ def _classify(
     if has_receipt and not has_final:
         return "RECEIPT_WITHOUT_FINAL_HOLD"
     if has_final and has_receipt and receipt_binds_final:
-        return (
-            "COMMITTED_LOCAL_UNTRUSTED_WITH_PENDING_ALIAS"
-            if has_pending
-            else "COMMITTED_LOCAL_UNTRUSTED"
-        )
+        if not has_pending:
+            return "COMMITTED_LOCAL_UNTRUSTED"
+        if pending_aliases_final:
+            return "COMMITTED_LOCAL_UNTRUSTED_WITH_PENDING_ALIAS"
+        return "COMMITTED_LOCAL_UNTRUSTED_WITH_FOREIGN_PENDING_HOLD"
     if has_final and has_receipt:
         return "FINAL_RECEIPT_BINDING_MISMATCH_HOLD"
     if has_final and has_pending:
@@ -146,11 +167,13 @@ def inspect_namespace(path: Path) -> dict[str, Any]:
     if before != after:
         raise bench.ContractError("evidence namespace changed during read-only inspection")
 
+    pending_aliases_final = _pending_aliases_final(final, pending)
     classification = _classify(
         final=final,
         pending=pending,
         receipt=receipt,
         receipt_binds_final=receipt_binds_final,
+        pending_aliases_final=pending_aliases_final,
     )
     return {
         "marker": INSPECTION_MARKER,
@@ -162,6 +185,7 @@ def inspect_namespace(path: Path) -> dict[str, Any]:
         "commit_receipt": receipt,
         "commit_receipt_binds_final": receipt_binds_final,
         "commit_receipt_validation_error": receipt_validation_error,
+        "pending_aliases_final": pending_aliases_final,
         "countable": False,
         "producer_authentication": "ABSENT",
         "inspection_read_only": True,
