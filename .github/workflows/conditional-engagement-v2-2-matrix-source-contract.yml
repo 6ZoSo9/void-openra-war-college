@@ -1,0 +1,58 @@
+name: conditional-engagement-v2-2-matrix-source-contract
+
+on:
+  pull_request:
+    paths:
+      - openra_env/analysis/spar_v22_matrix.py
+      - openra_env/analysis/spar_v22_pair_comparison.py
+      - openra_env/analysis/_spar_conditional_v2_2_reviewed_identity.py
+      - tests/test_spar_v22_matrix.py
+      - .github/workflows/conditional-engagement-v2-2-matrix-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Python ${{ matrix.python-version }} V2.2 matrix contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install focused dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile V2.2 matrix source
+        run: |
+          python -m py_compile \
+            openra_env/analysis/spar_v22_matrix.py \
+            tests/test_spar_v22_matrix.py
+      - name: Run V2.2 matrix tests
+        run: python -m pytest -q tests/test_spar_v22_matrix.py
+      - name: Prove reviewed matrix constants
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from openra_env.analysis.spar_v22_matrix import (
+              MATRIX_SCHEMA,
+              MINIMUM_HELD_OUT_SEED_COUNT,
+              REPEATS_PER_SEED,
+              REVIEWED_GAIN_SEED,
+              REVIEWED_REGRESSION_SEED,
+          )
+          assert MATRIX_SCHEMA == 'void.apollyon.conditional-engagement-v2-2-pair-matrix.v1'
+          assert REVIEWED_REGRESSION_SEED == 2051
+          assert REVIEWED_GAIN_SEED == 2055
+          assert MINIMUM_HELD_OUT_SEED_COUNT == 3
+          assert REPEATS_PER_SEED == 3
+          print('CONDITIONAL_ENGAGEMENT_V2_2_MATRIX_GATE_GREEN')
+          PY
