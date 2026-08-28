@@ -818,8 +818,19 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
     for field in ("repetition", "joint_advance_calls", "ticks_advanced_validated"):
         if isinstance(value[field], bool) or not isinstance(value[field], int) or value[field] < 0:
             raise ContractError(f"{label}.{field} must be an exact nonnegative integer")
-    _require_number(value["validated_ticks_per_second"], f"{label}.throughput")
-    _require_number(value["wall_seconds"], f"{label}.wall_seconds")
+    if value["joint_advance_calls"] == 0 or value["ticks_advanced_validated"] == 0:
+        raise ContractError(f"{label} completed work accounting must be positive")
+    throughput = value["validated_ticks_per_second"]
+    wall_seconds = value["wall_seconds"]
+    if type(throughput) is not float or not math.isfinite(throughput) or throughput < 0:
+        raise ContractError(f"{label}.throughput must be an exact finite float")
+    if type(wall_seconds) is not float or not math.isfinite(wall_seconds) or wall_seconds <= 0:
+        raise ContractError(f"{label}.wall_seconds must be an exact finite positive float")
+    expected_throughput = value["ticks_advanced_validated"] / wall_seconds
+    if throughput != expected_throughput:
+        raise ContractError(
+            f"{label} throughput does not equal validated ticks divided by wall time"
+        )
     _validate_latency_evidence(value["create_latency"], f"{label}.create_latency")
     _validate_latency_evidence(value["joint_advance_latency"], f"{label}.advance_latency")
     if value["joint_advance_latency"]["count"] != value["joint_advance_calls"]:
