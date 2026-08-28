@@ -12,7 +12,6 @@ on:
   push:
     branches:
       - main
-      - ren/v2-2-selector-integrity-r1
     paths:
       - openra_env/coaching/conditional_engagement_v2_2.py
       - openra_env/coaching/conditional_engagement_session_v2_2.py
