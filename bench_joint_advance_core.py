@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Callable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
 PUBLICATION_RECEIPT_SCHEMA_VERSION = 1
 LOCAL_EVIDENCE_MARKER = "VOID_WAR_COLLEGE_UNTRUSTED_LOCAL_EVIDENCE_V1"
@@ -929,7 +929,11 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
             or len(validations) != samples_per_slot
         ):
             raise ContractError(f"{label} validated sample coverage is inconsistent")
-        previous_end_tick: int | None = None
+        previous_end_tick: int | None = (
+            bootstrap[slot]["end_tick"]
+            if profile == "stop_owned_unit"
+            else None
+        )
         for sample, candidate in enumerate(validations):
             validation = _require_exact_fields(
                 candidate,
@@ -2331,9 +2335,14 @@ async def run_repetition(
                 previous_response_by_slot[slot] = envelope["raw_response"]
                 final_by_slot[slot] = envelope["response"]
                 interval_chain = validation_by_slot.setdefault(slot, [])
+                expected_start_tick = (
+                    interval_chain[-1]["end_tick"]
+                    if interval_chain
+                    else bootstrap_validation_by_slot.get(slot, {}).get("end_tick")
+                )
                 if (
-                    interval_chain
-                    and envelope["validation"]["start_tick"] != interval_chain[-1]["end_tick"]
+                    expected_start_tick is not None
+                    and envelope["validation"]["start_tick"] != expected_start_tick
                 ):
                     raise ContractError(
                         "JointAdvance responses do not prove continuous tick advancement"

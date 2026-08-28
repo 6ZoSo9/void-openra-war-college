@@ -740,6 +740,40 @@ class EvidencePublicationTests(unittest.TestCase):
             ):
                 bench._validate_repetition_evidence(candidate, "repetition")
 
+    def test_action_bootstrap_is_contiguous_with_first_measured_interval(self):
+        repetition = json.loads(self.payload())["cells"][0]["repetitions"][0]
+        repetition["workload_profile"] = "stop_owned_unit"
+        repetition["bootstrap_joint_advance_calls"] = 1
+        repetition["bootstrap_ticks_advanced_validated"] = 1
+        repetition["bootstrap_validation_by_slot"] = {
+            "0": {
+                "start_tick": 9,
+                "end_tick": 10,
+                "players": ["Multi0", "Multi1"],
+                "purpose": "owned_actor_and_order_count_bootstrap",
+            },
+        }
+        validation = repetition["joint_advance_validation_by_slot"]["0"][0]
+        validation.update({
+            "workload_profile": "stop_owned_unit",
+            "commands_submitted": 2,
+            "actor_id_by_player": {"Multi0": 100, "Multi1": 200},
+            "order_count_before": {"Multi0": 0, "Multi1": 0},
+            "order_count_after": {"Multi0": 1, "Multi1": 1},
+        })
+        bench._validate_repetition_evidence(repetition, "repetition")
+
+        for start_tick, end_tick in ((8, 9), (10, 11)):
+            candidate = copy.deepcopy(repetition)
+            candidate["bootstrap_validation_by_slot"]["0"].update({
+                "start_tick": start_tick,
+                "end_tick": end_tick,
+            })
+            with self.subTest(interval=(start_tick, end_tick)), self.assertRaisesRegex(
+                bench.ContractError, "tick intervals are not continuous",
+            ):
+                bench._validate_repetition_evidence(candidate, "repetition")
+
     def test_rss_peak_covers_observed_cell_endpoints(self):
         report = json.loads(self.payload())
         cell = report["cells"][0]
@@ -1102,16 +1136,16 @@ class EvidencePublicationTests(unittest.TestCase):
                 with self.assertRaisesRegex(bench.ContractError, "scalar types"):
                     bench.load_committed_evidence(output, self.operation(payload))
 
-    def test_prior_schema_four_is_an_explicit_incompatible_hold(self):
+    def test_prior_schema_five_is_an_explicit_incompatible_hold(self):
         candidate = json.loads(self.payload())
-        self.assertEqual(candidate["schema_version"], 5)
-        candidate["schema_version"] = 4
+        self.assertEqual(candidate["schema_version"], 6)
+        candidate["schema_version"] = 5
         with self.assertRaises(bench.IncompatibleEvidenceSchemaError) as raised:
             bench._validate_recoverable_evidence(
                 bench.stable_json(candidate).encode("utf-8")
             )
-        self.assertEqual(raised.exception.actual, 4)
-        self.assertEqual(raised.exception.expected, 5)
+        self.assertEqual(raised.exception.actual, 5)
+        self.assertEqual(raised.exception.expected, 6)
 
     def test_abrupt_termination_before_commit_receipt_is_not_countable(self):
         payload = self.payload()
@@ -1718,6 +1752,11 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             "owned_actor_and_order_count_bootstrap",
         )
         validations = result["joint_advance_validation_by_slot"]["0"]
+        self.assertEqual(
+            result["bootstrap_validation_by_slot"]["0"]["end_tick"],
+            validations[0]["start_tick"],
+        )
+        self.assertEqual(result["ticks_advanced_validated"], 16)
         self.assertEqual([item["commands_submitted"] for item in validations], [2, 2])
         self.assertEqual(
             [item["actor_id_by_player"] for item in validations],
@@ -1727,6 +1766,44 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             [item["order_count_after"] for item in validations],
             [{"Multi0": 1, "Multi1": 1}, {"Multi0": 2, "Multi1": 2}],
         )
+
+    async def test_action_profile_rejects_gap_or_overlap_after_bootstrap(self):
+        class CrossPhaseStub(self.Stub):
+            def __init__(inner_self, offset):
+                super().__init__()
+                inner_self.offset = offset
+                inner_self.calls_by_session = {}
+
+            async def JointAdvance(inner_self, request):
+                response = await super(CrossPhaseStub, inner_self).JointAdvance(request)
+                count = inner_self.calls_by_session.get(request.session_id, 0) + 1
+                inner_self.calls_by_session[request.session_id] = count
+                if count == 2:
+                    response.start_tick += inner_self.offset
+                    response.end_tick += inner_self.offset
+                    inner_self.next_tick_by_session[request.session_id] += inner_self.offset
+                return response
+
+        for offset in (-1, 1):
+            stub = CrossPhaseStub(offset)
+            with self.subTest(offset=offset), self.assertRaisesRegex(
+                bench.ContractError, "continuous tick advancement",
+            ):
+                await bench.run_repetition(
+                    stub=stub,
+                    pb2=self.Pb2,
+                    message_to_dict=self.as_dict,
+                    concurrency=1,
+                    ticks=8,
+                    samples=1,
+                    seed_base=2050,
+                    repetition=0,
+                    rpc_timeout_s=1,
+                    teardown_timeout_s=1,
+                    teardown_records=[],
+                    workload_profile="stop_owned_unit",
+                )
+            self.assertEqual(stub.destroyed, ["session-2050"])
 
     async def test_measured_throughput_excludes_create_bootstrap_and_teardown_clock(self):
         class FakeClock:
