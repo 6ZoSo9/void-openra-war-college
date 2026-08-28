@@ -2,9 +2,10 @@
 """Fail-closed source/checkout verifier for the VOID OpenRA lab.
 
 The source-only mode is safe for CI without private-submodule credentials.  It
-verifies the committed gitlink and preserved War College ancestry, but reports
-runtime evidence as pending.  The default mode additionally requires an exact,
-clean engine checkout before a designated-host build or benchmark is attempted.
+verifies committed/tracked composition, but explicitly does not assert exact
+worktree composition.  The default mode additionally requires both worktrees
+to be exact and clean, including the absence of untracked runtime inputs,
+before a designated-host build or benchmark is attempted.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from typing import Callable, Sequence
 
 
 MARKER = "VOID_WAR_COLLEGE_LAB_CHECKOUT_CONTRACT_V1"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 WAR_COLLEGE_FROZEN_COMMIT = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 ENGINE_FROZEN_COMMIT = "1607a7a6501d42a47638393ecef8b22831064932"
 GENERATION = "ad1926569b12466c"
@@ -40,8 +41,10 @@ class Probe:
     engine_repository_url: str
     engine_checkout_present: bool
     engine_checkout_head: str | None
-    engine_checkout_clean: bool | None
-    war_college_checkout_clean: bool
+    engine_tracked_checkout_clean: bool | None
+    engine_exact_checkout_clean: bool | None
+    war_college_tracked_checkout_clean: bool
+    war_college_exact_checkout_clean: bool
 
 
 def _run_git(root: Path, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
@@ -57,6 +60,20 @@ def _run_git(root: Path, args: Sequence[str]) -> subprocess.CompletedProcess[str
         detail = result.stderr.strip() or result.stdout.strip() or "unknown git error"
         raise VerificationError(f"git {' '.join(args)} failed: {detail}")
     return result
+
+
+def git_checkout_clean(
+    root: Path, *, include_untracked: bool, ignore_submodules: bool = False
+) -> bool:
+    """Return exact git cleanliness under the requested explicit policy."""
+    args = [
+        "status",
+        "--porcelain",
+        "--untracked-files=all" if include_untracked else "--untracked-files=no",
+    ]
+    if ignore_submodules:
+        args.append("--ignore-submodules=all")
+    return not bool(_run_git(root, args).stdout.strip())
 
 
 def parse_engine_gitlink(raw: str) -> str:
@@ -115,22 +132,27 @@ def collect_probe(root: Path) -> Probe:
     gitlink = parse_engine_gitlink(
         _run_git(root, ["ls-tree", "HEAD", "--", ENGINE_SUBMODULE_PATH]).stdout
     )
-    parent_status = _run_git(
-        root, ["status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all"]
-    ).stdout
+    parent_tracked_clean = git_checkout_clean(
+        root, include_untracked=False, ignore_submodules=True
+    )
+    parent_exact_clean = git_checkout_clean(
+        root, include_untracked=True, ignore_submodules=True
+    )
 
     engine_root = root / ENGINE_SUBMODULE_PATH
     engine_present = (engine_root / ".git").exists()
     engine_head: str | None = None
-    engine_clean: bool | None = None
+    engine_tracked_clean: bool | None = None
+    engine_exact_clean: bool | None = None
     if engine_present:
         engine_head = _run_git(
             engine_root, ["rev-parse", "HEAD"]
         ).stdout.strip()
-        engine_clean = not bool(
-            _run_git(
-                engine_root, ["status", "--porcelain", "--untracked-files=no"]
-            ).stdout.strip()
+        engine_tracked_clean = git_checkout_clean(
+            engine_root, include_untracked=False
+        )
+        engine_exact_clean = git_checkout_clean(
+            engine_root, include_untracked=True
         )
 
     return Probe(
@@ -142,24 +164,28 @@ def collect_probe(root: Path) -> Probe:
         engine_repository_url=read_engine_repository_url(root),
         engine_checkout_present=engine_present,
         engine_checkout_head=engine_head,
-        engine_checkout_clean=engine_clean,
-        war_college_checkout_clean=not bool(parent_status.strip()),
+        engine_tracked_checkout_clean=engine_tracked_clean,
+        engine_exact_checkout_clean=engine_exact_clean,
+        war_college_tracked_checkout_clean=parent_tracked_clean,
+        war_college_exact_checkout_clean=parent_exact_clean,
     )
 
 
-def evaluate_probe(probe: Probe) -> dict[str, object]:
+def evaluate_probe(probe: Probe, *, source_only: bool = False) -> dict[str, object]:
     checks = {
         "war_college_frozen_is_ancestor": probe.war_college_frozen_is_ancestor,
         "engine_gitlink_is_frozen": probe.engine_gitlink_commit == ENGINE_FROZEN_COMMIT,
         "engine_repository_url_is_exact": probe.engine_repository_url
         == ENGINE_REPOSITORY_URL,
-        "war_college_tracked_checkout_clean": probe.war_college_checkout_clean,
+        "war_college_tracked_checkout_clean": probe.war_college_tracked_checkout_clean,
+        "war_college_exact_checkout_clean": probe.war_college_exact_checkout_clean,
         "engine_checkout_present": probe.engine_checkout_present,
         "engine_checkout_matches_gitlink": probe.engine_checkout_present
         and probe.engine_checkout_head == probe.engine_gitlink_commit,
         "engine_checkout_is_frozen": probe.engine_checkout_present
         and probe.engine_checkout_head == ENGINE_FROZEN_COMMIT,
-        "engine_tracked_checkout_clean": probe.engine_checkout_clean is True,
+        "engine_tracked_checkout_clean": probe.engine_tracked_checkout_clean is True,
+        "engine_exact_checkout_clean": probe.engine_exact_checkout_clean is True,
     }
     source_keys = (
         "war_college_frozen_is_ancestor",
@@ -168,10 +194,12 @@ def evaluate_probe(probe: Probe) -> dict[str, object]:
         "war_college_tracked_checkout_clean",
     )
     checkout_keys = source_keys + (
+        "war_college_exact_checkout_clean",
         "engine_checkout_present",
         "engine_checkout_matches_gitlink",
         "engine_checkout_is_frozen",
         "engine_tracked_checkout_clean",
+        "engine_exact_checkout_clean",
     )
     source_green = all(checks[key] for key in source_keys)
     checkout_green = all(checks[key] for key in checkout_keys)
@@ -191,6 +219,17 @@ def evaluate_probe(probe: Probe) -> dict[str, object]:
             "engine_checkout_head": probe.engine_checkout_head,
         },
         "checks": checks,
+        "requested_contract": (
+            "COMMITTED_TRACKED_COMPOSITION_ONLY"
+            if source_only
+            else "EXACT_WORKTREE_COMPOSITION_INCLUDING_UNTRACKED"
+        ),
+        "source_only_limitation": (
+            "DOES_NOT_ASSERT_EXACT_DESIGNATED_HOST_COMPOSITION"
+            if source_only
+            else None
+        ),
+        "exact_checkout_evidence": checkout_green,
         "source_contract": "GREEN" if source_green else "HOLD",
         "checkout_contract": (
             "GREEN"
@@ -227,7 +266,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        report = evaluate_probe(collect_probe(args.repo_root.resolve()))
+        report = evaluate_probe(
+            collect_probe(args.repo_root.resolve()), source_only=args.source_only
+        )
     except VerificationError as error:
         report = {
             "schema_version": SCHEMA_VERSION,
@@ -236,6 +277,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             "source_contract": "HOLD",
             "checkout_contract": "HOLD",
             "runtime_evidence": "PENDING_DESIGNATED_HOST",
+            "requested_contract": (
+                "COMMITTED_TRACKED_COMPOSITION_ONLY"
+                if args.source_only
+                else "EXACT_WORKTREE_COMPOSITION_INCLUDING_UNTRACKED"
+            ),
+            "source_only_limitation": (
+                "DOES_NOT_ASSERT_EXACT_DESIGNATED_HOST_COMPOSITION"
+                if args.source_only
+                else None
+            ),
+            "exact_checkout_evidence": False,
             "holds": [str(error)],
         }
     print(canonical_json(report))
