@@ -8,6 +8,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import bench_joint_advance as bench
 
@@ -176,6 +177,61 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(report["final"]["validation_error"], "ARTIFACT_NOT_REGULAR_FILE")
             self.assertEqual(target.read_bytes(), target_before)
             self.assertFalse(report["countable"])
+
+    def test_parent_aba_cannot_mix_foreign_payload_and_receipt_generation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            canonical_parent = root / "canonical"
+            foreign_parent = root / "foreign"
+            held_parent = root / "held"
+            canonical_parent.mkdir()
+            foreign_parent.mkdir()
+
+            output = canonical_parent / "evidence.json"
+            payload_a = b"retained-parent-final-a\n"
+            write_0400(output, payload_a)
+
+            foreign_output = foreign_parent / output.name
+            payload_b = b"foreign-parent-final-b\n"
+            write_0400(foreign_output, payload_b)
+            write_0400(
+                bench._commit_receipt_path(foreign_output),
+                bench._commit_receipt_payload(foreign_output, payload_b),
+            )
+
+            original_read = INSPECT._read_descriptor
+            swapped = False
+
+            def read_during_parent_aba(descriptor):
+                nonlocal swapped
+                if swapped:
+                    return original_read(descriptor)
+                swapped = True
+                canonical_parent.rename(held_parent)
+                foreign_parent.rename(canonical_parent)
+                try:
+                    return original_read(descriptor)
+                finally:
+                    canonical_parent.rename(foreign_parent)
+                    held_parent.rename(canonical_parent)
+
+            with mock.patch.object(
+                INSPECT, "_read_descriptor", side_effect=read_during_parent_aba,
+            ):
+                report = INSPECT.inspect_namespace(output)
+
+            self.assertTrue(swapped)
+            self.assertEqual(report["classification"], "FINAL_WITHOUT_RECEIPT")
+            self.assertEqual(
+                report["final"]["payload_sha256"],
+                hashlib.sha256(payload_a).hexdigest(),
+            )
+            self.assertFalse(report["commit_receipt"]["present"])
+            self.assertFalse(report["commit_receipt_binds_final"])
+            self.assertTrue(report["namespace_generation_stable"])
+            self.assertFalse(report["countable"])
+            self.assertEqual(output.read_bytes(), payload_a)
+            self.assertEqual(foreign_output.read_bytes(), payload_b)
 
 
 if __name__ == "__main__":
