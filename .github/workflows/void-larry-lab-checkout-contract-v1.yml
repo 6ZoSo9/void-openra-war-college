@@ -45,4 +45,4 @@ jobs:
       - name: Verify preserved source composition without private credentials
         run: |
           python scripts/verify_void_lab_checkout_v1.py --source-only > lab-checkout-source-contract.json
-          python -c 'import json; d=json.load(open("lab-checkout-source-contract.json", encoding="utf-8")); assert d["source_contract"] == "GREEN"; assert d["checkout_contract"] == "PENDING_ENGINE_CHECKOUT"; assert d["runtime_evidence"] == "PENDING_DESIGNATED_HOST"'
+          python -c 'import json; d=json.load(open("lab-checkout-source-contract.json", encoding="utf-8")); assert d["source_contract"] == "GREEN"; assert d["checkout_contract"] == "PENDING_ENGINE_CHECKOUT"; assert d["requested_contract"] == "COMMITTED_TRACKED_COMPOSITION_ONLY"; assert d["source_only_limitation"] == "DOES_NOT_ASSERT_EXACT_DESIGNATED_HOST_COMPOSITION"; assert d["exact_checkout_evidence"] is False; assert d["runtime_evidence"] == "PENDING_DESIGNATED_HOST"'
