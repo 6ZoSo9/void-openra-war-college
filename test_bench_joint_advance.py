@@ -416,8 +416,8 @@ class EvidencePublicationTests(unittest.TestCase):
                 "validated_ticks_per_second": 1.0,
                 "canonical_hash_by_slot": {"0": digest},
                 "joint_advance_validation_by_slot": {
-                    "0": {"start_tick": 10, "end_tick": 11,
-                          "players": ["Multi0", "Multi1"]},
+                    "0": [{"start_tick": 10, "end_tick": 11,
+                           "players": ["Multi0", "Multi1"]}],
                 },
                 "teardown": {
                     "failures": [], "latency": latency,
@@ -951,6 +951,23 @@ bench.publish_evidence_create_only(output, payload, reservation=reservation)
             open_pending.assert_not_called()
             self.assertEqual(pending.read_bytes(), payload)
 
+    def test_repetition_admission_rejects_reused_tick_interval(self):
+        report = json.loads(self.payload())
+        repetition = report["cells"][0]["repetitions"][0]
+        repetition["joint_advance_calls"] = 2
+        repetition["ticks_advanced_validated"] = 2
+        repetition["validated_ticks_per_second"] = 2.0
+        repetition["joint_advance_latency"]["count"] = 2
+        repetition["joint_advance_validation_by_slot"]["0"] = [
+            {"start_tick": 10, "end_tick": 11, "players": ["Multi0", "Multi1"]},
+            {"start_tick": 11, "end_tick": 12, "players": ["Multi0", "Multi1"]},
+        ]
+        bench._validate_repetition_evidence(repetition, "fixture")
+
+        repetition["joint_advance_validation_by_slot"]["0"][1]["start_tick"] = 10
+        with self.assertRaisesRegex(bench.ContractError, "not continuous"):
+            bench._validate_repetition_evidence(repetition, "fixture")
+
     def test_committed_final_is_not_downgraded_by_pending_cleanup_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
@@ -1014,12 +1031,17 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             return types.SimpleNamespace(**kwargs)
 
     class Stub:
-        def __init__(self, *, fail_advance=False, fail_create=False, stall_destroy=False):
+        def __init__(
+            self, *, fail_advance=False, fail_create=False, stall_destroy=False,
+            repeat_interval=False,
+        ):
             self.destroyed = []
             self.server_created = []
             self.fail_advance = fail_advance
             self.fail_create = fail_create
             self.stall_destroy = stall_destroy
+            self.repeat_interval = repeat_interval
+            self.next_tick_by_session = {}
             self.blocked_create_cancelled = False
             self.blocked_advance_cancelled = False
             self.teardown_started = False
@@ -1054,10 +1076,16 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                     if self.teardown_started:
                         self.mutation_after_teardown = True
             seed = int(request.session_id.rsplit("-", 1)[1])
+            start_tick = 10 if self.repeat_interval else self.next_tick_by_session.get(
+                request.session_id, 10,
+            )
+            end_tick = start_tick + request.ticks
+            if not self.repeat_interval:
+                self.next_tick_by_session[request.session_id] = end_tick
             return types.SimpleNamespace(
                 session_id=request.session_id,
-                start_tick=10,
-                end_tick=10 + request.ticks,
+                start_tick=start_tick,
+                end_tick=end_tick,
                 seed=seed,
                 player_observations=[
                     types.SimpleNamespace(player="Multi0"),
@@ -1116,6 +1144,48 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(stub.destroyed, ["session-2050", "session-2051"])
         self.assertEqual(len(teardown_records), 1)
+
+    async def test_repeated_samples_require_continuous_tick_intervals(self):
+        teardown_records = []
+        result = await bench.run_repetition(
+            stub=self.Stub(),
+            pb2=self.Pb2,
+            message_to_dict=self.as_dict,
+            concurrency=1,
+            ticks=8,
+            samples=2,
+            seed_base=2050,
+            repetition=0,
+            rpc_timeout_s=1,
+            teardown_timeout_s=1,
+            teardown_records=teardown_records,
+        )
+        self.assertEqual(
+            result["joint_advance_validation_by_slot"]["0"],
+            [
+                {"start_tick": 10, "end_tick": 18, "players": ["Multi0", "Multi1"]},
+                {"start_tick": 18, "end_tick": 26, "players": ["Multi0", "Multi1"]},
+            ],
+        )
+        self.assertEqual(result["joint_advance_calls"], 2)
+        self.assertEqual(result["ticks_advanced_validated"], 16)
+
+        repeated = self.Stub(repeat_interval=True)
+        with self.assertRaisesRegex(bench.ContractError, "continuous tick advancement"):
+            await bench.run_repetition(
+                stub=repeated,
+                pb2=self.Pb2,
+                message_to_dict=self.as_dict,
+                concurrency=1,
+                ticks=8,
+                samples=2,
+                seed_base=2050,
+                repetition=0,
+                rpc_timeout_s=1,
+                teardown_timeout_s=1,
+                teardown_records=[],
+            )
+        self.assertEqual(repeated.destroyed, ["session-2050"])
 
     async def test_failed_advance_retires_sibling_before_teardown(self):
         stub = self.Stub(fail_advance=True)
