@@ -450,6 +450,7 @@ class EvidencePublicationTests(unittest.TestCase):
             "teardown_unretired_session_ids": [],
             "create_commit_response_ambiguous": False,
             "cleanup_after_work_cancellation": False,
+            "daemon_identity_lost": False,
             "containment_required": False,
             "cleanup_terminals": ["complete", "complete"],
         }
@@ -491,6 +492,46 @@ class EvidencePublicationTests(unittest.TestCase):
     @staticmethod
     def operation(payload):
         return json.loads(payload)["operation"]
+
+    def test_post_cell_daemon_identity_loss_is_publishable_and_requires_retirement(self):
+        report = json.loads(self.payload())
+        success = report["cells"][0]
+        cell = {
+            "concurrency": success["concurrency"],
+            "ticks_per_joint_advance": success["ticks_per_joint_advance"],
+        }
+        process_rss = success["process_rss_bytes"]
+        payload = {
+            key: value
+            for key, value in success.items()
+            if key not in {
+                "key", "terminal", "concurrency", "ticks_per_joint_advance",
+                "process_rss_bytes",
+            }
+        }
+
+        terminal, failure = bench.bind_post_cell_daemon_identity(
+            "success",
+            payload,
+            cell,
+            process_rss,
+            identity_intact=False,
+        )
+
+        self.assertEqual(terminal, "rpc_error")
+        self.assertEqual(failure["completed_repetitions"], 2)
+        self.assertTrue(failure["daemon_identity_lost"])
+        self.assertTrue(failure["containment_required"])
+        self.assertIn("daemon_retirement_required", failure["cleanup_terminals"])
+        for success_only in (
+            "repetitions", "same_seed_deterministic", "hashes_by_slot",
+            "cell_wall_seconds",
+        ):
+            self.assertNotIn(success_only, failure)
+        bench._validate_cell_evidence(
+            {"key": "c1-t1", "terminal": terminal, **failure},
+            report["parameters"],
+        )
 
     def test_create_only_publication_is_immutable(self):
         with tempfile.TemporaryDirectory() as directory:
