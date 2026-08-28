@@ -871,10 +871,25 @@ class RetryRecoveryTests(unittest.TestCase):
             designated_hostname=hostname,
             openra_dir=Path(directory),
         )
+        cells = sorted(
+            (
+                {
+                    "key": (
+                        f"c{cell['concurrency']}-"
+                        f"t{cell['ticks_per_joint_advance']}"
+                    ),
+                    "terminal": "success",
+                }
+                for cell in bench.build_matrix(
+                    parameters["concurrency"], parameters["tick_batches"],
+                )
+            ),
+            key=lambda cell: cell["key"],
+        )
         report = bench.build_report(
             provenance=provenance,
             parameters=parameters,
-            cells=[{"key": "c1-t1", "terminal": "success"}],
+            cells=cells,
             executed_designated_host=True,
             generated_at_utc="2026-08-27T00:00:00Z",
             command=argv,
