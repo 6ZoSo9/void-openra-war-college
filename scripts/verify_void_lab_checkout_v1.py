@@ -21,7 +21,7 @@ from typing import Callable, Sequence
 
 
 MARKER = "VOID_WAR_COLLEGE_LAB_CHECKOUT_CONTRACT_V1"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 WAR_COLLEGE_FROZEN_COMMIT = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 ENGINE_FROZEN_COMMIT = "1607a7a6501d42a47638393ecef8b22831064932"
 GENERATION = "ad1926569b12466c"
@@ -44,9 +44,19 @@ class Probe:
     engine_tracked_checkout_clean: bool | None
     engine_exact_checkout_clean: bool | None
     engine_ignored_runtime_inputs_absent: bool | None
+    engine_snapshot_stable: bool
     war_college_tracked_checkout_clean: bool
     war_college_exact_checkout_clean: bool
     war_college_ignored_runtime_inputs_absent: bool
+    war_college_snapshot_stable: bool
+
+
+@dataclass(frozen=True)
+class RepositorySnapshot:
+    head: str
+    tracked_checkout_clean: bool
+    exact_checkout_clean: bool
+    ignored_runtime_inputs_absent: bool
 
 
 def _run_git(root: Path, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
@@ -129,6 +139,30 @@ def ignored_runtime_inputs_absent(
     return not any(classifier(path) for path in _ignored_paths(root))
 
 
+def repository_snapshot(
+    root: Path,
+    classifier: Callable[[str], bool],
+    *,
+    ignore_submodules: bool = False,
+) -> RepositorySnapshot:
+    return RepositorySnapshot(
+        head=_run_git(root, ["rev-parse", "HEAD"]).stdout.strip(),
+        tracked_checkout_clean=git_checkout_clean(
+            root,
+            include_untracked=False,
+            ignore_submodules=ignore_submodules,
+        ),
+        exact_checkout_clean=git_checkout_clean(
+            root,
+            include_untracked=True,
+            ignore_submodules=ignore_submodules,
+        ),
+        ignored_runtime_inputs_absent=ignored_runtime_inputs_absent(
+            root, classifier
+        ),
+    )
+
+
 def parse_engine_gitlink(raw: str) -> str:
     lines = [line for line in raw.splitlines() if line.strip()]
     if len(lines) != 1:
@@ -176,62 +210,77 @@ def _is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
     raise VerificationError(f"cannot prove frozen War College ancestry: {detail}")
 
 
-def collect_probe(root: Path) -> Probe:
+def collect_probe(
+    root: Path, *, phase_hook: Callable[[str], None] | None = None
+) -> Probe:
     repository_root = Path(_run_git(root, ["rev-parse", "--show-toplevel"]).stdout.strip())
     if repository_root.resolve() != root.resolve():
         raise VerificationError("--repo-root is not the War College repository root")
 
-    head = _run_git(root, ["rev-parse", "HEAD"]).stdout.strip()
-    gitlink = parse_engine_gitlink(
-        _run_git(root, ["ls-tree", "HEAD", "--", ENGINE_SUBMODULE_PATH]).stdout
+    parent_initial = repository_snapshot(
+        root, war_college_ignored_runtime_path, ignore_submodules=True
     )
-    parent_tracked_clean = git_checkout_clean(
-        root, include_untracked=False, ignore_submodules=True
-    )
-    parent_exact_clean = git_checkout_clean(
-        root,
-        include_untracked=True,
-        ignore_submodules=True,
-    )
-    parent_ignored_runtime_absent = ignored_runtime_inputs_absent(
-        root, war_college_ignored_runtime_path
-    )
+    if phase_hook is not None:
+        phase_hook("after_war_college_initial")
 
     engine_root = root / ENGINE_SUBMODULE_PATH
-    engine_present = (engine_root / ".git").exists()
-    engine_head: str | None = None
-    engine_tracked_clean: bool | None = None
-    engine_exact_clean: bool | None = None
-    engine_ignored_runtime_absent: bool | None = None
-    if engine_present:
-        engine_head = _run_git(
-            engine_root, ["rev-parse", "HEAD"]
-        ).stdout.strip()
-        engine_tracked_clean = git_checkout_clean(
-            engine_root, include_untracked=False
-        )
-        engine_exact_clean = git_checkout_clean(
-            engine_root, include_untracked=True
-        )
-        engine_ignored_runtime_absent = ignored_runtime_inputs_absent(
-            engine_root, engine_ignored_runtime_path
-        )
+    engine_present_initial = (engine_root / ".git").exists()
+    engine_initial = (
+        repository_snapshot(engine_root, engine_ignored_runtime_path)
+        if engine_present_initial
+        else None
+    )
+    if phase_hook is not None:
+        phase_hook("after_engine_initial")
+
+    gitlink = parse_engine_gitlink(
+        _run_git(
+            root,
+            ["ls-tree", parent_initial.head, "--", ENGINE_SUBMODULE_PATH],
+        ).stdout
+    )
+    repository_url = read_engine_repository_url(root)
+    frozen_is_ancestor = _is_ancestor(
+        root, WAR_COLLEGE_FROZEN_COMMIT, parent_initial.head
+    )
+
+    parent_final = repository_snapshot(
+        root, war_college_ignored_runtime_path, ignore_submodules=True
+    )
+    engine_present_final = (engine_root / ".git").exists()
+    engine_final = (
+        repository_snapshot(engine_root, engine_ignored_runtime_path)
+        if engine_present_final
+        else None
+    )
+    engine_snapshot_stable = (
+        engine_present_initial == engine_present_final
+        and engine_initial == engine_final
+    )
 
     return Probe(
-        war_college_head=head,
-        war_college_frozen_is_ancestor=_is_ancestor(
-            root, WAR_COLLEGE_FROZEN_COMMIT, head
-        ),
+        war_college_head=parent_final.head,
+        war_college_frozen_is_ancestor=frozen_is_ancestor,
         engine_gitlink_commit=gitlink,
-        engine_repository_url=read_engine_repository_url(root),
-        engine_checkout_present=engine_present,
-        engine_checkout_head=engine_head,
-        engine_tracked_checkout_clean=engine_tracked_clean,
-        engine_exact_checkout_clean=engine_exact_clean,
-        engine_ignored_runtime_inputs_absent=engine_ignored_runtime_absent,
-        war_college_tracked_checkout_clean=parent_tracked_clean,
-        war_college_exact_checkout_clean=parent_exact_clean,
-        war_college_ignored_runtime_inputs_absent=parent_ignored_runtime_absent,
+        engine_repository_url=repository_url,
+        engine_checkout_present=engine_present_final,
+        engine_checkout_head=engine_final.head if engine_final else None,
+        engine_tracked_checkout_clean=(
+            engine_final.tracked_checkout_clean if engine_final else None
+        ),
+        engine_exact_checkout_clean=(
+            engine_final.exact_checkout_clean if engine_final else None
+        ),
+        engine_ignored_runtime_inputs_absent=(
+            engine_final.ignored_runtime_inputs_absent if engine_final else None
+        ),
+        engine_snapshot_stable=engine_snapshot_stable,
+        war_college_tracked_checkout_clean=parent_final.tracked_checkout_clean,
+        war_college_exact_checkout_clean=parent_final.exact_checkout_clean,
+        war_college_ignored_runtime_inputs_absent=(
+            parent_final.ignored_runtime_inputs_absent
+        ),
+        war_college_snapshot_stable=parent_initial == parent_final,
     )
 
 
@@ -246,6 +295,7 @@ def evaluate_probe(probe: Probe, *, source_only: bool = False) -> dict[str, obje
         "war_college_ignored_runtime_inputs_absent": (
             probe.war_college_ignored_runtime_inputs_absent
         ),
+        "war_college_snapshot_stable": probe.war_college_snapshot_stable,
         "engine_checkout_present": probe.engine_checkout_present,
         "engine_checkout_matches_gitlink": probe.engine_checkout_present
         and probe.engine_checkout_head == probe.engine_gitlink_commit,
@@ -256,6 +306,7 @@ def evaluate_probe(probe: Probe, *, source_only: bool = False) -> dict[str, obje
         "engine_ignored_runtime_inputs_absent": (
             probe.engine_ignored_runtime_inputs_absent is True
         ),
+        "engine_snapshot_stable": probe.engine_snapshot_stable,
     }
     source_keys = (
         "war_college_frozen_is_ancestor",
@@ -266,12 +317,14 @@ def evaluate_probe(probe: Probe, *, source_only: bool = False) -> dict[str, obje
     checkout_keys = source_keys + (
         "war_college_exact_checkout_clean",
         "war_college_ignored_runtime_inputs_absent",
+        "war_college_snapshot_stable",
         "engine_checkout_present",
         "engine_checkout_matches_gitlink",
         "engine_checkout_is_frozen",
         "engine_tracked_checkout_clean",
         "engine_exact_checkout_clean",
         "engine_ignored_runtime_inputs_absent",
+        "engine_snapshot_stable",
     )
     source_green = all(checks[key] for key in source_keys)
     checkout_green = all(checks[key] for key in checkout_keys)
