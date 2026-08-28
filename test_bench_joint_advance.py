@@ -2,11 +2,14 @@
 """Source-only contract tests for bench_joint_advance.py."""
 
 import asyncio
+import base64
 import hashlib
 import io
 import json
 import os
 import socket
+import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -397,9 +400,113 @@ class EvidencePublicationTests(unittest.TestCase):
             self.assertEqual(output.read_bytes(), payload)
             self.assertEqual(result["bytes"], len(payload))
             self.assertEqual(os.stat(output).st_mode & 0o777, 0o400)
+            receipt = bench._commit_receipt_path(output)
+            self.assertTrue(receipt.exists())
+            self.assertEqual(receipt.stat().st_mode & 0o777, 0o400)
+            self.assertEqual(result["commit_receipt"]["path"], str(receipt))
+            self.assertEqual(
+                bench.load_committed_evidence(output, self.operation(payload)),
+                json.loads(payload),
+            )
             with self.assertRaises(FileExistsError):
                 bench.publish_evidence_create_only(output, b"replacement")
             self.assertEqual(output.read_bytes(), payload)
+
+    def test_commit_receipt_is_required_and_content_binds_final_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = self.payload()
+            bench.publish_evidence_create_only(output, payload)
+            receipt = bench._commit_receipt_path(output)
+
+            receipt.unlink()
+            with self.assertRaises(FileNotFoundError):
+                bench.load_committed_evidence(output, self.operation(payload))
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = self.payload()
+            bench.publish_evidence_create_only(output, payload)
+            output.chmod(0o600)
+            output.write_bytes(payload + b"\n")
+            output.chmod(0o400)
+            with self.assertRaises(bench.ContractError):
+                bench.load_committed_evidence(output, self.operation(payload))
+
+        for field, value in (
+            ("schema_version", True),
+            ("evidence_bytes", str(len(payload))),
+            ("state", ["COMMITTED"]),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "evidence.json"
+                bench.publish_evidence_create_only(output, payload)
+                receipt = bench._commit_receipt_path(output)
+                candidate = json.loads(receipt.read_bytes())
+                candidate[field] = value
+                receipt.chmod(0o600)
+                receipt.write_bytes(bench.stable_json(candidate).encode("utf-8"))
+                receipt.chmod(0o400)
+                with self.assertRaisesRegex(bench.ContractError, "scalar types"):
+                    bench.load_committed_evidence(output, self.operation(payload))
+
+    def test_abrupt_termination_before_commit_receipt_is_not_countable(self):
+        payload = self.payload()
+        script = """
+import base64
+import os
+import sys
+from pathlib import Path
+import bench_joint_advance as bench
+
+output = Path(sys.argv[1])
+payload = base64.b64decode(sys.argv[2])
+mode = sys.argv[3]
+reservation = bench.reserve_evidence_namespace(output)
+
+def crash(*_args, **_kwargs):
+    os._exit(91)
+
+if mode == "before-final-link":
+    bench._link_open_inode_create_only = crash
+elif mode == "after-final-link-before-receipt":
+    bench._publish_commit_receipt_create_only = crash
+else:
+    raise AssertionError(mode)
+
+bench.publish_evidence_create_only(output, payload, reservation=reservation)
+"""
+        for mode, final_exists in (
+            ("before-final-link", False),
+            ("after-final-link-before-receipt", True),
+        ):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "evidence.json"
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        "-c",
+                        script,
+                        str(output),
+                        base64.b64encode(payload).decode("ascii"),
+                        mode,
+                    ],
+                    cwd=Path(__file__).parent,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 91)
+                pending = Path(directory) / ".evidence.json.pending"
+                self.assertEqual(pending.read_bytes(), payload)
+                self.assertEqual(output.exists(), final_exists)
+                self.assertFalse(bench._commit_receipt_path(output).exists())
+                # The report schema may be closed, but no consumer may treat it
+                # as committed completion without the independent receipt.
+                self.assertEqual(
+                    bench._validate_recoverable_evidence(pending.read_bytes()),
+                    json.loads(payload),
+                )
+                with self.assertRaises(FileNotFoundError):
+                    bench.load_committed_evidence(output, self.operation(payload))
 
     def test_interrupted_publication_requires_explicit_reconciliation(self):
         with tempfile.TemporaryDirectory() as directory:
