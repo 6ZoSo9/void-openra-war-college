@@ -54,8 +54,11 @@ jobs:
           python - <<'PY'
           from openra_env.analysis._spar_conditional_v2_2_reviewed_identity import REVIEWED_V22_IDENTITY
           from openra_env.analysis.spar_v22_pair_comparison import ATTACK_MOVE_FRACTION_MAXIMUM
+          assert REVIEWED_V22_IDENTITY['source_commit'] == 'c7084294253793b101cc2826726a8cfa0b294c37'
           assert REVIEWED_V22_IDENTITY['candidate_sha256'] == '92f10e87f01a388882f621a09989783d561302cc46583a5344e8108c81d864ab'
-          assert REVIEWED_V22_IDENTITY['wrapper_sha256'] == '3315118023d7c4ec9a5807b8f784763524429331c9aeda2b5c03b23e43e0594b'
+          assert REVIEWED_V22_IDENTITY['policy_sha256'] == 'fce4dfd00b0465e5545dd50d7fee1eadecf182577ba90f85b77b2987e8574f80'
+          assert REVIEWED_V22_IDENTITY['session_sha256'] == '7d11da6f5b485a20380485edd8c9d589f50be70b23f6bc4426a3c3d2e532d890'
+          assert REVIEWED_V22_IDENTITY['wrapper_sha256'] == '72622f36a8374b277529a294f4bd42160f2690d69306f67ef4863d6bede71097'
           assert ATTACK_MOVE_FRACTION_MAXIMUM == 0.75
           print('CONDITIONAL_ENGAGEMENT_V2_2_PAIR_GATE_GREEN')
           PY
