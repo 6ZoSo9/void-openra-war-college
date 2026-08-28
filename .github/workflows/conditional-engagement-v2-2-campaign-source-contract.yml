@@ -7,14 +7,6 @@ on:
       - openra_env/analysis/spar_v22_matrix.py
       - tests/test_spar_v22_campaign.py
       - .github/workflows/conditional-engagement-v2-2-campaign-source-contract.yml
-  push:
-    branches:
-      - ren/v2-2-validation-campaign-v1
-    paths:
-      - openra_env/analysis/spar_v22_campaign.py
-      - openra_env/analysis/spar_v22_matrix.py
-      - tests/test_spar_v22_campaign.py
-      - .github/workflows/conditional-engagement-v2-2-campaign-source-contract.yml
 
 permissions:
   contents: read
