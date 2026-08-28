@@ -64,6 +64,43 @@ class InputContractTests(unittest.TestCase):
         with self.assertRaisesRegex(bench.ContractError, "runtime integer domain"):
             bench.normalized_args(rejected)
 
+    def test_workload_profiles_are_self_describing_and_plan_is_explicit(self):
+        help_result = subprocess.run(
+            [sys.executable, str(Path(bench.__file__)), "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        help_text = " ".join(help_result.stdout.split())
+        self.assertIn("noop_control sends no player commands", help_text)
+        self.assertIn("aggregate order-pressure only", help_text)
+        self.assertIn("not action-specific application", help_text)
+        self.assertIn("representative tactical training", help_text)
+
+        plan_result = subprocess.run(
+            [
+                sys.executable, str(Path(bench.__file__)), "plan",
+                "--engine-sha", bench.FROZEN_ENGINE_SHA,
+                "--war-college-sha", bench.FROZEN_WAR_COLLEGE_SHA,
+                "--benchmark-source-sha", BENCHMARK_SOURCE_SHA,
+                "--generation", bench.GENERATION,
+                "--concurrency", "1",
+                "--tick-batches", "1",
+                "--samples", "1",
+                "--repetitions", "2",
+                "--workload-profile", "stop_owned_unit",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(plan_result.returncode, 0, plan_result.stderr)
+        plan = json.loads(plan_result.stdout)
+        self.assertEqual(plan["parameters"]["workload_profile"], "stop_owned_unit")
+        flag_index = plan["command"].index("--workload-profile")
+        self.assertEqual(plan["command"][flag_index + 1], "stop_owned_unit")
+
 
 class StatisticsTests(unittest.TestCase):
     def test_nearest_rank(self):

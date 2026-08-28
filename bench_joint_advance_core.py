@@ -2810,7 +2810,17 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--tick-batches", default="1,8,32,128")
     result.add_argument("--samples", default="5")
     result.add_argument("--repetitions", default="2")
-    result.add_argument("--workload-profile", choices=WORKLOAD_PROFILES, default="noop_control")
+    result.add_argument(
+        "--workload-profile",
+        choices=WORKLOAD_PROFILES,
+        default="noop_control",
+        help=(
+            "experiment contract: noop_control sends no player commands and measures "
+            "JointAdvance control traffic; stop_owned_unit submits one STOP per player "
+            "and proves aggregate order-pressure only, not action-specific application "
+            "or representative tactical training (default: noop_control)"
+        ),
+    )
     result.add_argument("--seed", default="2050")
     result.add_argument("--rpc-timeout-s", default="60")
     result.add_argument("--cell-timeout-s", default="900")
