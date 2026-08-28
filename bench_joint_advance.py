@@ -726,6 +726,415 @@ def _link_open_inode_create_only(
         raise OSError(error_number, os.strerror(error_number), destination_name)
 
 
+def _require_exact_fields(value: Any, fields: set[str], label: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ContractError(f"{label} fields are not exact")
+    return value
+
+
+def _require_number(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ContractError(f"{label} must be an exact finite number")
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise ContractError(f"{label} must be an exact finite nonnegative number")
+    return result
+
+
+def _require_string_list(value: Any, label: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ContractError(f"{label} must be an exact string list")
+    return value
+
+
+def _validate_latency_evidence(value: Any, label: str) -> None:
+    if not isinstance(value, dict) or isinstance(value.get("count"), bool) or not isinstance(
+        value.get("count"), int
+    ) or value["count"] < 0:
+        raise ContractError(f"{label} count is invalid")
+    if value["count"] == 0:
+        _require_exact_fields(value, {"count"}, label)
+        return
+    _require_exact_fields(value, {"count", "min_ms", "p50_ms", "p95_ms", "max_ms"}, label)
+    samples = [
+        _require_number(value[field], f"{label}.{field}")
+        for field in ("min_ms", "p50_ms", "p95_ms", "max_ms")
+    ]
+    if samples != sorted(samples):
+        raise ContractError(f"{label} percentile ordering is invalid")
+
+
+def _validate_teardown_evidence(value: Any, label: str) -> None:
+    fields = {
+        "failures", "latency", "latency_samples_ms", "attempted_session_ids",
+        "destroyed_session_ids", "unretired_session_ids", "teardown_total_deadline_s",
+        "cleanup_terminal", "create_commit_response_ambiguous",
+        "cleanup_after_work_cancellation", "containment_required",
+    }
+    value = _require_exact_fields(value, fields, label)
+    failures = _require_string_list(value["failures"], f"{label}.failures")
+    attempted = _require_string_list(value["attempted_session_ids"], f"{label}.attempted")
+    destroyed = _require_string_list(value["destroyed_session_ids"], f"{label}.destroyed")
+    unretired = _require_string_list(value["unretired_session_ids"], f"{label}.unretired")
+    if len(attempted) != len(set(attempted)) or any(item not in attempted for item in destroyed):
+        raise ContractError(f"{label} session accounting is invalid")
+    if unretired != [item for item in attempted if item not in set(destroyed)]:
+        raise ContractError(f"{label} unretired-session accounting is invalid")
+    samples = value["latency_samples_ms"]
+    if not isinstance(samples, list):
+        raise ContractError(f"{label} latency samples are invalid")
+    for sample in samples:
+        _require_number(sample, f"{label}.latency_samples_ms")
+    _validate_latency_evidence(value["latency"], f"{label}.latency")
+    if value["latency"]["count"] != len(samples) or len(destroyed) != len(samples):
+        raise ContractError(f"{label} latency/session accounting is inconsistent")
+    _require_number(value["teardown_total_deadline_s"], f"{label}.deadline")
+    for field in (
+        "create_commit_response_ambiguous", "cleanup_after_work_cancellation",
+        "containment_required",
+    ):
+        if not isinstance(value[field], bool):
+            raise ContractError(f"{label}.{field} must be boolean")
+    expected_containment = bool(value["create_commit_response_ambiguous"] or unretired)
+    if value["containment_required"] != expected_containment:
+        raise ContractError(f"{label} containment accounting is inconsistent")
+    expected_terminal = "daemon_retirement_required" if expected_containment else "complete"
+    if value["cleanup_terminal"] != expected_terminal:
+        raise ContractError(f"{label} cleanup terminal is inconsistent")
+    if failures and not unretired:
+        raise ContractError(f"{label} failures require an unretired session")
+
+
+def _validate_repetition_evidence(value: Any, label: str) -> None:
+    fields = {
+        "repetition", "seed_by_slot", "session_id_by_slot", "create_latency",
+        "joint_advance_latency", "joint_advance_calls", "ticks_advanced_validated",
+        "validated_ticks_per_second", "canonical_hash_by_slot",
+        "joint_advance_validation_by_slot", "teardown", "wall_seconds",
+    }
+    value = _require_exact_fields(value, fields, label)
+    for field in ("repetition", "joint_advance_calls", "ticks_advanced_validated"):
+        if isinstance(value[field], bool) or not isinstance(value[field], int) or value[field] < 0:
+            raise ContractError(f"{label}.{field} must be an exact nonnegative integer")
+    _require_number(value["validated_ticks_per_second"], f"{label}.throughput")
+    _require_number(value["wall_seconds"], f"{label}.wall_seconds")
+    _validate_latency_evidence(value["create_latency"], f"{label}.create_latency")
+    _validate_latency_evidence(value["joint_advance_latency"], f"{label}.advance_latency")
+    if value["joint_advance_latency"]["count"] != value["joint_advance_calls"]:
+        raise ContractError(f"{label} call/latency accounting is inconsistent")
+    if not isinstance(value["joint_advance_validation_by_slot"], dict):
+        raise ContractError(f"{label} validation-by-slot must be an exact object")
+    for field in ("seed_by_slot", "session_id_by_slot", "canonical_hash_by_slot"):
+        if not isinstance(value[field], dict):
+            raise ContractError(f"{label}.{field} must be an exact object")
+    slots = sorted(value["seed_by_slot"])
+    if slots != sorted(value["session_id_by_slot"]) or slots != sorted(
+        value["canonical_hash_by_slot"]
+    ) or slots != sorted(value["joint_advance_validation_by_slot"]):
+        raise ContractError(f"{label} slot evidence is incomplete")
+    if len(set(value["session_id_by_slot"].values())) != len(slots):
+        raise ContractError(f"{label} session ownership is not unique")
+    for slot in slots:
+        if not isinstance(slot, str) or not slot.isdigit():
+            raise ContractError(f"{label} slot key is invalid")
+        if isinstance(value["seed_by_slot"][slot], bool) or not isinstance(
+            value["seed_by_slot"][slot], int
+        ):
+            raise ContractError(f"{label} seed is not an exact integer")
+        if not isinstance(value["session_id_by_slot"][slot], str) or not value[
+            "session_id_by_slot"
+        ][slot]:
+            raise ContractError(f"{label} session ID is invalid")
+        if not isinstance(value["canonical_hash_by_slot"][slot], str) or not re.fullmatch(
+            r"[0-9a-f]{64}", value["canonical_hash_by_slot"][slot]
+        ):
+            raise ContractError(f"{label} canonical hash is invalid")
+        validation = _require_exact_fields(
+            value["joint_advance_validation_by_slot"][slot],
+            {"start_tick", "end_tick", "players"}, f"{label}.validation",
+        )
+        if any(
+            isinstance(validation[field], bool) or not isinstance(validation[field], int)
+            for field in ("start_tick", "end_tick")
+        ) or validation["end_tick"] <= validation["start_tick"]:
+            raise ContractError(f"{label} validated tick advancement is invalid")
+        if validation["players"] != ["Multi0", "Multi1"]:
+            raise ContractError(f"{label} validated perspectives are invalid")
+    _validate_teardown_evidence(value["teardown"], f"{label}.teardown")
+
+
+def _validate_parameters_evidence(parameters: Any) -> dict[str, Any]:
+    fields = {
+        "concurrency", "tick_batches", "samples", "repetitions", "seed",
+        "rpc_timeout_s", "cell_timeout_s", "teardown_timeout_s", "ready_timeout_s",
+        "port", "map_name", "bots",
+    }
+    parameters = _require_exact_fields(parameters, fields, "pending evidence parameters")
+    concurrency = parameters["concurrency"]
+    tick_batches = parameters["tick_batches"]
+    if not isinstance(concurrency, list) or not concurrency or any(
+        isinstance(value, bool) or not isinstance(value, int) or value not in ALLOWED_CONCURRENCY
+        for value in concurrency
+    ) or len(concurrency) != len(set(concurrency)):
+        raise ContractError("pending evidence concurrency matrix is invalid")
+    if not isinstance(tick_batches, list) or not tick_batches or any(
+        isinstance(value, bool) or not isinstance(value, int) or value <= 0 or value > 10_000
+        for value in tick_batches
+    ) or len(tick_batches) != len(set(tick_batches)):
+        raise ContractError("pending evidence tick matrix is invalid")
+    for field in (
+        "samples", "repetitions", "seed", "rpc_timeout_s", "cell_timeout_s",
+        "teardown_timeout_s", "ready_timeout_s", "port",
+    ):
+        if isinstance(parameters[field], bool) or not isinstance(parameters[field], int) or parameters[
+            field
+        ] <= 0:
+            raise ContractError(f"pending evidence parameter {field} is invalid")
+    if parameters["repetitions"] < 2 or parameters["map_name"] != MAP_NAME or parameters[
+        "bots"
+    ] != BOTS:
+        raise ContractError("pending evidence fixed benchmark parameters are invalid")
+    build_matrix(tuple(concurrency), tuple(tick_batches))
+    return parameters
+
+
+def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) -> None:
+    terminal = cell.get("terminal")
+    if terminal not in ALLOWED_TERMINALS:
+        raise ContractError("pending evidence contains an invalid matrix-cell terminal")
+    if terminal == "not_executed":
+        _require_exact_fields(
+            cell,
+            {"key", "terminal", "concurrency", "ticks_per_joint_advance", "blocked_by",
+             "reason", "process_rss_bytes"}, "not-executed matrix cell",
+        )
+        if not isinstance(cell["blocked_by"], str) or not isinstance(cell["reason"], str):
+            raise ContractError("not-executed matrix-cell reason is invalid")
+        if cell["process_rss_bytes"] is not None:
+            raise ContractError("not-executed matrix cell must not claim RSS evidence")
+        return
+    common = {
+        "key", "terminal", "concurrency", "ticks_per_joint_advance", "process_rss_bytes",
+        "teardown_failures", "teardown_latency", "teardown_attempted_session_ids",
+        "teardown_destroyed_session_ids", "teardown_unretired_session_ids",
+        "create_commit_response_ambiguous", "cleanup_after_work_cancellation",
+        "containment_required", "cleanup_terminals",
+    }
+    success = common | {
+        "repetitions", "same_seed_deterministic", "hashes_by_slot", "cell_wall_seconds",
+    }
+    failure = common | {"error", "completed_repetitions"}
+    if terminal == "rpc_error":
+        failure |= {"error_type"}
+    _require_exact_fields(
+        cell, success if terminal in {"success", "teardown_error"} else failure,
+        "matrix cell",
+    )
+    for field in ("concurrency", "ticks_per_joint_advance"):
+        if isinstance(cell[field], bool) or not isinstance(cell[field], int) or cell[field] <= 0:
+            raise ContractError(f"matrix cell {field} is invalid")
+    rss = _require_exact_fields(
+        cell["process_rss_bytes"], {"before", "peak", "after"}, "matrix-cell RSS",
+    )
+    for value in rss.values():
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+            raise ContractError("matrix-cell RSS scalar is invalid")
+    _require_string_list(cell["teardown_failures"], "matrix-cell teardown failures")
+    _require_string_list(cell["teardown_attempted_session_ids"], "matrix-cell attempted")
+    _require_string_list(cell["teardown_destroyed_session_ids"], "matrix-cell destroyed")
+    unretired = _require_string_list(cell["teardown_unretired_session_ids"], "matrix-cell unretired")
+    terminals = _require_string_list(cell["cleanup_terminals"], "matrix-cell cleanup terminals")
+    _validate_latency_evidence(cell["teardown_latency"], "matrix-cell teardown latency")
+    for field in (
+        "create_commit_response_ambiguous", "cleanup_after_work_cancellation",
+        "containment_required",
+    ):
+        if not isinstance(cell[field], bool):
+            raise ContractError(f"matrix-cell {field} must be boolean")
+    if cell["containment_required"] != bool(
+        cell["create_commit_response_ambiguous"] or unretired
+    ) or cell["containment_required"] != ("daemon_retirement_required" in terminals):
+        raise ContractError("matrix-cell containment accounting is inconsistent")
+    if terminal in {"success", "teardown_error"}:
+        if not isinstance(cell["repetitions"], list) or not cell["repetitions"]:
+            raise ContractError("completed matrix cell lacks repetition evidence")
+        for index, repetition in enumerate(cell["repetitions"]):
+            _validate_repetition_evidence(repetition, f"matrix-cell repetition {index}")
+        if len(cell["repetitions"]) != parameters["repetitions"] or [
+            repetition["repetition"] for repetition in cell["repetitions"]
+        ] != list(range(parameters["repetitions"])):
+            raise ContractError("matrix-cell repetition coverage is incomplete")
+        for repetition in cell["repetitions"]:
+            expected_slots = [str(slot) for slot in range(cell["concurrency"])]
+            if sorted(repetition["seed_by_slot"]) != expected_slots:
+                raise ContractError("matrix-cell concurrency/slot coverage is inconsistent")
+            if repetition["joint_advance_calls"] != parameters["samples"] * cell[
+                "concurrency"
+            ] or repetition["ticks_advanced_validated"] != repetition[
+                "joint_advance_calls"
+            ] * cell["ticks_per_joint_advance"]:
+                raise ContractError("matrix-cell advancement accounting is inconsistent")
+            for validation in repetition["joint_advance_validation_by_slot"].values():
+                if validation["end_tick"] - validation["start_tick"] != cell[
+                    "ticks_per_joint_advance"
+                ]:
+                    raise ContractError("matrix-cell validated tick delta is inconsistent")
+        if not isinstance(cell["same_seed_deterministic"], bool) or not isinstance(
+            cell["hashes_by_slot"], dict
+        ):
+            raise ContractError("matrix-cell determinism evidence is invalid")
+        expected_hash_series = {
+            slot: [repetition["canonical_hash_by_slot"][slot] for repetition in cell["repetitions"]]
+            for slot in sorted(cell["repetitions"][0]["canonical_hash_by_slot"])
+        }
+        if cell["hashes_by_slot"] != expected_hash_series or cell[
+            "same_seed_deterministic"
+        ] != all(len(set(series)) == 1 for series in expected_hash_series.values()):
+            raise ContractError("matrix-cell deterministic hash accounting is inconsistent")
+        records = [repetition["teardown"] for repetition in cell["repetitions"]]
+        if cell["teardown_failures"] != [
+            failure for record in records for failure in record["failures"]
+        ] or cell["teardown_attempted_session_ids"] != [
+            session for record in records for session in record["attempted_session_ids"]
+        ] or cell["teardown_destroyed_session_ids"] != [
+            session for record in records for session in record["destroyed_session_ids"]
+        ] or cell["teardown_unretired_session_ids"] != [
+            session for record in records for session in record["unretired_session_ids"]
+        ] or cell["cleanup_terminals"] != [record["cleanup_terminal"] for record in records]:
+            raise ContractError("matrix-cell teardown aggregation is inconsistent")
+        teardown_samples = [
+            sample for record in records for sample in record["latency_samples_ms"]
+        ]
+        if cell["teardown_latency"] != latency_summary(teardown_samples):
+            raise ContractError("matrix-cell teardown latency aggregation is inconsistent")
+        _require_number(cell["cell_wall_seconds"], "matrix-cell wall time")
+        if terminal == "success" and (
+            not cell["same_seed_deterministic"] or cell["teardown_failures"]
+            or cell["containment_required"]
+        ):
+            raise ContractError("successful matrix cell contradicts its evidence")
+        if terminal == "teardown_error" and not (
+            cell["teardown_failures"] or cell["containment_required"]
+        ):
+            raise ContractError("teardown-error matrix cell lacks cleanup evidence")
+    else:
+        if isinstance(cell["completed_repetitions"], bool) or not isinstance(
+            cell["completed_repetitions"], int
+        ) or cell["completed_repetitions"] < 0 or not isinstance(cell["error"], str):
+            raise ContractError("failed matrix-cell evidence is invalid")
+        if terminal == "rpc_error" and not isinstance(cell["error_type"], str):
+            raise ContractError("RPC-error matrix-cell type is invalid")
+
+
+def _validate_host_and_run(host: Any, run: Any, descriptor: dict[str, Any]) -> None:
+    host = _require_exact_fields(
+        host, {"hostname", "designated_hostname", "platform", "python", "cpu_count"},
+        "pending evidence host",
+    )
+    for field in ("hostname", "designated_hostname", "platform", "python"):
+        if not isinstance(host[field], str) or not host[field]:
+            raise ContractError(f"pending evidence host {field} is invalid")
+    if host["hostname"] != descriptor.get("designated_hostname") or host[
+        "designated_hostname"
+    ] != descriptor.get("designated_hostname"):
+        raise ContractError("pending evidence host does not match the designated invocation")
+    if host["cpu_count"] is not None and (
+        isinstance(host["cpu_count"], bool) or not isinstance(host["cpu_count"], int)
+        or host["cpu_count"] <= 0
+    ):
+        raise ContractError("pending evidence CPU count is invalid")
+
+    required = {
+        "terminal", "stage", "error_type", "error", "listener_identity",
+        "runtime_provenance", "daemon_log", "cleanup", "containment",
+    }
+    allowed = required | {"daemon_returncode", "publication_terminal_persistence_error"}
+    if not isinstance(run, dict) or not required.issubset(run) or not set(run).issubset(allowed):
+        raise ContractError("pending evidence run fields are not exact")
+    if run["terminal"] not in RUN_TERMINALS or not isinstance(run["stage"], str):
+        raise ContractError("pending evidence run terminal is invalid")
+    for field in ("error_type", "error"):
+        if run[field] is not None and not isinstance(run[field], str):
+            raise ContractError(f"pending evidence run {field} is invalid")
+    cleanup = _require_exact_fields(run["cleanup"], {"failures"}, "runtime cleanup")
+    _require_string_list(cleanup["failures"], "runtime cleanup failures")
+    containment = _require_exact_fields(
+        run["containment"], {"required_by_cell", "boundary", "daemon_retired"},
+        "runtime containment",
+    )
+    if not isinstance(containment["required_by_cell"], bool) or not isinstance(
+        containment["daemon_retired"], bool
+    ) or containment["boundary"] not in {"not_required", "disposable_daemon_retirement"}:
+        raise ContractError("runtime containment scalars are invalid")
+    if containment["required_by_cell"] != (
+        containment["boundary"] == "disposable_daemon_retirement"
+    ):
+        raise ContractError("runtime containment boundary is inconsistent")
+    listener = run["listener_identity"]
+    if listener is not None:
+        listener = _require_exact_fields(
+            listener, {"pid", "port", "socket_inode", "proc_table"},
+            "runtime listener identity",
+        )
+        if any(
+            isinstance(listener[field], bool) or not isinstance(listener[field], int)
+            for field in ("pid", "port")
+        ) or not isinstance(listener["socket_inode"], str) or listener[
+            "proc_table"
+        ] not in {"tcp", "tcp6"}:
+            raise ContractError("runtime listener identity scalars are invalid")
+    provenance = run["runtime_provenance"]
+    if provenance is not None:
+        provenance = _require_exact_fields(
+            provenance,
+            {"benchmark_source_git_head", "benchmark_source_sha256",
+             "frozen_war_college_comparison_sha", "engine_git_head",
+             "openra_binary_sha256", "dotnet_version", "dotnet_version_sha256"},
+            "runtime provenance",
+        )
+        for field, pattern in (
+            ("benchmark_source_git_head", r"[0-9a-f]{40}"),
+            ("frozen_war_college_comparison_sha", r"[0-9a-f]{40}"),
+            ("engine_git_head", r"[0-9a-f]{40}"),
+            ("benchmark_source_sha256", r"[0-9a-f]{64}"),
+            ("openra_binary_sha256", r"[0-9a-f]{64}"),
+            ("dotnet_version_sha256", r"[0-9a-f]{64}"),
+        ):
+            if not isinstance(provenance[field], str) or not re.fullmatch(pattern, provenance[field]):
+                raise ContractError(f"runtime provenance {field} is invalid")
+        if not isinstance(provenance["dotnet_version"], str) or not provenance["dotnet_version"]:
+            raise ContractError("runtime dotnet identity is invalid")
+    log = run["daemon_log"]
+    if log is not None:
+        log = _require_exact_fields(
+            log,
+            {"total_bytes", "sha256", "tail_utf8", "tail_bytes", "drain_error",
+             "drain_thread_retired"}, "daemon log",
+        )
+        if any(
+            isinstance(log[field], bool) or not isinstance(log[field], int) or log[field] < 0
+            for field in ("total_bytes", "tail_bytes")
+        ) or log["tail_bytes"] > min(log["total_bytes"], MAX_DAEMON_LOG_TAIL_BYTES):
+            raise ContractError("daemon log byte accounting is invalid")
+        if not isinstance(log["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", log["sha256"]):
+            raise ContractError("daemon log digest is invalid")
+        if not isinstance(log["tail_utf8"], str) or (
+            log["drain_error"] is not None and not isinstance(log["drain_error"], str)
+        ) or not isinstance(log["drain_thread_retired"], bool):
+            raise ContractError("daemon log terminal is invalid")
+    if "daemon_returncode" in run and (
+        isinstance(run["daemon_returncode"], bool) or not isinstance(run["daemon_returncode"], int)
+    ):
+        raise ContractError("daemon return code is invalid")
+    if run["terminal"] == "completed" and (
+        run["stage"] != "matrix_complete" or run["error"] is not None
+        or run["error_type"] is not None or listener is None or provenance is None
+        or log is None or not containment["daemon_retired"] or cleanup["failures"]
+        or "daemon_returncode" not in run
+    ):
+        raise ContractError("completed runtime terminal lacks complete runtime provenance")
+
+
 def _validate_recoverable_evidence(
     payload: bytes,
     expected_operation: dict[str, Any] | None = None,
@@ -766,9 +1175,7 @@ def _validate_recoverable_evidence(
     if provenance != validated_provenance:
         raise ContractError("pending evidence provenance fields are not exact")
 
-    parameters = report["parameters"]
-    if not isinstance(parameters, dict):
-        raise ContractError("pending evidence parameters are absent")
+    parameters = _validate_parameters_evidence(report["parameters"])
     descriptor = operation["descriptor"]
     if descriptor.get("provenance") != provenance:
         raise ContractError("pending evidence operation does not bind report provenance")
@@ -781,32 +1188,18 @@ def _validate_recoverable_evidence(
     ):
         raise ContractError("pending evidence command is invalid")
     host = report["host"]
-    if not isinstance(host, dict) or not isinstance(host.get("hostname"), str):
-        raise ContractError("pending evidence host provenance is invalid")
-    if host["hostname"] != descriptor.get("designated_hostname"):
-        raise ContractError("pending evidence host does not match the designated invocation")
     if not isinstance(report["generated_at_utc"], str) or not report["generated_at_utc"]:
         raise ContractError("pending evidence generation time is invalid")
 
     run = report["run"]
-    if not isinstance(run, dict) or run.get("terminal") not in RUN_TERMINALS:
-        raise ContractError("pending evidence run terminal is invalid")
+    _validate_host_and_run(host, run, descriptor)
     cells = report["cells"]
     if not isinstance(cells, list) or not all(isinstance(cell, dict) for cell in cells):
         raise ContractError("pending evidence matrix cells are invalid")
     for cell in cells:
-        if cell.get("terminal") not in ALLOWED_TERMINALS:
-            raise ContractError("pending evidence contains an invalid matrix-cell terminal")
-    concurrency = parameters.get("concurrency")
-    tick_batches = parameters.get("tick_batches")
-    if not isinstance(concurrency, list) or not all(
-        isinstance(value, int) and not isinstance(value, bool) for value in concurrency
-    ):
-        raise ContractError("pending evidence concurrency matrix is invalid")
-    if not isinstance(tick_batches, list) or not all(
-        isinstance(value, int) and not isinstance(value, bool) for value in tick_batches
-    ):
-        raise ContractError("pending evidence tick matrix is invalid")
+        _validate_cell_evidence(cell, parameters)
+    concurrency = parameters["concurrency"]
+    tick_batches = parameters["tick_batches"]
     planned = build_matrix(tuple(concurrency), tuple(tick_batches))
     expected_cell_keys = sorted(
         f"c{cell['concurrency']}-t{cell['ticks_per_joint_advance']}"
@@ -894,18 +1287,28 @@ def _validate_commit_receipt(
 def load_committed_evidence(
     path: Path,
     expected_operation: dict[str, Any] | None = None,
+    *,
+    trusted_producer_validator: Any | None = None,
 ) -> dict[str, Any]:
     """Load countable evidence only after its separate durable commit point.
 
-    A schema-valid pending or final report is not canonical completion authority
-    by itself. Consumers must require the create-only receipt that content-binds
-    the exact final report after its directory entry is durable.
+    A schema-valid pending or final report and its locally self-issued commit
+    receipt prove publication durability, not designated-host producer identity.
+    Consumers must additionally supply a separately trusted validator. The
+    callback receives the closed report and receipt and must return exact True.
     """
     path = Path(os.path.abspath(os.fspath(path)))
     evidence_payload = _read_regular_read_only(path)
     report = _validate_recoverable_evidence(evidence_payload, expected_operation)
     receipt_payload = _read_regular_read_only(_commit_receipt_path(path))
-    _validate_commit_receipt(receipt_payload, path, evidence_payload)
+    receipt = _validate_commit_receipt(receipt_payload, path, evidence_payload)
+    if not callable(trusted_producer_validator):
+        raise ContractError(
+            "committed evidence is not countable without separately trusted "
+            "producer authentication"
+        )
+    if trusted_producer_validator(report, receipt) is not True:
+        raise ContractError("trusted producer authentication rejected committed evidence")
     return report
 
 
