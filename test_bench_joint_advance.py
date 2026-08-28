@@ -420,6 +420,36 @@ class EvidencePublicationTests(unittest.TestCase):
             self.assertEqual(output.read_bytes(), payload)
             self.assertFalse(pending[0].exists())
 
+    def test_recovery_requires_closed_canonical_report_schema(self):
+        payload = self.payload()
+        report = json.loads(payload)
+        variants = {}
+
+        for field in ("cells", "host"):
+            candidate = dict(report)
+            candidate.pop(field)
+            variants[f"missing-{field}"] = bench.stable_json(candidate).encode("utf-8")
+
+        candidate = dict(report)
+        candidate["unexpected"] = True
+        variants["extra-field"] = bench.stable_json(candidate).encode("utf-8")
+
+        candidate = dict(report)
+        candidate["cells"] = []
+        variants["incomplete-completed-matrix"] = bench.stable_json(candidate).encode("utf-8")
+        variants["noncanonical-json"] = json.dumps(report, indent=2).encode("utf-8")
+
+        for label, candidate_payload in variants.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "evidence.json"
+                pending = Path(directory) / ".evidence.json.pending"
+                pending.write_bytes(candidate_payload)
+                pending.chmod(0o400)
+                with self.assertRaises(bench.ContractError):
+                    bench.recover_owned_evidence(output, self.operation(payload))
+                self.assertFalse(output.exists())
+                self.assertEqual(pending.read_bytes(), candidate_payload)
+
     def test_post_link_directory_fsync_failure_is_recoverable(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"

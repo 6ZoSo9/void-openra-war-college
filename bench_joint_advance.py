@@ -695,23 +695,105 @@ def _validate_recoverable_evidence(
         raise ContractError(f"pending evidence is not canonical JSON: {error}") from error
     if not isinstance(report, dict) or report.get("marker") != MARKER:
         raise ContractError("pending evidence marker mismatch")
-    if report.get("schema_version") != SCHEMA_VERSION:
+    try:
+        canonical_payload = stable_json(report).encode("utf-8")
+    except (TypeError, ValueError) as error:
+        raise ContractError(f"pending evidence is not stable canonical JSON: {error}") from error
+    if canonical_payload != payload:
+        raise ContractError("pending evidence is not stable canonical JSON")
+    expected_fields = {
+        "marker", "schema_version", "runtime_evidence", "generated_at_utc",
+        "provenance", "command", "host", "run", "parameters", "operation", "cells",
+    }
+    if set(report) != expected_fields:
+        raise ContractError("pending evidence report fields are not exact")
+    if report["schema_version"] != SCHEMA_VERSION:
         raise ContractError("pending evidence schema mismatch")
-    if report.get("runtime_evidence") != "EXECUTED":
+    if report["runtime_evidence"] != "EXECUTED":
         raise ContractError("pending evidence is not an executed runtime attempt")
-    validate_operation(report.get("operation"), expected_operation)
-    provenance = report.get("provenance")
+
+    operation = validate_operation(report["operation"], expected_operation)
+    provenance = report["provenance"]
     if not isinstance(provenance, dict):
         raise ContractError("pending evidence provenance is absent")
-    validate_provenance(
+    validated_provenance = validate_provenance(
         provenance.get("engine_sha", ""),
         provenance.get("war_college_sha", ""),
         provenance.get("benchmark_source_sha", ""),
         provenance.get("generation", ""),
     )
-    run = report.get("run")
+    if provenance != validated_provenance:
+        raise ContractError("pending evidence provenance fields are not exact")
+
+    parameters = report["parameters"]
+    if not isinstance(parameters, dict):
+        raise ContractError("pending evidence parameters are absent")
+    descriptor = operation["descriptor"]
+    if descriptor.get("provenance") != provenance:
+        raise ContractError("pending evidence operation does not bind report provenance")
+    if descriptor.get("parameters") != parameters:
+        raise ContractError("pending evidence operation does not bind report parameters")
+
+    command = report["command"]
+    if not isinstance(command, list) or not command or not all(
+        isinstance(argument, str) for argument in command
+    ):
+        raise ContractError("pending evidence command is invalid")
+    host = report["host"]
+    if not isinstance(host, dict) or not isinstance(host.get("hostname"), str):
+        raise ContractError("pending evidence host provenance is invalid")
+    if host["hostname"] != descriptor.get("designated_hostname"):
+        raise ContractError("pending evidence host does not match the designated invocation")
+    if not isinstance(report["generated_at_utc"], str) or not report["generated_at_utc"]:
+        raise ContractError("pending evidence generation time is invalid")
+
+    run = report["run"]
     if not isinstance(run, dict) or run.get("terminal") not in RUN_TERMINALS:
         raise ContractError("pending evidence run terminal is invalid")
+    cells = report["cells"]
+    if not isinstance(cells, list) or not all(isinstance(cell, dict) for cell in cells):
+        raise ContractError("pending evidence matrix cells are invalid")
+    for cell in cells:
+        if cell.get("terminal") not in ALLOWED_TERMINALS:
+            raise ContractError("pending evidence contains an invalid matrix-cell terminal")
+    concurrency = parameters.get("concurrency")
+    tick_batches = parameters.get("tick_batches")
+    if not isinstance(concurrency, list) or not all(
+        isinstance(value, int) and not isinstance(value, bool) for value in concurrency
+    ):
+        raise ContractError("pending evidence concurrency matrix is invalid")
+    if not isinstance(tick_batches, list) or not all(
+        isinstance(value, int) and not isinstance(value, bool) for value in tick_batches
+    ):
+        raise ContractError("pending evidence tick matrix is invalid")
+    planned = build_matrix(tuple(concurrency), tuple(tick_batches))
+    expected_cell_keys = sorted(
+        f"c{cell['concurrency']}-t{cell['ticks_per_joint_advance']}"
+        for cell in planned
+    )
+    actual_cell_keys = [cell.get("key") for cell in cells]
+    if not all(isinstance(key, str) for key in actual_cell_keys):
+        raise ContractError("pending evidence matrix-cell keys are invalid")
+    if len(actual_cell_keys) != len(set(actual_cell_keys)):
+        raise ContractError("pending evidence matrix-cell keys are not unique")
+    if any(key not in expected_cell_keys for key in actual_cell_keys):
+        raise ContractError("pending evidence contains an unplanned matrix cell")
+    if run["terminal"] == "completed" and actual_cell_keys != expected_cell_keys:
+        raise ContractError("completed pending evidence does not close the planned matrix")
+
+    rebuilt = build_report(
+        provenance=provenance,
+        parameters=parameters,
+        cells=cells,
+        executed_designated_host=True,
+        generated_at_utc=report["generated_at_utc"],
+        command=command,
+        run=run,
+        host=host,
+        operation=operation,
+    )
+    if rebuilt != report:
+        raise ContractError("pending evidence report does not match the closed schema")
     return report
 
 
