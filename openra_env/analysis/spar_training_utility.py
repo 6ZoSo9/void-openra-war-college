@@ -13,6 +13,7 @@ from typing import Any
 from ._spar_analyzer import analyze_trajectory as _analyze_trajectory_base
 from ._spar_conditional_v2 import validate_conditional_v2_evidence
 from ._spar_conditional_v2_1 import validate_conditional_v21_evidence
+from ._spar_conditional_v2_2 import validate_conditional_v22_evidence
 from ._spar_contract import ContractError
 from ._spar_metrics import contact_episodes, trade_ratio, visible_count
 
@@ -24,7 +25,7 @@ def analyze_trajectory(
     expected_trajectory_sha256: str | None = None,
     expected_summary_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Run base analysis, then verify optional V2/V2.1 evidence generations."""
+    """Run base analysis, then verify one optional Conditional Engagement generation."""
     report = _analyze_trajectory_base(
         trajectory_path,
         summary_path=summary_path,
@@ -40,10 +41,19 @@ def analyze_trajectory(
         trajectory_path,
         expected_trajectory_sha256=trajectory_sha,
     )
-    if v2.get("present") is True and v21.get("present") is True:
+    v22 = validate_conditional_v22_evidence(
+        trajectory_path,
+        expected_trajectory_sha256=trajectory_sha,
+    )
+    present_count = sum(
+        generation.get("present") is True
+        for generation in (v2, v21, v22)
+    )
+    if present_count > 1:
         raise ContractError("trajectory contains multiple Conditional Engagement generations")
     report["conditional_engagement_v2"] = v2
     report["conditional_engagement_v2_1"] = v21
+    report["conditional_engagement_v2_2"] = v22
     return report
 
 
