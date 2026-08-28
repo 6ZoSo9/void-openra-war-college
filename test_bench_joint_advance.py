@@ -356,27 +356,58 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 {"before": 100, "peak": 300, "after": 300},
             )
 
-    def test_process_cpu_seconds_parses_procfs_after_spaced_command_name(self):
+    def test_process_cpu_sample_parses_procfs_after_spaced_command_name(self):
         fields = ["S"] + ["0"] * 48
         fields[11] = "25"
         fields[12] = "75"
         with mock.patch.object(
             bench.Path, "read_text", return_value="123 (OpenRA helper) " + " ".join(fields),
         ), mock.patch("bench_joint_advance.os.sysconf", return_value=100):
-            self.assertEqual(bench.process_cpu_seconds(123), 1.0)
+            self.assertEqual(bench.process_cpu_sample(123), (100, 100))
 
     def test_process_cpu_interval_fails_closed_without_monotonic_endpoints(self):
         self.assertEqual(
-            bench.process_cpu_interval(1.25, 1.75),
-            {"before": 1.25, "after": 1.75, "delta": 0.5},
+            bench.process_cpu_interval((125, 100), (175, 100)),
+            {
+                "clock_ticks_per_second": 100,
+                "before_ticks": 125,
+                "after_ticks": 175,
+                "delta_ticks": 50,
+                "delta_seconds": 0.5,
+            },
         )
         self.assertEqual(
-            bench.process_cpu_interval(2.0, 1.0),
-            {"before": 2.0, "after": 1.0, "delta": None},
+            bench.process_cpu_interval((200, 100), (100, 100)),
+            {
+                "clock_ticks_per_second": None,
+                "before_ticks": 200,
+                "after_ticks": 100,
+                "delta_ticks": None,
+                "delta_seconds": None,
+            },
         )
         self.assertEqual(
-            bench.process_cpu_interval(None, 1.0),
-            {"before": None, "after": 1.0, "delta": None},
+            bench.process_cpu_interval(None, (100, 100)),
+            {
+                "clock_ticks_per_second": None,
+                "before_ticks": None,
+                "after_ticks": 100,
+                "delta_ticks": None,
+                "delta_seconds": None,
+            },
+        )
+
+    def test_process_cpu_interval_preserves_one_tick_above_float_integer_precision(self):
+        before = 9_007_199_254_740_992
+        self.assertEqual(
+            bench.process_cpu_interval((before, 100), (before + 1, 100)),
+            {
+                "clock_ticks_per_second": 100,
+                "before_ticks": before,
+                "after_ticks": before + 1,
+                "delta_ticks": 1,
+                "delta_seconds": 0.01,
+            },
         )
 
     def test_remaining_matrix_cells_are_explicitly_terminal(self):
@@ -475,7 +506,11 @@ class EvidencePublicationTests(unittest.TestCase):
                 "before": 1024, "peak": 2048, "after": 1536,
             },
             "process_cpu_seconds": {
-                "before": 1.25, "after": 1.75, "delta": 0.5,
+                "clock_ticks_per_second": 100,
+                "before_ticks": 125,
+                "after_ticks": 175,
+                "delta_ticks": 50,
+                "delta_seconds": 0.5,
             },
             "repetitions": repetitions, "same_seed_deterministic": True,
             "hashes_by_slot": {"0": [digest, digest]}, "cell_wall_seconds": 2.0,
@@ -603,10 +638,16 @@ class EvidencePublicationTests(unittest.TestCase):
         report = json.loads(self.payload())
         cell = report["cells"][0]
         for cpu, message in (
-            ({"before": 1.25, "after": 1.75, "delta": 0.49}, "endpoint-bound"),
-            ({"before": 1.75, "after": 1.25, "delta": None}, "endpoint-bound"),
-            ({"before": None, "after": 1.25, "delta": 0.0}, "requires both endpoints"),
-            ({"before": 1, "after": 1.25, "delta": 0.25}, "scalar is invalid"),
+            ({"clock_ticks_per_second": 100, "before_ticks": 125, "after_ticks": 175,
+              "delta_ticks": 49, "delta_seconds": 0.49}, "exact-tick-bound"),
+            ({"clock_ticks_per_second": 100, "before_ticks": 175, "after_ticks": 125,
+              "delta_ticks": None, "delta_seconds": None}, "endpoint-bound"),
+            ({"clock_ticks_per_second": None, "before_ticks": None, "after_ticks": 125,
+              "delta_ticks": 0, "delta_seconds": 0.0}, "requires both tick endpoints"),
+            ({"clock_ticks_per_second": 100, "before_ticks": 125.0, "after_ticks": 175,
+              "delta_ticks": 50, "delta_seconds": 0.5}, "tick scalar is invalid"),
+            ({"clock_ticks_per_second": 100, "before_ticks": 125, "after_ticks": 175,
+              "delta_ticks": 50, "delta_seconds": 0.49}, "exact-tick-bound"),
         ):
             candidate = json.loads(json.dumps(cell))
             candidate["process_cpu_seconds"] = cpu
