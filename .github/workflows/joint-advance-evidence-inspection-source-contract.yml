@@ -6,6 +6,7 @@ on:
       - tools/inspect_joint_advance_evidence.py
       - tests/test_inspect_joint_advance_evidence.py
       - bench_joint_advance.py
+      - bench_joint_advance_core.py
       - .github/workflows/joint-advance-evidence-inspection-source-contract.yml
   push:
     branches:
@@ -15,6 +16,7 @@ on:
       - tools/inspect_joint_advance_evidence.py
       - tests/test_inspect_joint_advance_evidence.py
       - bench_joint_advance.py
+      - bench_joint_advance_core.py
       - .github/workflows/joint-advance-evidence-inspection-source-contract.yml
 
 permissions:
@@ -28,27 +30,146 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.10', '3.11', '3.12']
+    env:
+      EVENT_NAME: ${{ github.event_name }}
+      SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      INTEGRATION_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Checkout integration generation
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
+          fetch-depth: 2
           persist-credentials: false
           submodules: false
+      - name: Checkout exact source head
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ env.SOURCE_HEAD_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+          path: exact-head
+      - name: Checkout current pull-request base ref
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          path: live-base
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Compile inspection source
-        run: python -m py_compile tools/inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_evidence.py
-      - name: Run read-only inspection tests
+      - name: Prove integration and exact-head identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$INTEGRATION_SHA"
+          test "$(git -C exact-head rev-parse HEAD)" = "$SOURCE_HEAD_SHA"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            read -r integration_base_sha integration_source_sha extra_parent \
+              <<< "$(git show -s --format=%P HEAD)"
+            test -n "$integration_base_sha"
+            test -n "$integration_source_sha"
+            test -z "${extra_parent:-}"
+            test "$integration_source_sha" = "$SOURCE_HEAD_SHA"
+            live_base_sha="$(git -C live-base rev-parse HEAD)"
+            test -n "$live_base_sha"
+            test "$integration_base_sha" = "$live_base_sha"
+          else
+            integration_base_sha="$EVENT_BASE_SHA"
+            live_base_sha="$integration_base_sha"
+          fi
+          export INTEGRATION_BASE_SHA="$integration_base_sha"
+          export LIVE_BASE_SHA="$live_base_sha"
+          printf 'INTEGRATION_BASE_SHA=%s\nLIVE_BASE_SHA=%s\n' \
+            "$INTEGRATION_BASE_SHA" "$LIVE_BASE_SHA" >> "$GITHUB_ENV"
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          paths = (
+              "tools/inspect_joint_advance_evidence.py",
+              "tests/test_inspect_joint_advance_evidence.py",
+              "bench_joint_advance.py",
+              "bench_joint_advance_core.py",
+              ".github/workflows/joint-advance-evidence-inspection-source-contract.yml",
+          )
+          manifest = {
+              "event_base_sha": os.environ["EVENT_BASE_SHA"],
+              "integration_base_sha": os.environ["INTEGRATION_BASE_SHA"],
+              "live_base_sha": os.environ["LIVE_BASE_SHA"],
+              "integration_sha": os.environ["INTEGRATION_SHA"],
+              "source_head_sha": os.environ["SOURCE_HEAD_SHA"],
+              "paths": {},
+          }
+          for rel in paths:
+              integration_bytes = Path(rel).read_bytes()
+              source_bytes = (Path("exact-head") / rel).read_bytes()
+              manifest["paths"][rel] = {
+                  "integration_sha256": hashlib.sha256(integration_bytes).hexdigest(),
+                  "source_head_sha256": hashlib.sha256(source_bytes).hexdigest(),
+                  "integration_bytes": len(integration_bytes),
+                  "source_head_bytes": len(source_bytes),
+                  "byte_identical": integration_bytes == source_bytes,
+              }
+          workflow = ".github/workflows/joint-advance-evidence-inspection-source-contract.yml"
+          if not manifest["paths"][workflow]["byte_identical"]:
+              raise SystemExit("integration/source workflow byte mismatch")
+          print(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
+          PY
+      - name: Verify committed-range hygiene
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C exact-head cat-file -e "${INTEGRATION_BASE_SHA}^{commit}"
+          git -C exact-head cat-file -e "${SOURCE_HEAD_SHA}^{commit}"
+          MERGE_BASE_SHA="$(git -C exact-head merge-base "$INTEGRATION_BASE_SHA" "$SOURCE_HEAD_SHA")"
+          test -n "$MERGE_BASE_SHA"
+          git -C exact-head diff --check "${MERGE_BASE_SHA}...${SOURCE_HEAD_SHA}"
+          printf 'integration_base_sha=%s\nlive_base_sha=%s\nsource_head_sha=%s\nmerge_base_sha=%s\nintegration_sha=%s\n' \
+            "$INTEGRATION_BASE_SHA" "$LIVE_BASE_SHA" "$SOURCE_HEAD_SHA" "$MERGE_BASE_SHA" "$INTEGRATION_SHA"
+      - name: Verify pushed-head hygiene
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git -C exact-head rev-parse HEAD^ >/dev/null 2>&1; then
+            git -C exact-head diff --check HEAD^ HEAD
+          else
+            git -C exact-head diff --check HEAD
+          fi
+      - name: Compile integration inspection source
+        run: python -m py_compile tools/inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_evidence.py bench_joint_advance.py bench_joint_advance_core.py
+      - name: Run integration read-only inspection tests
         run: python -m unittest -v tests/test_inspect_joint_advance_evidence.py
+      - name: Compile exact-head inspection source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          python -m py_compile tools/inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_evidence.py bench_joint_advance.py bench_joint_advance_core.py
+      - name: Run exact-head read-only inspection tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          python -m unittest -v tests/test_inspect_joint_advance_evidence.py
       - name: Prove no recovery or countability authority
         run: |
           python - <<'PY'
           import importlib.util
-          import json
           import tempfile
           from pathlib import Path
 
-          source = Path('tools/inspect_joint_advance_evidence.py').resolve()
+          source = Path('exact-head/tools/inspect_joint_advance_evidence.py').resolve()
           spec = importlib.util.spec_from_file_location('inspect_joint_advance_evidence', source)
           assert spec is not None and spec.loader is not None
           module = importlib.util.module_from_spec(spec)
