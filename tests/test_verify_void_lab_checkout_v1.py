@@ -151,6 +151,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(wrong_url["source_contract"], "HOLD")
         self.assertEqual(missing_ancestor["source_contract"], "HOLD")
 
+    def test_source_only_rejects_mixed_war_college_generation(self):
+        report = MODULE.evaluate_probe(
+            probe(war_college_snapshot_stable=False), source_only=True
+        )
+        self.assertEqual(report["source_contract"], "HOLD")
+        self.assertEqual(report["checkout_contract"], "HOLD")
+        self.assertIn("war_college_snapshot_stable", report["holds"])
+
     def test_canonical_json_is_stable_and_compact(self):
         report = MODULE.evaluate_probe(probe())
         encoded = MODULE.canonical_json(report)
@@ -158,6 +166,51 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(json.loads(encoded), report)
         self.assertNotIn("\n", encoded)
         self.assertTrue(encoded.startswith('{"checkout_contract":'))
+
+
+class CliEnvironmentFailureTests(unittest.TestCase):
+    def _assert_json_hold(self, result, reason_code: str) -> None:
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(len(result.stdout.splitlines()), 1)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["schema_version"], 6)
+        self.assertEqual(report["source_contract"], "HOLD")
+        self.assertEqual(report["checkout_contract"], "HOLD")
+        self.assertEqual(report["runtime_evidence"], "PENDING_DESIGNATED_HOST")
+        self.assertEqual(report["holds"], [reason_code])
+        self.assertEqual(report["probe_failure"]["reason_code"], reason_code)
+        self.assertNotIn("Traceback", result.stdout)
+
+    def test_nonexistent_repo_root_emits_one_json_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing"
+            result = subprocess.run(
+                [sys.executable, str(SOURCE), "--repo-root", str(missing), "--source-only"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+        self._assert_json_hold(result, "repo_root_unavailable")
+
+    def test_unavailable_git_emits_one_json_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SOURCE),
+                    "--repo-root",
+                    directory,
+                    "--source-only",
+                ],
+                env={"PATH": ""},
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+        self._assert_json_hold(result, "git_unavailable")
 
 
 class GitBackedCleanlinessTests(unittest.TestCase):
