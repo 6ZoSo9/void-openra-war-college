@@ -55,6 +55,17 @@ def full_pass_pairs() -> list[dict]:
     return rows
 
 
+def complete_critical_pairs() -> list[dict]:
+    return [
+        pair(2051, 1, 0),
+        pair(2051, 2, 100),
+        pair(2051, 3, -100),
+        pair(2055, 1, 100),
+        pair(2055, 2, 100),
+        pair(2055, 3, 0),
+    ]
+
+
 def test_reviewed_plan_is_exact_five_seed_fifteen_pair_campaign():
     plan = reviewed_plan()
     assert plan["required_pair_count"] == 15 == REVIEWED_PAIR_COUNT
@@ -63,6 +74,10 @@ def test_reviewed_plan_is_exact_five_seed_fifteen_pair_campaign():
         "regression", "gain", "held_out", "held_out", "held_out"
     ]
     assert all(row["required_pairs"] == 3 for row in plan["seeds"])
+    assert plan["execution_phases"][0]["phase"] == "critical"
+    assert plan["execution_phases"][0]["seeds"] == [2051, 2055]
+    assert plan["execution_phases"][1]["phase"] == "held_out"
+    assert plan["execution_phases"][1]["seeds"] == [2052, 2053, 2054]
 
 
 def test_empty_campaign_is_pending_with_all_pairs_remaining():
@@ -72,9 +87,13 @@ def test_empty_campaign_is_pending_with_all_pairs_remaining():
     assert out["remaining_pair_count"] == 15
     assert out["campaign_complete"] is False
     assert all(value == 3 for value in out["remaining_by_seed"].values())
+    assert out["next_tranche"] == [
+        {"seed": 2051, "role": "regression", "next_pair_ordinal": 1, "phase": "critical"},
+        {"seed": 2055, "role": "gain", "next_pair_ordinal": 1, "phase": "critical"},
+    ]
 
 
-def test_first_tranche_2051_2055_resumes_with_thirteen_pairs_remaining():
+def test_first_tranche_2051_2055_resumes_with_next_critical_pair_each():
     out = evaluate_campaign([pair(2051, 1, 0), pair(2055, 1, 100)])
     assert out["status"] == "PENDING"
     assert out["observed_pair_count"] == 2
@@ -83,6 +102,30 @@ def test_first_tranche_2051_2055_resumes_with_thirteen_pairs_remaining():
     assert out["completed_by_seed"]["2055"] == 1
     assert out["remaining_by_seed"]["2051"] == 2
     assert out["remaining_by_seed"]["2055"] == 2
+    assert out["next_tranche"] == [
+        {"seed": 2051, "role": "regression", "next_pair_ordinal": 2, "phase": "critical"},
+        {"seed": 2055, "role": "gain", "next_pair_ordinal": 2, "phase": "critical"},
+    ]
+
+
+def test_held_out_work_is_not_scheduled_until_both_critical_seeds_complete():
+    rows = complete_critical_pairs()[:-1]
+    out = evaluate_campaign(rows)
+    assert [row["seed"] for row in out["next_tranche"]] == [2055]
+    assert out["next_tranche"][0]["next_pair_ordinal"] == 3
+    assert out["next_tranche"][0]["phase"] == "critical"
+
+
+def test_after_critical_pass_next_tranche_is_one_pair_for_each_held_out_seed():
+    out = evaluate_campaign(complete_critical_pairs())
+    assert out["status"] == "PENDING"
+    assert out["matrix"]["by_seed"]["2051"]["gate_pass"] is True
+    assert out["matrix"]["by_seed"]["2055"]["gate_pass"] is True
+    assert out["next_tranche"] == [
+        {"seed": 2052, "role": "held_out", "next_pair_ordinal": 1, "phase": "held_out"},
+        {"seed": 2053, "role": "held_out", "next_pair_ordinal": 1, "phase": "held_out"},
+        {"seed": 2054, "role": "held_out", "next_pair_ordinal": 1, "phase": "held_out"},
+    ]
 
 
 def test_seed_2060_sanity_evidence_cannot_enter_acceptance_campaign():
@@ -109,11 +152,12 @@ def test_complete_reviewed_campaign_passes_only_with_matrix_pass():
     assert out["status"] == "PASS"
     assert out["campaign_complete"] is True
     assert out["remaining_pair_count"] == 0
+    assert out["next_tranche"] == []
     assert out["matrix"]["status"] == "PASS"
     assert out["matrix"]["complete_held_out_seed_count"] == 3
 
 
-def test_complete_gain_seed_failure_rejects_campaign():
+def test_complete_gain_seed_failure_rejects_campaign_and_stops_planning():
     rows = full_pass_pairs()
     for row in rows:
         if row["pair_identity"]["seed"] == 2055:
@@ -121,14 +165,16 @@ def test_complete_gain_seed_failure_rejects_campaign():
             row["comparison"]["verdict"] = "TIE"
     out = evaluate_campaign(rows)
     assert out["status"] == "REJECT"
+    assert out["next_tranche"] == []
     assert out["matrix"]["by_seed"]["2055"]["gate_pass"] is False
 
 
-def test_behavioral_failure_on_complete_seed_rejects_early():
+def test_behavioral_failure_on_complete_seed_rejects_early_and_stops_planning():
     rows = [pair(2051, 1, 0), pair(2051, 2, 100), pair(2051, 3, -100, behavior=False)]
     out = evaluate_campaign(rows)
     assert out["status"] == "REJECT"
     assert out["campaign_complete"] is False
+    assert out["next_tranche"] == []
     assert out["matrix"]["by_seed"]["2051"]["gate_pass"] is False
 
 
