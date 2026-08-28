@@ -1,0 +1,74 @@
+name: conditional-engagement-v2-2-post-conversion-gate-source-contract
+
+on:
+  pull_request:
+    paths:
+      - openra_env/analysis/spar_training_utility.py
+      - openra_env/analysis/spar_v22_conversion_utility.py
+      - openra_env/analysis/spar_v22_pair_comparison.py
+      - openra_env/analysis/spar_v22_pair_binding.py
+      - openra_env/analysis/spar_v22_matrix.py
+      - openra_env/analysis/spar_v22_campaign.py
+      - tests/test_spar_training_utility_v22_conversion.py
+      - tests/test_spar_v22_conversion_utility.py
+      - tests/test_spar_v22_pair_comparison.py
+      - tests/test_spar_v22_matrix.py
+      - tests/test_spar_v22_campaign.py
+      - .github/workflows/conditional-engagement-v2-2-post-conversion-gate-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Python ${{ matrix.python-version }} V2.2 post-conversion gate
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install focused dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile corrected acceptance chain
+        run: |
+          python -m py_compile \
+            openra_env/analysis/spar_training_utility.py \
+            openra_env/analysis/spar_v22_conversion_utility.py \
+            openra_env/analysis/spar_v22_pair_comparison.py \
+            openra_env/analysis/spar_v22_pair_binding.py \
+            openra_env/analysis/spar_v22_matrix.py \
+            openra_env/analysis/spar_v22_campaign.py \
+            tests/test_spar_training_utility_v22_conversion.py \
+            tests/test_spar_v22_conversion_utility.py \
+            tests/test_spar_v22_pair_comparison.py \
+            tests/test_spar_v22_matrix.py \
+            tests/test_spar_v22_campaign.py
+      - name: Run corrected acceptance tests
+        run: |
+          python -m pytest -q \
+            tests/test_spar_training_utility_v22_conversion.py \
+            tests/test_spar_v22_conversion_utility.py \
+            tests/test_spar_v22_pair_comparison.py \
+            tests/test_spar_v22_matrix.py \
+            tests/test_spar_v22_campaign.py
+      - name: Prove corrected schemas and post-conversion requirement
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from openra_env.analysis.spar_v22_pair_comparison import PAIR_SCHEMA
+          from openra_env.analysis.spar_v22_matrix import MATRIX_SCHEMA
+          from openra_env.analysis.spar_v22_campaign import REVIEWED_PAIR_COUNT
+          assert PAIR_SCHEMA.endswith('pair-comparison.v2')
+          assert MATRIX_SCHEMA.endswith('pair-matrix.v2')
+          assert REVIEWED_PAIR_COUNT == 15
+          print('CONDITIONAL_ENGAGEMENT_V2_2_POST_CONVERSION_GATE_GREEN')
+          PY

@@ -1,0 +1,64 @@
+name: conditional-engagement-v2-2-pair-source-contract
+
+on:
+  pull_request:
+    paths:
+      - openra_env/analysis/spar_v22_pair_comparison.py
+      - openra_env/analysis/spar_v22_pair_binding.py
+      - openra_env/analysis/spar_pair_binding.py
+      - openra_env/analysis/_spar_conditional_v2_2_reviewed_identity.py
+      - tests/test_spar_v22_pair_comparison.py
+      - .github/workflows/conditional-engagement-v2-2-pair-source-contract.yml
+  push:
+    branches:
+      - main
+    paths:
+      - openra_env/analysis/spar_v22_pair_comparison.py
+      - openra_env/analysis/spar_v22_pair_binding.py
+      - tests/test_spar_v22_pair_comparison.py
+      - .github/workflows/conditional-engagement-v2-2-pair-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Python ${{ matrix.python-version }} V2.2 pair contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install focused dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile V2.2 pair source
+        run: |
+          python -m py_compile \
+            openra_env/analysis/spar_v22_pair_comparison.py \
+            openra_env/analysis/spar_v22_pair_binding.py \
+            tests/test_spar_v22_pair_comparison.py
+      - name: Run V2.2 pair tests
+        run: python -m pytest -q tests/test_spar_v22_pair_comparison.py
+      - name: Prove exact reviewed V2.2 identity and gate
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from openra_env.analysis._spar_conditional_v2_2_reviewed_identity import REVIEWED_V22_IDENTITY
+          from openra_env.analysis.spar_v22_pair_comparison import ATTACK_MOVE_FRACTION_MAXIMUM
+          assert REVIEWED_V22_IDENTITY['source_commit'] == 'c7084294253793b101cc2826726a8cfa0b294c37'
+          assert REVIEWED_V22_IDENTITY['candidate_sha256'] == '92f10e87f01a388882f621a09989783d561302cc46583a5344e8108c81d864ab'
+          assert REVIEWED_V22_IDENTITY['policy_sha256'] == 'fce4dfd00b0465e5545dd50d7fee1eadecf182577ba90f85b77b2987e8574f80'
+          assert REVIEWED_V22_IDENTITY['session_sha256'] == '7d11da6f5b485a20380485edd8c9d589f50be70b23f6bc4426a3c3d2e532d890'
+          assert REVIEWED_V22_IDENTITY['wrapper_sha256'] == '72622f36a8374b277529a294f4bd42160f2690d69306f67ef4863d6bede71097'
+          assert ATTACK_MOVE_FRACTION_MAXIMUM == 0.75
+          print('CONDITIONAL_ENGAGEMENT_V2_2_PAIR_GATE_GREEN')
+          PY

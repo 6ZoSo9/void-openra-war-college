@@ -1,4 +1,24 @@
 """OpenRA-RL: OpenEnv environment for Red Alert."""
 
-from openra_env.client import OpenRAEnv  # noqa: F401
-from openra_env.models import OpenRAAction, OpenRAObservation, OpenRAState  # noqa: F401
+from __future__ import annotations
+
+from typing import Any
+
+__all__ = ["OpenRAEnv", "OpenRAAction", "OpenRAObservation", "OpenRAState"]
+
+
+def __getattr__(name: str) -> Any:
+    """Load runtime-heavy public objects only when they are requested."""
+    if name == "OpenRAEnv":
+        from openra_env.client import OpenRAEnv
+
+        return OpenRAEnv
+    if name in {"OpenRAAction", "OpenRAObservation", "OpenRAState"}:
+        from openra_env.models import OpenRAAction, OpenRAObservation, OpenRAState
+
+        return {
+            "OpenRAAction": OpenRAAction,
+            "OpenRAObservation": OpenRAObservation,
+            "OpenRAState": OpenRAState,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
