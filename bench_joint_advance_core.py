@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Callable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
 PUBLICATION_RECEIPT_SCHEMA_VERSION = 1
 LOCAL_EVIDENCE_MARKER = "VOID_WAR_COLLEGE_UNTRUSTED_LOCAL_EVIDENCE_V1"
@@ -802,6 +802,8 @@ def _validate_teardown_evidence(value: Any, label: str) -> None:
     _validate_latency_evidence(value["latency"], f"{label}.latency")
     if value["latency"]["count"] != len(samples) or len(destroyed) != len(samples):
         raise ContractError(f"{label} latency/session accounting is inconsistent")
+    if value["latency"] != latency_summary(samples):
+        raise ContractError(f"{label} latency summary is not bound to raw samples")
     _require_number(value["teardown_total_deadline_s"], f"{label}.deadline")
     for field in (
         "create_commit_response_ambiguous", "cleanup_after_work_cancellation",

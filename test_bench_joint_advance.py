@@ -726,6 +726,20 @@ class EvidencePublicationTests(unittest.TestCase):
         ):
             bench._validate_repetition_evidence(contradiction, "repetition")
 
+    def test_teardown_latency_summary_is_exactly_bound_to_raw_samples(self):
+        report = json.loads(self.payload())
+        repetition = report["cells"][0]["repetitions"][0]
+        for forged_summary in (
+            bench.latency_summary([0.0]),
+            bench.latency_summary([9.0]),
+        ):
+            candidate = copy.deepcopy(repetition)
+            candidate["teardown"]["latency"] = forged_summary
+            with self.subTest(summary=forged_summary), self.assertRaisesRegex(
+                bench.ContractError, "latency summary is not bound to raw samples",
+            ):
+                bench._validate_repetition_evidence(candidate, "repetition")
+
     def test_rss_peak_covers_observed_cell_endpoints(self):
         report = json.loads(self.payload())
         cell = report["cells"][0]
@@ -1087,6 +1101,17 @@ class EvidencePublicationTests(unittest.TestCase):
                 receipt.chmod(0o400)
                 with self.assertRaisesRegex(bench.ContractError, "scalar types"):
                     bench.load_committed_evidence(output, self.operation(payload))
+
+    def test_prior_schema_four_is_an_explicit_incompatible_hold(self):
+        candidate = json.loads(self.payload())
+        self.assertEqual(candidate["schema_version"], 5)
+        candidate["schema_version"] = 4
+        with self.assertRaises(bench.IncompatibleEvidenceSchemaError) as raised:
+            bench._validate_recoverable_evidence(
+                bench.stable_json(candidate).encode("utf-8")
+            )
+        self.assertEqual(raised.exception.actual, 4)
+        self.assertEqual(raised.exception.expected, 5)
 
     def test_abrupt_termination_before_commit_receipt_is_not_countable(self):
         payload = self.payload()
