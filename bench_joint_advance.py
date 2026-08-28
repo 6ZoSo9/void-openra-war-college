@@ -896,6 +896,8 @@ def _validate_parameters_evidence(parameters: Any) -> dict[str, Any]:
         "bots"
     ] != BOTS:
         raise ContractError("pending evidence fixed benchmark parameters are invalid")
+    if parameters["seed"] + max(concurrency) - 1 > 2_147_483_647:
+        raise ContractError("pending evidence seed/slot range exceeds the runtime integer domain")
     build_matrix(tuple(concurrency), tuple(tick_batches))
     return parameters
 
@@ -970,6 +972,12 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
             expected_slots = [str(slot) for slot in range(cell["concurrency"])]
             if sorted(repetition["seed_by_slot"]) != expected_slots:
                 raise ContractError("matrix-cell concurrency/slot coverage is inconsistent")
+            expected_seed_by_slot = {
+                str(slot): parameters["seed"] + slot
+                for slot in range(cell["concurrency"])
+            }
+            if repetition["seed_by_slot"] != expected_seed_by_slot:
+                raise ContractError("matrix-cell seed/slot evidence is not operation-bound")
             if repetition["joint_advance_calls"] != parameters["samples"] * cell[
                 "concurrency"
             ] or repetition["ticks_advanced_validated"] != repetition[
@@ -2275,6 +2283,8 @@ def normalized_args(args: argparse.Namespace) -> dict[str, Any]:
         maximum=8,
         allowed=ALLOWED_CONCURRENCY,
     )
+    if args.seed + max(concurrency) - 1 > 2_147_483_647:
+        raise ContractError("seed/slot range exceeds the runtime integer domain")
     tick_batches = parse_int_csv(
         args.tick_batches,
         label="tick batches",
