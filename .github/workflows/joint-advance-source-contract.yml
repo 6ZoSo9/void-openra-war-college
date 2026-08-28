@@ -29,6 +29,9 @@ jobs:
       SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       SOURCE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
       INTEGRATION_SHA: ${{ github.sha }}
+      REVIEWED_ENGINE_SHA: 1607a7a6501d42a47638393ecef8b22831064932
+      REVIEWED_WAR_COLLEGE_SHA: 973802ef0a614e5afa782ff20e231e18966ae3e5
+      REVIEWED_GENERATION: ad1926569b12466c
     steps:
       - name: Checkout integration generation
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -44,7 +47,7 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Prove integration and exact-head source identity
+      - name: Prove integration and exact-head identities
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +56,7 @@ jobs:
           python - <<'PY'
           import hashlib
           import json
+          import os
           from pathlib import Path
 
           paths = (
@@ -60,16 +64,28 @@ jobs:
               "test_bench_joint_advance.py",
               ".github/workflows/joint-advance-source-contract.yml",
           )
-          manifest = {}
+          manifest = {
+              "integration_sha": os.environ["INTEGRATION_SHA"],
+              "source_head_sha": os.environ["SOURCE_HEAD_SHA"],
+              "paths": {},
+          }
           for rel in paths:
               integration_bytes = Path(rel).read_bytes()
               source_bytes = (Path("exact-head") / rel).read_bytes()
-              if integration_bytes != source_bytes:
-                  raise SystemExit(f"integration/source byte mismatch: {rel}")
-              manifest[rel] = {
-                  "sha256": hashlib.sha256(source_bytes).hexdigest(),
-                  "bytes": len(source_bytes),
+              manifest["paths"][rel] = {
+                  "integration": {
+                      "sha256": hashlib.sha256(integration_bytes).hexdigest(),
+                      "bytes": len(integration_bytes),
+                  },
+                  "source_head": {
+                      "sha256": hashlib.sha256(source_bytes).hexdigest(),
+                      "bytes": len(source_bytes),
+                  },
+                  "byte_identical": integration_bytes == source_bytes,
               }
+          workflow = ".github/workflows/joint-advance-source-contract.yml"
+          if not manifest["paths"][workflow]["byte_identical"]:
+              raise SystemExit("integration/source workflow byte mismatch")
           print(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
           PY
       - name: Verify committed-range hygiene
@@ -79,7 +95,11 @@ jobs:
           set -euo pipefail
           git -C exact-head cat-file -e "${SOURCE_BASE_SHA}^{commit}"
           git -C exact-head cat-file -e "${SOURCE_HEAD_SHA}^{commit}"
-          git -C exact-head diff --check "${SOURCE_BASE_SHA}...${SOURCE_HEAD_SHA}"
+          MERGE_BASE_SHA="$(git -C exact-head merge-base "$SOURCE_BASE_SHA" "$SOURCE_HEAD_SHA")"
+          test -n "$MERGE_BASE_SHA"
+          git -C exact-head diff --check "${MERGE_BASE_SHA}...${SOURCE_HEAD_SHA}"
+          printf 'source_base_sha=%s\nsource_head_sha=%s\nmerge_base_sha=%s\nintegration_sha=%s\n' \
+            "$SOURCE_BASE_SHA" "$SOURCE_HEAD_SHA" "$MERGE_BASE_SHA" "$INTEGRATION_SHA"
       - name: Verify pushed-head hygiene
         if: github.event_name == 'push'
         shell: bash
@@ -94,17 +114,44 @@ jobs:
         run: python -m py_compile bench_joint_advance.py test_bench_joint_advance.py
       - name: Run integration source contract tests
         run: python -m unittest -v test_bench_joint_advance.py
-      - name: Verify exact-head source-only plan
+      - name: Compile exact-head source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          python -m py_compile bench_joint_advance.py test_bench_joint_advance.py
+      - name: Run exact-head source contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          python -m unittest -v test_bench_joint_advance.py
+      - name: Verify exact-head source-only plan provenance
         shell: bash
         run: |
           set -euo pipefail
           python exact-head/bench_joint_advance.py plan \
-            --engine-sha 1607a7a6501d42a47638393ecef8b22831064932 \
-            --war-college-sha 973802ef0a614e5afa782ff20e231e18966ae3e5 \
+            --engine-sha "$REVIEWED_ENGINE_SHA" \
+            --war-college-sha "$REVIEWED_WAR_COLLEGE_SHA" \
             --benchmark-source-sha "$SOURCE_HEAD_SHA" \
+            --generation "$REVIEWED_GENERATION" \
             --concurrency 1,2 \
             --tick-batches 1,8 \
             --samples 2 \
             --repetitions 2 \
             --seed 2050 > joint-advance-plan.json
-          python -c 'import json; d=json.load(open("joint-advance-plan.json", encoding="utf-8")); assert d["runtime_evidence"] == "PENDING_DESIGNATED_HOST"; assert d["cells"] == []; assert d["run"] is None'
+          python - <<'PY'
+          import json
+          import os
+
+          with open("joint-advance-plan.json", encoding="utf-8") as stream:
+              report = json.load(stream)
+          provenance = report["provenance"]
+          assert report["runtime_evidence"] == "PENDING_DESIGNATED_HOST"
+          assert report["cells"] == []
+          assert report["run"] is None
+          assert provenance["engine_sha"] == os.environ["REVIEWED_ENGINE_SHA"]
+          assert provenance["war_college_sha"] == os.environ["REVIEWED_WAR_COLLEGE_SHA"]
+          assert provenance["benchmark_source_sha"] == os.environ["SOURCE_HEAD_SHA"]
+          assert provenance["generation"] == os.environ["REVIEWED_GENERATION"]
+          PY
