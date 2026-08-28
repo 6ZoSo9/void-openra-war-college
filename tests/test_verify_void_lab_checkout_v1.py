@@ -27,8 +27,10 @@ def probe(**overrides):
         "engine_checkout_head": None,
         "engine_tracked_checkout_clean": None,
         "engine_exact_checkout_clean": None,
+        "engine_ignored_runtime_inputs_absent": True,
         "war_college_tracked_checkout_clean": True,
         "war_college_exact_checkout_clean": True,
+        "war_college_ignored_runtime_inputs_absent": True,
     }
     values.update(overrides)
     return MODULE.Probe(**values)
@@ -77,13 +79,14 @@ class EvaluationTests(unittest.TestCase):
                 engine_checkout_head=MODULE.ENGINE_FROZEN_COMMIT,
                 engine_tracked_checkout_clean=True,
                 engine_exact_checkout_clean=True,
+                engine_ignored_runtime_inputs_absent=True,
             )
         )
         self.assertEqual(report["source_contract"], "GREEN")
         self.assertEqual(report["checkout_contract"], "GREEN")
         self.assertEqual(
             report["requested_contract"],
-            "EXACT_WORKTREE_COMPOSITION_INCLUDING_UNTRACKED_AND_IGNORED",
+            "EXACT_WORKTREE_WITH_RUNTIME_RELEVANT_IGNORED_INPUTS_ABSENT",
         )
         self.assertEqual(report["holds"], [])
 
@@ -221,8 +224,8 @@ class GitBackedCleanlinessTests(unittest.TestCase):
             artifact = root / "build" / "stale-benchmark-input.json"
             artifact.parent.mkdir()
             artifact.write_text("{}\n", encoding="utf-8")
-            exact_clean = MODULE.git_checkout_clean(
-                root, include_untracked=True, include_ignored=True
+            ignored_runtime_absent = MODULE.ignored_runtime_inputs_absent(
+                root, MODULE.war_college_ignored_runtime_path
             )
             report = MODULE.evaluate_probe(
                 probe(
@@ -230,17 +233,21 @@ class GitBackedCleanlinessTests(unittest.TestCase):
                     engine_checkout_head=MODULE.ENGINE_FROZEN_COMMIT,
                     engine_tracked_checkout_clean=True,
                     engine_exact_checkout_clean=True,
-                    war_college_exact_checkout_clean=exact_clean,
+                    war_college_ignored_runtime_inputs_absent=(
+                        ignored_runtime_absent
+                    ),
                 )
             )
-            self.assertFalse(exact_clean)
+            self.assertFalse(ignored_runtime_absent)
             self.assertEqual(report["checkout_contract"], "HOLD")
-            self.assertIn("war_college_exact_checkout_clean", report["holds"])
+            self.assertIn(
+                "war_college_ignored_runtime_inputs_absent", report["holds"]
+            )
             artifact.unlink()
             artifact.parent.rmdir()
             self.assertTrue(
-                MODULE.git_checkout_clean(
-                    root, include_untracked=True, include_ignored=True
+                MODULE.ignored_runtime_inputs_absent(
+                    root, MODULE.war_college_ignored_runtime_path
                 )
             )
 
@@ -252,27 +259,53 @@ class GitBackedCleanlinessTests(unittest.TestCase):
             artifact = root / "bin" / "stale-runtime.dll"
             artifact.parent.mkdir()
             artifact.write_text("stale\n", encoding="utf-8")
-            exact_clean = MODULE.git_checkout_clean(
-                root, include_untracked=True, include_ignored=True
+            ignored_runtime_absent = MODULE.ignored_runtime_inputs_absent(
+                root, MODULE.engine_ignored_runtime_path
             )
             report = MODULE.evaluate_probe(
                 probe(
                     engine_checkout_present=True,
                     engine_checkout_head=MODULE.ENGINE_FROZEN_COMMIT,
                     engine_tracked_checkout_clean=True,
-                    engine_exact_checkout_clean=exact_clean,
+                    engine_exact_checkout_clean=True,
+                    engine_ignored_runtime_inputs_absent=ignored_runtime_absent,
                 )
             )
-            self.assertFalse(exact_clean)
+            self.assertFalse(ignored_runtime_absent)
             self.assertEqual(report["checkout_contract"], "HOLD")
-            self.assertIn("engine_exact_checkout_clean", report["holds"])
+            self.assertIn("engine_ignored_runtime_inputs_absent", report["holds"])
             artifact.unlink()
             artifact.parent.rmdir()
             self.assertTrue(
-                MODULE.git_checkout_clean(
-                    root, include_untracked=True, include_ignored=True
+                MODULE.ignored_runtime_inputs_absent(
+                    root, MODULE.engine_ignored_runtime_path
                 )
             )
+
+    def test_harmless_ignored_cache_does_not_block_exact_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._repository(root)
+            self._commit_ignore(root, ".pytest_cache/\n")
+            cache = root / ".pytest_cache" / "README.md"
+            cache.parent.mkdir()
+            cache.write_text("cache metadata\n", encoding="utf-8")
+            self.assertTrue(MODULE.git_checkout_clean(root, include_untracked=True))
+            self.assertTrue(
+                MODULE.ignored_runtime_inputs_absent(
+                    root, MODULE.war_college_ignored_runtime_path
+                )
+            )
+            report = MODULE.evaluate_probe(
+                probe(
+                    engine_checkout_present=True,
+                    engine_checkout_head=MODULE.ENGINE_FROZEN_COMMIT,
+                    engine_tracked_checkout_clean=True,
+                    engine_exact_checkout_clean=True,
+                    engine_ignored_runtime_inputs_absent=True,
+                )
+            )
+            self.assertEqual(report["checkout_contract"], "GREEN")
 
 
 if __name__ == "__main__":
