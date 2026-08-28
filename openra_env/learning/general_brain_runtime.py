@@ -62,22 +62,29 @@ def load_challenger_binding(
     expected_challenger_file_sha256: str,
 ) -> dict[str, Any]:
     expected_adapter = _sha(expected_adapter_sha256, "expected adapter SHA-256")
-    expected_manifest_file = _sha(
+    expected_manifest = _sha(
         expected_challenger_file_sha256,
-        "expected challenger file SHA-256",
+        "expected challenger SHA-256",
     )
     actual_adapter_file = file_sha256(adapter_path)
     actual_manifest_file = file_sha256(challenger_manifest_path)
-    _require(actual_adapter_file == expected_adapter, "adapter file SHA-256 drift")
-    _require(
-        actual_manifest_file == expected_manifest_file,
-        "challenger manifest file SHA-256 drift",
-    )
 
     adapter = dict(_read_json(adapter_path, "adapter"))
     manifest = dict(_read_json(challenger_manifest_path, "challenger manifest"))
     validate_adapter(adapter)
     validate_brain_manifest(manifest)
+
+    semantic_adapter = adapter_sha256(adapter)
+    semantic_manifest = manifest_sha256(manifest)
+    _require(actual_adapter_file == expected_adapter, "adapter file SHA-256 drift")
+    _require(semantic_adapter == expected_adapter, "adapter semantic SHA-256 drift")
+    # The brain-manifest semantic hash and the on-disk JSON artifact hash are
+    # distinct by design. Accept either exact reviewed digest as the caller's
+    # binding, then record both independently in trajectory evidence.
+    _require(
+        expected_manifest in {actual_manifest_file, semantic_manifest},
+        "challenger manifest SHA-256 does not match semantic or file identity",
+    )
 
     _require(adapter.get("general_id") == "apollyon", "challenger adapter must belong to Apollyon")
     _require(manifest.get("general_id") == "apollyon", "challenger manifest must belong to Apollyon")
@@ -85,10 +92,6 @@ def load_challenger_binding(
     competence = manifest.get("competence_adapter")
     _require(isinstance(competence, Mapping), "challenger competence_adapter missing")
     _require(competence.get("state") == "challenger", "Generation 1 must remain challenger-only")
-
-    semantic_adapter = adapter_sha256(adapter)
-    semantic_manifest = manifest_sha256(manifest)
-    _require(semantic_adapter == expected_adapter, "adapter semantic SHA-256 drift")
     _require(
         competence.get("artifact_sha256") == semantic_adapter,
         "challenger manifest is not bound to adapter artifact",
@@ -107,6 +110,9 @@ def load_challenger_binding(
         "adapter_file_sha256": actual_adapter_file,
         "challenger_manifest_sha256": semantic_manifest,
         "challenger_manifest_file_sha256": actual_manifest_file,
+        "expected_challenger_digest_kind": (
+            "file" if expected_manifest == actual_manifest_file else "semantic"
+        ),
         "adapter": copy.deepcopy(adapter),
         "manifest": copy.deepcopy(manifest),
         "authority_envelope_trainable": False,
