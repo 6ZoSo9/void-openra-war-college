@@ -4,8 +4,8 @@
 The source-only mode is safe for CI without private-submodule credentials.  It
 verifies committed/tracked composition, but explicitly does not assert exact
 worktree composition.  The default mode additionally requires both worktrees
-to be exact and clean, including the absence of untracked or ignored runtime
-inputs, before a designated-host build or benchmark is attempted.
+to be exact and clean, including the absence of untracked inputs and ignored
+runtime/build inputs, before a designated-host build or benchmark is attempted.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Callable, Sequence
 
 
 MARKER = "VOID_WAR_COLLEGE_LAB_CHECKOUT_CONTRACT_V1"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 WAR_COLLEGE_FROZEN_COMMIT = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 ENGINE_FROZEN_COMMIT = "1607a7a6501d42a47638393ecef8b22831064932"
 GENERATION = "ad1926569b12466c"
@@ -43,8 +43,10 @@ class Probe:
     engine_checkout_head: str | None
     engine_tracked_checkout_clean: bool | None
     engine_exact_checkout_clean: bool | None
+    engine_ignored_runtime_inputs_absent: bool | None
     war_college_tracked_checkout_clean: bool
     war_college_exact_checkout_clean: bool
+    war_college_ignored_runtime_inputs_absent: bool
 
 
 def _run_git(root: Path, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
@@ -66,7 +68,6 @@ def git_checkout_clean(
     root: Path,
     *,
     include_untracked: bool,
-    include_ignored: bool = False,
     ignore_submodules: bool = False,
 ) -> bool:
     """Return exact git cleanliness under the requested explicit policy."""
@@ -75,11 +76,57 @@ def git_checkout_clean(
         "--porcelain",
         "--untracked-files=all" if include_untracked else "--untracked-files=no",
     ]
-    if include_ignored:
-        args.append("--ignored=matching")
     if ignore_submodules:
         args.append("--ignore-submodules=all")
     return not bool(_run_git(root, args).stdout.strip())
+
+
+def _ignored_paths(root: Path) -> tuple[str, ...]:
+    raw = _run_git(
+        root,
+        ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+    ).stdout
+    return tuple(path for path in raw.split("\0") if path)
+
+
+def war_college_ignored_runtime_path(path: str) -> bool:
+    parts = Path(path).parts
+    name = parts[-1]
+    return (
+        any(
+            part in {
+                "__pycache__",
+                "dist",
+                "build",
+                ".eggs",
+                ".venv",
+                "venv",
+                "replays",
+            }
+            or part.endswith(".egg-info")
+            for part in parts
+        )
+        or name == ".env"
+        or name.endswith((".pyc", ".pyo", ".egg", ".log", ".orarep"))
+    )
+
+
+def engine_ignored_runtime_path(path: str) -> bool:
+    parts = Path(path).parts
+    name = parts[-1]
+    return (
+        any(part in {"Release", "bin", "obj", "lib", "Support"} for part in parts)
+        or name == "IP2LOCATION-LITE-DB1.IPV6.BIN.ZIP"
+        or name == "update.log"
+        or name.endswith((".manifest", ".CodeAnalysisLog.xml"))
+    )
+
+
+def ignored_runtime_inputs_absent(
+    root: Path, classifier: Callable[[str], bool]
+) -> bool:
+    """Reject ignored paths that may affect build/runtime, not harmless caches."""
+    return not any(classifier(path) for path in _ignored_paths(root))
 
 
 def parse_engine_gitlink(raw: str) -> str:
@@ -144,8 +191,10 @@ def collect_probe(root: Path) -> Probe:
     parent_exact_clean = git_checkout_clean(
         root,
         include_untracked=True,
-        include_ignored=True,
         ignore_submodules=True,
+    )
+    parent_ignored_runtime_absent = ignored_runtime_inputs_absent(
+        root, war_college_ignored_runtime_path
     )
 
     engine_root = root / ENGINE_SUBMODULE_PATH
@@ -153,6 +202,7 @@ def collect_probe(root: Path) -> Probe:
     engine_head: str | None = None
     engine_tracked_clean: bool | None = None
     engine_exact_clean: bool | None = None
+    engine_ignored_runtime_absent: bool | None = None
     if engine_present:
         engine_head = _run_git(
             engine_root, ["rev-parse", "HEAD"]
@@ -161,7 +211,10 @@ def collect_probe(root: Path) -> Probe:
             engine_root, include_untracked=False
         )
         engine_exact_clean = git_checkout_clean(
-            engine_root, include_untracked=True, include_ignored=True
+            engine_root, include_untracked=True
+        )
+        engine_ignored_runtime_absent = ignored_runtime_inputs_absent(
+            engine_root, engine_ignored_runtime_path
         )
 
     return Probe(
@@ -175,8 +228,10 @@ def collect_probe(root: Path) -> Probe:
         engine_checkout_head=engine_head,
         engine_tracked_checkout_clean=engine_tracked_clean,
         engine_exact_checkout_clean=engine_exact_clean,
+        engine_ignored_runtime_inputs_absent=engine_ignored_runtime_absent,
         war_college_tracked_checkout_clean=parent_tracked_clean,
         war_college_exact_checkout_clean=parent_exact_clean,
+        war_college_ignored_runtime_inputs_absent=parent_ignored_runtime_absent,
     )
 
 
@@ -188,6 +243,9 @@ def evaluate_probe(probe: Probe, *, source_only: bool = False) -> dict[str, obje
         == ENGINE_REPOSITORY_URL,
         "war_college_tracked_checkout_clean": probe.war_college_tracked_checkout_clean,
         "war_college_exact_checkout_clean": probe.war_college_exact_checkout_clean,
+        "war_college_ignored_runtime_inputs_absent": (
+            probe.war_college_ignored_runtime_inputs_absent
+        ),
         "engine_checkout_present": probe.engine_checkout_present,
         "engine_checkout_matches_gitlink": probe.engine_checkout_present
         and probe.engine_checkout_head == probe.engine_gitlink_commit,
@@ -195,6 +253,9 @@ def evaluate_probe(probe: Probe, *, source_only: bool = False) -> dict[str, obje
         and probe.engine_checkout_head == ENGINE_FROZEN_COMMIT,
         "engine_tracked_checkout_clean": probe.engine_tracked_checkout_clean is True,
         "engine_exact_checkout_clean": probe.engine_exact_checkout_clean is True,
+        "engine_ignored_runtime_inputs_absent": (
+            probe.engine_ignored_runtime_inputs_absent is True
+        ),
     }
     source_keys = (
         "war_college_frozen_is_ancestor",
@@ -204,11 +265,13 @@ def evaluate_probe(probe: Probe, *, source_only: bool = False) -> dict[str, obje
     )
     checkout_keys = source_keys + (
         "war_college_exact_checkout_clean",
+        "war_college_ignored_runtime_inputs_absent",
         "engine_checkout_present",
         "engine_checkout_matches_gitlink",
         "engine_checkout_is_frozen",
         "engine_tracked_checkout_clean",
         "engine_exact_checkout_clean",
+        "engine_ignored_runtime_inputs_absent",
     )
     source_green = all(checks[key] for key in source_keys)
     checkout_green = all(checks[key] for key in checkout_keys)
@@ -231,7 +294,7 @@ def evaluate_probe(probe: Probe, *, source_only: bool = False) -> dict[str, obje
         "requested_contract": (
             "COMMITTED_TRACKED_COMPOSITION_ONLY"
             if source_only
-            else "EXACT_WORKTREE_COMPOSITION_INCLUDING_UNTRACKED_AND_IGNORED"
+            else "EXACT_WORKTREE_WITH_RUNTIME_RELEVANT_IGNORED_INPUTS_ABSENT"
         ),
         "source_only_limitation": (
             "DOES_NOT_ASSERT_EXACT_DESIGNATED_HOST_COMPOSITION"
@@ -289,7 +352,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "requested_contract": (
                 "COMMITTED_TRACKED_COMPOSITION_ONLY"
                 if args.source_only
-                else "EXACT_WORKTREE_COMPOSITION_INCLUDING_UNTRACKED_AND_IGNORED"
+                else "EXACT_WORKTREE_WITH_RUNTIME_RELEVANT_IGNORED_INPUTS_ABSENT"
             ),
             "source_only_limitation": (
                 "DOES_NOT_ASSERT_EXACT_DESIGNATED_HOST_COMPOSITION"
