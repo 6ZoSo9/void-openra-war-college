@@ -12,6 +12,7 @@ on:
   push:
     branches:
       - main
+      - ren/v2-2-selector-integrity-r1
     paths:
       - openra_env/coaching/conditional_engagement_v2_2.py
       - openra_env/coaching/conditional_engagement_session_v2_2.py
@@ -50,7 +51,7 @@ jobs:
             tests/test_conditional_engagement_v2_2.py
       - name: Run V2.2 focused tests
         run: python -m pytest -q tests/test_conditional_engagement_v2_2.py
-      - name: Verify exact V2.2 candidate
+      - name: Verify exact V2.2 candidate and selector integrity
         env:
           PYTHONPATH: .
         run: |
@@ -61,6 +62,9 @@ jobs:
           from openra_env.coaching.conditional_engagement_v2_2 import (
               EXPECTED_CANDIDATE_SHA256,
               candidate_sha256,
+              format_coaching,
+              select_mode,
+              snapshot_from_state,
               validate_candidate,
           )
 
@@ -72,7 +76,20 @@ jobs:
           assert hashlib.sha256(path.read_bytes()).hexdigest() == EXPECTED_CANDIDATE_SHA256
           assert value['policy_boundaries']['automatic_tool_filtering'] is False
           assert value['policy_boundaries']['offered_tool_hinting_only'] is True
-          assert value['acceptance_gate']['productive_contact_rounds_minimum'] == 1
-          assert value['acceptance_gate']['seed_2060_attack_move_fraction_maximum'] == 0.75
-          print('CONDITIONAL_ENGAGEMENT_V2_2_EXACT_GREEN')
+
+          def state():
+              return {
+                  'units_summary': [{'can_attack': True, 'idle': False} for _ in range(4)],
+                  'enemy_summary': [],
+                  'enemy_buildings_summary': [],
+                  'military': {'kills_cost': 0, 'deaths_cost': 0},
+              }
+          h1 = snapshot_from_state(state(), round_no=1, selected_tool='attack_move')
+          h2 = snapshot_from_state(state(), round_no=2, selected_tool='attack_move')
+          decision = select_mode(value, snapshot_from_state(state(), round_no=3), [h1, h2])
+          assert decision['mode'] == 'FORCE_CONVERSION'
+          coaching = format_coaching(decision, ['attack_move', 'move_units'])
+          assert 'PREFERRED_MOVE_UNITS_SELECTOR=unit_ids="all_combat"' in coaching
+          assert 'use unit_ids="all_combat" exactly' in coaching
+          print('CONDITIONAL_ENGAGEMENT_V2_2_SELECTOR_INTEGRITY_R1_GREEN')
           PY
