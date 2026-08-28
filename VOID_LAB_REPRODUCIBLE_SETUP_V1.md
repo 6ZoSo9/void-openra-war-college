@@ -84,15 +84,20 @@ baseline ref, or continue to build or benchmark.
 ## Exact checkout receipt
 
 The default verifier checks both worktrees, including ordinary untracked files,
-reviewed ignored runtime/build inputs, and stable initial/final snapshots. Publish
-its single JSON record create-only. A pre-existing receipt is a terminal HOLD and
-must remain byte-for-byte untouched:
+reviewed ignored runtime/build inputs, and stable initial/final snapshots. Give
+each verification attempt a new explicit identifier and publish its single JSON
+record create-only. Attempt identifiers are non-secret lowercase labels, not
+timestamps or inferred mutable state. A pre-existing receipt for the selected
+identifier is a terminal HOLD and must remain byte-for-byte untouched:
 
 ```bash
-export VOID_LAB_RECEIPT="$VOID_WAR_COLLEGE_DIR/../void-lab-checkout-c164a7d2.json"
-(
+void_publish_lab_receipt() (
   set -eu
   umask 077
+  test "$#" -eq 1
+  VOID_LAB_RECEIPT_ID="$1"
+  python -c 'import re,sys; raise SystemExit(0 if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", sys.argv[1]) else 2)' "$VOID_LAB_RECEIPT_ID"
+  VOID_LAB_RECEIPT="$VOID_WAR_COLLEGE_DIR/../void-lab-checkout-c164a7d2-$VOID_LAB_RECEIPT_ID.json"
   VOID_LAB_RECEIPT_DIR="$(dirname -- "$VOID_LAB_RECEIPT")"
   test -d "$VOID_LAB_RECEIPT_DIR"
   test ! -e "$VOID_LAB_RECEIPT"
@@ -120,15 +125,19 @@ export VOID_LAB_RECEIPT="$VOID_WAR_COLLEGE_DIR/../void-lab-checkout-c164a7d2.jso
   rm -- "$VOID_LAB_RECEIPT_TEMP"
   VOID_LAB_RECEIPT_TEMP=''
   trap - EXIT HUP INT TERM
+  printf 'receipt_id=%s\nreceipt_path=%s\n' "$VOID_LAB_RECEIPT_ID" "$VOID_LAB_RECEIPT"
   sha256sum "$VOID_LAB_RECEIPT"
 )
+void_publish_lab_receipt setup-001
 ```
 
 Keep the receipt outside the repository so it does not make the exact worktree
 dirty. The hard-link publication is create-only even if another process creates
 the destination after the initial preflight. A verifier or validation failure
 removes only the private temporary file and cannot truncate an earlier receipt.
-Record its SHA-256 with any later designated-host evidence. Do not treat
+Record its identifier, exact path, and SHA-256 with any later designated-host
+evidence. Retain earlier receipts; never delete, rename, chmod, or replace one to
+reuse its identifier. Do not treat
 `--source-only` GREEN, unit tests, or hosted CI as exact designated-host checkout
 evidence.
 
@@ -136,8 +145,16 @@ evidence.
 
 A GREEN checkout receipt proves only the sampled pre-runtime composition. Before
 any later build or benchmark, the designated operator must re-run the default
-verifier against the same detached checkout and bind the new receipt digest to
-the exact command and resulting evidence. If either worktree changes, repeat the
-entire identity wall and verifier; never reuse an earlier GREEN receipt.
+verifier against the same detached checkout with a new identifier, for example:
+
+```bash
+void_publish_lab_receipt prebuild-001
+```
+
+Bind that exact new receipt identifier, path, and digest to the exact command and
+resulting evidence. The earlier `setup-001` receipt remains immutable evidence;
+the later command is authorized only by its named `prebuild-001` receipt. If
+either worktree changes, repeat the entire identity wall and verifier with
+another new identifier; never reuse or remove an earlier GREEN receipt.
 
 `runtime_evidence=PENDING_DESIGNATED_HOST`
