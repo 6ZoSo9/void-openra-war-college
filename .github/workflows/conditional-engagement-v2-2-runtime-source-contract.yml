@@ -5,10 +5,14 @@ on:
     paths:
       - openra_env/coaching/conditional_engagement_v2_2.py
       - openra_env/coaching/conditional_engagement_session_v2_2.py
+      - openra_env/analysis/_spar_conditional_v2_2.py
+      - openra_env/analysis/_spar_conditional_v2_2_reviewed_identity.py
+      - openra_env/analysis/spar_training_utility.py
       - tools/conditional_engagement_v2_2_duel_wrapper.py
       - tests/test_conditional_engagement_v2_2.py
       - tests/test_conditional_engagement_v2_2_duel_wrapper.py
       - tests/test_conditional_engagement_v2_2_direct_exec.py
+      - tests/test_spar_conditional_engagement_v2_2.py
       - .github/workflows/conditional-engagement-v2-2-runtime-source-contract.yml
   push:
     branches:
@@ -16,10 +20,14 @@ on:
     paths:
       - openra_env/coaching/conditional_engagement_v2_2.py
       - openra_env/coaching/conditional_engagement_session_v2_2.py
+      - openra_env/analysis/_spar_conditional_v2_2.py
+      - openra_env/analysis/_spar_conditional_v2_2_reviewed_identity.py
+      - openra_env/analysis/spar_training_utility.py
       - tools/conditional_engagement_v2_2_duel_wrapper.py
       - tests/test_conditional_engagement_v2_2.py
       - tests/test_conditional_engagement_v2_2_duel_wrapper.py
       - tests/test_conditional_engagement_v2_2_direct_exec.py
+      - tests/test_spar_conditional_engagement_v2_2.py
       - .github/workflows/conditional-engagement-v2-2-runtime-source-contract.yml
 
 permissions:
@@ -27,7 +35,7 @@ permissions:
 
 jobs:
   contract:
-    name: Python ${{ matrix.python-version }} V2.2 runtime contract
+    name: Python ${{ matrix.python-version }} V2.2 runtime/evidence contract
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -49,28 +57,54 @@ jobs:
             openra_env/coaching/conditional_engagement_v2_2.py \
             openra_env/coaching/conditional_engagement_session_v2_2.py \
             tools/conditional_engagement_v2_2_duel_wrapper.py
-      - name: Compile V2.2 runtime source
+      - name: Compile V2.2 runtime/evidence source
         run: |
           python -m py_compile \
             openra_env/coaching/conditional_engagement_v2_2.py \
             openra_env/coaching/conditional_engagement_session_v2_2.py \
+            openra_env/analysis/_spar_conditional_v2_2.py \
+            openra_env/analysis/_spar_conditional_v2_2_reviewed_identity.py \
+            openra_env/analysis/spar_training_utility.py \
             tools/conditional_engagement_v2_2_duel_wrapper.py \
             tests/test_conditional_engagement_v2_2.py \
             tests/test_conditional_engagement_v2_2_duel_wrapper.py \
-            tests/test_conditional_engagement_v2_2_direct_exec.py
-      - name: Run V2.2 runtime tests
+            tests/test_conditional_engagement_v2_2_direct_exec.py \
+            tests/test_spar_conditional_engagement_v2_2.py
+      - name: Run V2.2 runtime/evidence tests
         run: |
           python -m pytest -q \
             tests/test_conditional_engagement_v2_2.py \
             tests/test_conditional_engagement_v2_2_duel_wrapper.py \
-            tests/test_conditional_engagement_v2_2_direct_exec.py
-      - name: Verify source commit and candidate pin
+            tests/test_conditional_engagement_v2_2_direct_exec.py \
+            tests/test_spar_conditional_engagement_v2_2.py
+      - name: Verify exact V2.2 candidate and reviewed identity
         env:
           PYTHONPATH: .
         run: |
           python - <<'PY'
-          from tools.conditional_engagement_v2_2_duel_wrapper import V22_CANDIDATE_SHA256, V22_SOURCE_COMMIT
-          assert V22_SOURCE_COMMIT == '16d7b9c7c4bb6cbe81e8bf4174e783402a4083f1'
-          assert V22_CANDIDATE_SHA256 == '92f10e87f01a388882f621a09989783d561302cc46583a5344e8108c81d864ab'
-          print('CONDITIONAL_ENGAGEMENT_V2_2_RUNTIME_SOURCE_GREEN')
+          import hashlib
+          import json
+          from pathlib import Path
+          from openra_env.analysis._spar_conditional_v2_2_reviewed_identity import REVIEWED_V22_IDENTITY
+          from openra_env.coaching.conditional_engagement_v2_2 import candidate_sha256, validate_candidate
+
+          expected_candidate = '92f10e87f01a388882f621a09989783d561302cc46583a5344e8108c81d864ab'
+          fixture = Path('fixtures/training/conditional_engagement_candidate_v2_2.json')
+          candidate = json.loads(fixture.read_text(encoding='utf-8'))
+          validate_candidate(candidate)
+          assert candidate_sha256(candidate) == expected_candidate
+          assert hashlib.sha256(fixture.read_bytes()).hexdigest() == expected_candidate
+
+          actual_identity = {
+              'source_commit': '16d7b9c7c4bb6cbe81e8bf4174e783402a4083f1',
+              'candidate_sha256': expected_candidate,
+              'policy_sha256': hashlib.sha256(Path('openra_env/coaching/conditional_engagement_v2_2.py').read_bytes()).hexdigest(),
+              'session_sha256': hashlib.sha256(Path('openra_env/coaching/conditional_engagement_session_v2_2.py').read_bytes()).hexdigest(),
+              'wrapper_sha256': hashlib.sha256(Path('tools/conditional_engagement_v2_2_duel_wrapper.py').read_bytes()).hexdigest(),
+          }
+          assert actual_identity == REVIEWED_V22_IDENTITY
+          assert REVIEWED_V22_IDENTITY['policy_sha256'] == 'ec1a060ba77db72911eecb06ab51d063494040424ea185d9e09d5e077bf72cb5'
+          assert REVIEWED_V22_IDENTITY['session_sha256'] == '7d11da6f5b485a20380485edd8c9d589f50be70b23f6bc4426a3c3d2e532d890'
+          assert REVIEWED_V22_IDENTITY['wrapper_sha256'] == '3315118023d7c4ec9a5807b8f784763524429331c9aeda2b5c03b23e43e0594b'
+          print('CONDITIONAL_ENGAGEMENT_V2_2_RUNTIME_EVIDENCE_EXACT_GREEN')
           PY
