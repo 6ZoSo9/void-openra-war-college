@@ -13,7 +13,6 @@ on:
   push:
     branches:
       - main
-      - ren/general-brain-g1-challenger-eval-v1
     paths:
       - openra_env/learning/general_brain_runtime.py
       - openra_env/analysis/general_brain_g1_runtime_evidence.py
