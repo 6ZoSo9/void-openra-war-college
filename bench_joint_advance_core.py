@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
 PUBLICATION_RECEIPT_SCHEMA_VERSION = 1
 LOCAL_EVIDENCE_MARKER = "VOID_WAR_COLLEGE_UNTRUSTED_LOCAL_EVIDENCE_V1"
@@ -40,6 +40,7 @@ FROZEN_ENGINE_SHA = "1607a7a6501d42a47638393ecef8b22831064932"
 FROZEN_WAR_COLLEGE_SHA = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 GENERATION = "ad1926569b12466c"
 ALLOWED_CONCURRENCY = (1, 2, 4, 8)
+WORKLOAD_PROFILES = ("noop_control", "stop_owned_unit")
 ALLOWED_TERMINALS = {
     "success", "timeout", "rpc_error", "teardown_error", "not_executed",
 }
@@ -824,9 +825,14 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
         "joint_advance_latency", "joint_advance_calls", "ticks_advanced_validated",
         "validated_ticks_per_second", "canonical_hash_by_slot",
         "joint_advance_validation_by_slot", "teardown", "wall_seconds",
+        "workload_profile", "bootstrap_joint_advance_calls",
+        "bootstrap_ticks_advanced_validated", "bootstrap_validation_by_slot",
     }
     value = _require_exact_fields(value, fields, label)
-    for field in ("repetition", "joint_advance_calls", "ticks_advanced_validated"):
+    for field in (
+        "repetition", "joint_advance_calls", "ticks_advanced_validated",
+        "bootstrap_joint_advance_calls", "bootstrap_ticks_advanced_validated",
+    ):
         if isinstance(value[field], bool) or not isinstance(value[field], int) or value[field] < 0:
             raise ContractError(f"{label}.{field} must be an exact nonnegative integer")
     if value["joint_advance_calls"] == 0 or value["ticks_advanced_validated"] == 0:
@@ -856,6 +862,35 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
         value["canonical_hash_by_slot"]
     ) or slots != sorted(value["joint_advance_validation_by_slot"]):
         raise ContractError(f"{label} slot evidence is incomplete")
+    profile = value["workload_profile"]
+    if profile not in WORKLOAD_PROFILES:
+        raise ContractError(f"{label} workload profile is invalid")
+    bootstrap = value["bootstrap_validation_by_slot"]
+    if not isinstance(bootstrap, dict):
+        raise ContractError(f"{label} bootstrap validation must be an exact object")
+    if profile == "noop_control":
+        if value["bootstrap_joint_advance_calls"] != 0 or value[
+            "bootstrap_ticks_advanced_validated"
+        ] != 0 or bootstrap:
+            raise ContractError(f"{label} noop control cannot claim action bootstrap work")
+    else:
+        if value["bootstrap_joint_advance_calls"] != len(slots) or value[
+            "bootstrap_ticks_advanced_validated"
+        ] != len(slots) or sorted(bootstrap) != slots:
+            raise ContractError(f"{label} action bootstrap coverage is inconsistent")
+        for slot, candidate in bootstrap.items():
+            item = _require_exact_fields(
+                candidate, {"start_tick", "end_tick", "players", "purpose"},
+                f"{label}.bootstrap[{slot}]",
+            )
+            if (
+                type(item["start_tick"]) is not int
+                or type(item["end_tick"]) is not int
+                or item["end_tick"] - item["start_tick"] != 1
+                or item["players"] != ["Multi0", "Multi1"]
+                or item["purpose"] != "owned_actor_and_order_count_bootstrap"
+            ):
+                raise ContractError(f"{label} action bootstrap evidence is invalid")
     if len(set(value["session_id_by_slot"].values())) != len(slots):
         raise ContractError(f"{label} session ownership is not unique")
     for slot in slots:
@@ -886,7 +921,11 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
         for sample, candidate in enumerate(validations):
             validation = _require_exact_fields(
                 candidate,
-                {"start_tick", "end_tick", "players"},
+                {
+                    "start_tick", "end_tick", "players", "workload_profile",
+                    "commands_submitted", "actor_id_by_player", "order_count_before",
+                    "order_count_after", "application_proven",
+                },
                 f"{label}.validation[{slot}][{sample}]",
             )
             if any(
@@ -896,6 +935,30 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
                 raise ContractError(f"{label} validated tick advancement is invalid")
             if validation["players"] != ["Multi0", "Multi1"]:
                 raise ContractError(f"{label} validated perspectives are invalid")
+            if validation["workload_profile"] != profile or validation[
+                "application_proven"
+            ] is not True:
+                raise ContractError(f"{label} command-pressure profile is not proven")
+            command_fields = (
+                validation["actor_id_by_player"], validation["order_count_before"],
+                validation["order_count_after"],
+            )
+            if profile == "noop_control":
+                if validation["commands_submitted"] != 0 or any(command_fields):
+                    raise ContractError(f"{label} noop control contains command pressure")
+            else:
+                if validation["commands_submitted"] != 2 or any(
+                    set(field) != {"Multi0", "Multi1"} for field in command_fields
+                ):
+                    raise ContractError(f"{label} action command coverage is invalid")
+                for player in ("Multi0", "Multi1"):
+                    actor_id = validation["actor_id_by_player"][player]
+                    before = validation["order_count_before"][player]
+                    after = validation["order_count_after"][player]
+                    if type(actor_id) is not int or actor_id <= 0 or type(before) is not int or (
+                        before < 0 or type(after) is not int or after <= before
+                    ):
+                        raise ContractError(f"{label} action application evidence is invalid")
             if previous_end_tick is not None and validation["start_tick"] != previous_end_tick:
                 raise ContractError(f"{label} validated tick intervals are not continuous")
             previous_end_tick = validation["end_tick"]
@@ -906,7 +969,7 @@ def _validate_parameters_evidence(parameters: Any) -> dict[str, Any]:
     fields = {
         "concurrency", "tick_batches", "samples", "repetitions", "seed",
         "rpc_timeout_s", "cell_timeout_s", "teardown_timeout_s", "ready_timeout_s",
-        "port", "map_name", "bots",
+        "port", "map_name", "bots", "workload_profile",
     }
     parameters = _require_exact_fields(parameters, fields, "pending evidence parameters")
     concurrency = parameters["concurrency"]
@@ -933,6 +996,8 @@ def _validate_parameters_evidence(parameters: Any) -> dict[str, Any]:
         "bots"
     ] != BOTS:
         raise ContractError("pending evidence fixed benchmark parameters are invalid")
+    if parameters["workload_profile"] not in WORKLOAD_PROFILES:
+        raise ContractError("pending evidence workload profile is invalid")
     if parameters["seed"] + max(concurrency) - 1 > 2_147_483_647:
         raise ContractError("pending evidence seed/slot range exceeds the runtime integer domain")
     build_matrix(tuple(concurrency), tuple(tick_batches))
@@ -1072,6 +1137,8 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
         ] != list(range(parameters["repetitions"])):
             raise ContractError("matrix-cell repetition coverage is incomplete")
         for repetition in cell["repetitions"]:
+            if repetition["workload_profile"] != parameters["workload_profile"]:
+                raise ContractError("matrix-cell workload profile is not parameter-bound")
             expected_slots = [str(slot) for slot in range(cell["concurrency"])]
             if sorted(repetition["seed_by_slot"]) != expected_slots:
                 raise ContractError("matrix-cell concurrency/slot coverage is inconsistent")
@@ -1931,7 +1998,55 @@ async def wait_session_playing(
     raise TimeoutError(f"session {session_id} did not reach phase=playing")
 
 
-def validate_joint_response(response: Any, session_id: str, requested_ticks: int) -> dict[str, Any]:
+def _joint_observations_by_player(response: Any) -> dict[str, Any]:
+    observations = list(getattr(response, "player_observations", ()))
+    players = [getattr(observation, "player", None) for observation in observations]
+    if len(players) != 2 or set(players) != {"Multi0", "Multi1"}:
+        raise ContractError("JointAdvance response must contain exactly Multi0 and Multi1 perspectives")
+    return {observation.player: observation for observation in observations}
+
+
+def _exact_order_count(observation: Any, player: str) -> int:
+    military = getattr(observation, "military", None)
+    count = getattr(military, "order_count", None)
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise ContractError(f"JointAdvance {player} order_count is not an exact nonnegative integer")
+    return count
+
+
+def build_stop_owned_unit_batches(pb2: Any, response: Any) -> tuple[list[Any], dict[str, Any]]:
+    observations = _joint_observations_by_player(response)
+    batches: list[Any] = []
+    expectation: dict[str, Any] = {}
+    for player in ("Multi0", "Multi1"):
+        observation = observations[player]
+        actor_ids = sorted(
+            getattr(unit, "actor_id", None)
+            for unit in getattr(observation, "units", ())
+            if isinstance(getattr(unit, "actor_id", None), int)
+            and not isinstance(getattr(unit, "actor_id", None), bool)
+            and getattr(unit, "actor_id", None) > 0
+        )
+        if not actor_ids:
+            raise ContractError(f"stop_owned_unit lacks an owned unit for {player}")
+        actor_id = actor_ids[0]
+        before = _exact_order_count(observation, player)
+        batches.append(pb2.PlayerCommandBatch(
+            player=player,
+            commands=[pb2.Command(action=pb2.STOP, actor_id=actor_id)],
+        ))
+        expectation[player] = {"actor_id": actor_id, "order_count_before": before}
+    return batches, expectation
+
+
+def validate_joint_response(
+    response: Any,
+    session_id: str,
+    requested_ticks: int,
+    *,
+    workload_profile: str = "noop_control",
+    command_expectation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if getattr(response, "session_id", None) != session_id:
         raise ContractError("JointAdvance response session binding mismatch")
     start_tick = getattr(response, "start_tick", None)
@@ -1940,11 +2055,45 @@ def validate_joint_response(response: Any, session_id: str, requested_ticks: int
         raise ContractError("JointAdvance response ticks must be exact integers")
     if end_tick - start_tick != requested_ticks:
         raise ContractError("JointAdvance response did not prove requested tick advancement")
-    observations = list(getattr(response, "player_observations", ()))
-    players = [getattr(observation, "player", None) for observation in observations]
-    if len(players) != 2 or set(players) != {"Multi0", "Multi1"}:
-        raise ContractError("JointAdvance response must contain exactly Multi0 and Multi1 perspectives")
-    return {"start_tick": start_tick, "end_tick": end_tick, "players": sorted(players)}
+    observations = _joint_observations_by_player(response)
+    if workload_profile == "noop_control":
+        if command_expectation not in (None, {}):
+            raise ContractError("noop_control cannot claim action-bearing command evidence")
+        return {
+            "start_tick": start_tick, "end_tick": end_tick,
+            "players": sorted(observations), "workload_profile": workload_profile,
+            "commands_submitted": 0, "actor_id_by_player": {},
+            "order_count_before": {}, "order_count_after": {},
+            "application_proven": True,
+        }
+    if workload_profile != "stop_owned_unit" or not isinstance(command_expectation, dict) or set(
+        command_expectation
+    ) != {"Multi0", "Multi1"}:
+        raise ContractError("action-bearing JointAdvance command expectation is invalid")
+    actor_id_by_player: dict[str, int] = {}
+    before_by_player: dict[str, int] = {}
+    after_by_player: dict[str, int] = {}
+    for player in ("Multi0", "Multi1"):
+        expected = command_expectation[player]
+        if not isinstance(expected, dict) or set(expected) != {"actor_id", "order_count_before"}:
+            raise ContractError("stop_owned_unit command expectation is malformed")
+        actor_id = expected["actor_id"]
+        before = expected["order_count_before"]
+        after = _exact_order_count(observations[player], player)
+        if type(actor_id) is not int or actor_id <= 0 or type(before) is not int or before < 0:
+            raise ContractError("stop_owned_unit command expectation uses invalid scalars")
+        if after <= before:
+            raise ContractError(f"stop_owned_unit did not prove order application for {player}")
+        actor_id_by_player[player] = actor_id
+        before_by_player[player] = before
+        after_by_player[player] = after
+    return {
+        "start_tick": start_tick, "end_tick": end_tick,
+        "players": sorted(observations), "workload_profile": workload_profile,
+        "commands_submitted": 2, "actor_id_by_player": actor_id_by_player,
+        "order_count_before": before_by_player, "order_count_after": after_by_player,
+        "application_proven": True,
+    }
 
 
 async def destroy_sessions(
@@ -2006,7 +2155,10 @@ async def run_repetition(
     rpc_timeout_s: float,
     teardown_timeout_s: float,
     teardown_records: list[dict[str, Any]],
+    workload_profile: str = "noop_control",
 ) -> dict[str, Any]:
+    if workload_profile not in WORKLOAD_PROFILES:
+        raise ContractError("unsupported workload profile")
     session_id_by_slot: dict[int, str] = {}
     create_latencies: list[float] = []
     advance_latencies: list[float] = []
@@ -2053,24 +2205,73 @@ async def run_repetition(
             raise ContractError("CreateSession returned duplicate session ownership")
         create_latencies.extend(item[2] for item in created)
 
+        bootstrap_validation_by_slot: dict[int, dict[str, Any]] = {}
+        previous_response_by_slot: dict[int, Any] = {}
+        if workload_profile == "stop_owned_unit":
+            async def bootstrap(slot: int, session_id: str) -> tuple[int, Any, dict[str, Any]]:
+                response = await asyncio.wait_for(
+                    stub.JointAdvance(pb2.JointAdvanceRequest(
+                        session_id=session_id,
+                        ticks=1,
+                        player_actions=[
+                            pb2.PlayerCommandBatch(player="Multi0"),
+                            pb2.PlayerCommandBatch(player="Multi1"),
+                        ],
+                    )),
+                    timeout=rpc_timeout_s,
+                )
+                validation = validate_joint_response(response, session_id, 1)
+                return slot, response, {
+                    "start_tick": validation["start_tick"],
+                    "end_tick": validation["end_tick"],
+                    "players": validation["players"],
+                    "purpose": "owned_actor_and_order_count_bootstrap",
+                }
+
+            bootstrapped = await run_owned_phase(
+                {
+                    str(slot): bootstrap(slot, session_id_by_slot[slot])
+                    for slot in range(concurrency)
+                },
+                deadline_s=rpc_timeout_s,
+            )
+            for slot, response, validation in bootstrapped.values():
+                previous_response_by_slot[slot] = response
+                bootstrap_validation_by_slot[slot] = validation
+
         final_by_slot: dict[int, dict[str, Any]] = {}
         validation_by_slot: dict[int, list[dict[str, Any]]] = {}
         for _sample in range(samples):
             async def advance(slot: int, session_id: str) -> tuple[int, float, dict[str, Any]]:
+                command_expectation = None
+                if workload_profile == "stop_owned_unit":
+                    player_actions, command_expectation = build_stop_owned_unit_batches(
+                        pb2, previous_response_by_slot[slot],
+                    )
+                else:
+                    player_actions = [
+                        pb2.PlayerCommandBatch(player="Multi0"),
+                        pb2.PlayerCommandBatch(player="Multi1"),
+                    ]
                 request = pb2.JointAdvanceRequest(
                     session_id=session_id,
                     ticks=ticks,
-                    player_actions=[
-                        pb2.PlayerCommandBatch(player="Multi0"),
-                        pb2.PlayerCommandBatch(player="Multi1"),
-                    ],
+                    player_actions=player_actions,
                 )
                 t0 = time.monotonic()
                 response = await asyncio.wait_for(stub.JointAdvance(request), timeout=rpc_timeout_s)
                 elapsed_ms = (time.monotonic() - t0) * 1000
-                validation = validate_joint_response(response, session_id, ticks)
+                validation = validate_joint_response(
+                    response,
+                    session_id,
+                    ticks,
+                    workload_profile=workload_profile,
+                    command_expectation=command_expectation,
+                )
                 as_dict = message_to_dict(response, preserving_proto_field_name=True)
-                return slot, elapsed_ms, {"response": as_dict, "validation": validation}
+                return slot, elapsed_ms, {
+                    "raw_response": response, "response": as_dict, "validation": validation,
+                }
 
             advanced_by_task = await run_owned_phase(
                 {
@@ -2082,6 +2283,7 @@ async def run_repetition(
             advanced = list(advanced_by_task.values())
             for slot, elapsed_ms, envelope in advanced:
                 advance_latencies.append(elapsed_ms)
+                previous_response_by_slot[slot] = envelope["raw_response"]
                 final_by_slot[slot] = envelope["response"]
                 interval_chain = validation_by_slot.setdefault(slot, [])
                 if (
@@ -2133,6 +2335,13 @@ async def run_repetition(
         "joint_advance_latency": latency_summary(advance_latencies),
         "joint_advance_calls": len(advance_latencies),
         "ticks_advanced_validated": len(advance_latencies) * ticks,
+        "workload_profile": workload_profile,
+        "bootstrap_joint_advance_calls": len(bootstrap_validation_by_slot),
+        "bootstrap_ticks_advanced_validated": len(bootstrap_validation_by_slot),
+        "bootstrap_validation_by_slot": {
+            str(slot): validation
+            for slot, validation in sorted(bootstrap_validation_by_slot.items())
+        },
         "validated_ticks_per_second": (len(advance_latencies) * ticks) / wall_s if wall_s > 0 else 0,
         "canonical_hash_by_slot": hashes,
         "joint_advance_validation_by_slot": {
@@ -2156,6 +2365,7 @@ async def run_cell(
     rpc_timeout_s: float,
     cell_timeout_s: float,
     teardown_timeout_s: float,
+    workload_profile: str = "noop_control",
 ) -> tuple[str, dict[str, Any]]:
     started = time.monotonic()
     repetition_results: list[dict[str, Any]] = []
@@ -2212,6 +2422,7 @@ async def run_cell(
                 rpc_timeout_s=rpc_timeout_s,
                 teardown_timeout_s=teardown_timeout_s,
                 teardown_records=teardown_records,
+                workload_profile=workload_profile,
             ))
     try:
         # asyncio.wait_for is available throughout the repository's Python >=3.10 range.
@@ -2427,6 +2638,7 @@ async def execute_runtime(
                 rpc_timeout_s=args.rpc_timeout_s,
                 cell_timeout_s=args.cell_timeout_s,
                 teardown_timeout_s=args.teardown_timeout_s,
+                workload_profile=args.workload_profile,
             )
             cpu_after = process_cpu_sample(daemon.pid)
             terminal, payload = bind_post_cell_daemon_identity(
@@ -2548,6 +2760,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--tick-batches", default="1,8,32,128")
     result.add_argument("--samples", default="5")
     result.add_argument("--repetitions", default="2")
+    result.add_argument("--workload-profile", choices=WORKLOAD_PROFILES, default="noop_control")
     result.add_argument("--seed", default="2050")
     result.add_argument("--rpc-timeout-s", default="60")
     result.add_argument("--cell-timeout-s", default="900")
@@ -2591,6 +2804,7 @@ def normalized_args(args: argparse.Namespace) -> dict[str, Any]:
         "tick_batches": list(tick_batches),
         "samples": args.samples,
         "repetitions": args.repetitions,
+        "workload_profile": args.workload_profile,
         "seed": args.seed,
         "rpc_timeout_s": args.rpc_timeout_s,
         "cell_timeout_s": args.cell_timeout_s,

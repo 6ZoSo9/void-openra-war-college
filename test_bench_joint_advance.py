@@ -3,6 +3,7 @@
 
 import asyncio
 import base64
+import copy
 import hashlib
 import io
 import json
@@ -322,7 +323,13 @@ class RuntimeBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(
             bench.validate_joint_response(good, "session-a", 8),
-            {"start_tick": 10, "end_tick": 18, "players": ["Multi0", "Multi1"]},
+            {
+                "start_tick": 10, "end_tick": 18,
+                "players": ["Multi0", "Multi1"],
+                "workload_profile": "noop_control", "commands_submitted": 0,
+                "actor_id_by_player": {}, "order_count_before": {},
+                "order_count_after": {}, "application_proven": True,
+            },
         )
         for mutation in (
             {"session_id": "wrong"},
@@ -457,6 +464,7 @@ class EvidencePublicationTests(unittest.TestCase):
             "cell_timeout_s": 900, "teardown_timeout_s": 10,
             "ready_timeout_s": 30, "port": 9999,
             "map_name": bench.MAP_NAME, "bots": bench.BOTS,
+            "workload_profile": "noop_control",
         }
         operation = bench.operation_descriptor(
             provenance,
@@ -478,11 +486,19 @@ class EvidencePublicationTests(unittest.TestCase):
                 "joint_advance_latency": latency,
                 "joint_advance_calls": 1,
                 "ticks_advanced_validated": 1,
+                "workload_profile": "noop_control",
+                "bootstrap_joint_advance_calls": 0,
+                "bootstrap_ticks_advanced_validated": 0,
+                "bootstrap_validation_by_slot": {},
                 "validated_ticks_per_second": 1.0,
                 "canonical_hash_by_slot": {"0": digest},
                 "joint_advance_validation_by_slot": {
                     "0": [{"start_tick": 10, "end_tick": 11,
-                           "players": ["Multi0", "Multi1"]}],
+                           "players": ["Multi0", "Multi1"],
+                           "workload_profile": "noop_control",
+                           "commands_submitted": 0,
+                           "actor_id_by_player": {}, "order_count_before": {},
+                           "order_count_after": {}, "application_proven": True}],
                 },
                 "teardown": {
                     "failures": [], "latency": latency,
@@ -605,11 +621,9 @@ class EvidencePublicationTests(unittest.TestCase):
             repetition["ticks_advanced_validated"] = 2
             repetition["validated_ticks_per_second"] = 2.0
             repetition["canonical_hash_by_slot"]["1"] = second_digest
-            repetition["joint_advance_validation_by_slot"]["1"] = [{
-                "start_tick": 10,
-                "end_tick": 11,
-                "players": ["Multi0", "Multi1"],
-            }]
+            repetition["joint_advance_validation_by_slot"]["1"] = [copy.deepcopy(
+                repetition["joint_advance_validation_by_slot"]["0"][0]
+            )]
             teardown = repetition["teardown"]
             teardown["latency"] = bench.latency_summary([1.0, 1.0])
             teardown["latency_samples_ms"] = [1.0, 1.0]
@@ -1302,9 +1316,10 @@ bench.publish_evidence_create_only(output, payload, reservation=reservation)
         repetition["ticks_advanced_validated"] = 2
         repetition["validated_ticks_per_second"] = 2.0
         repetition["joint_advance_latency"]["count"] = 2
+        sample = repetition["joint_advance_validation_by_slot"]["0"][0]
         repetition["joint_advance_validation_by_slot"]["0"] = [
-            {"start_tick": 10, "end_tick": 11, "players": ["Multi0", "Multi1"]},
-            {"start_tick": 11, "end_tick": 12, "players": ["Multi0", "Multi1"]},
+            {**copy.deepcopy(sample), "start_tick": 10, "end_tick": 11},
+            {**copy.deepcopy(sample), "start_tick": 11, "end_tick": 12},
         ]
         bench._validate_repetition_evidence(repetition, "fixture")
 
@@ -1354,6 +1369,8 @@ bench.publish_evidence_create_only(output, payload, reservation=reservation)
 
 class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
     class Pb2:
+        STOP = 4
+
         @staticmethod
         def CreateSessionRequest(**kwargs):
             return types.SimpleNamespace(**kwargs)
@@ -1364,6 +1381,10 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
 
         @staticmethod
         def PlayerCommandBatch(**kwargs):
+            return types.SimpleNamespace(**kwargs)
+
+        @staticmethod
+        def Command(**kwargs):
             return types.SimpleNamespace(**kwargs)
 
         @staticmethod
@@ -1386,6 +1407,7 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             self.stall_destroy = stall_destroy
             self.repeat_interval = repeat_interval
             self.next_tick_by_session = {}
+            self.order_count_by_session_player = {}
             self.blocked_create_cancelled = False
             self.blocked_advance_cancelled = False
             self.teardown_started = False
@@ -1426,14 +1448,32 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             end_tick = start_tick + request.ticks
             if not self.repeat_interval:
                 self.next_tick_by_session[request.session_id] = end_tick
+            for batch in request.player_actions:
+                commands = list(getattr(batch, "commands", ()))
+                key = (request.session_id, batch.player)
+                self.order_count_by_session_player[key] = (
+                    self.order_count_by_session_player.get(key, 0) + len(commands)
+                )
             return types.SimpleNamespace(
                 session_id=request.session_id,
                 start_tick=start_tick,
                 end_tick=end_tick,
                 seed=seed,
                 player_observations=[
-                    types.SimpleNamespace(player="Multi0"),
-                    types.SimpleNamespace(player="Multi1"),
+                    types.SimpleNamespace(
+                        player="Multi0",
+                        units=[types.SimpleNamespace(actor_id=100)],
+                        military=types.SimpleNamespace(order_count=self.order_count_by_session_player.get(
+                            (request.session_id, "Multi0"), 0,
+                        )),
+                    ),
+                    types.SimpleNamespace(
+                        player="Multi1",
+                        units=[types.SimpleNamespace(actor_id=200)],
+                        military=types.SimpleNamespace(order_count=self.order_count_by_session_player.get(
+                            (request.session_id, "Multi1"), 0,
+                        )),
+                    ),
                 ],
             )
 
@@ -1453,7 +1493,12 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             "end_tick": response.end_tick,
             "state": {"seed": response.seed},
             "player_observations": [
-                {"player": item.player} for item in response.player_observations
+                {
+                    "player": item.player,
+                    "units": [{"actor_id": unit.actor_id} for unit in item.units],
+                    "military": {"order_count": item.military.order_count},
+                }
+                for item in response.player_observations
             ],
         }
 
@@ -1507,8 +1552,14 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result["joint_advance_validation_by_slot"]["0"],
             [
-                {"start_tick": 10, "end_tick": 18, "players": ["Multi0", "Multi1"]},
-                {"start_tick": 18, "end_tick": 26, "players": ["Multi0", "Multi1"]},
+                {"start_tick": 10, "end_tick": 18, "players": ["Multi0", "Multi1"],
+                 "workload_profile": "noop_control", "commands_submitted": 0,
+                 "actor_id_by_player": {}, "order_count_before": {},
+                 "order_count_after": {}, "application_proven": True},
+                {"start_tick": 18, "end_tick": 26, "players": ["Multi0", "Multi1"],
+                 "workload_profile": "noop_control", "commands_submitted": 0,
+                 "actor_id_by_player": {}, "order_count_before": {},
+                 "order_count_after": {}, "application_proven": True},
             ],
         )
         self.assertEqual(result["joint_advance_calls"], 2)
@@ -1530,6 +1581,38 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                 teardown_records=[],
             )
         self.assertEqual(repeated.destroyed, ["session-2050"])
+
+    async def test_action_profile_bootstraps_owned_actors_and_proves_each_order(self):
+        result = await bench.run_repetition(
+            stub=self.Stub(),
+            pb2=self.Pb2,
+            message_to_dict=self.as_dict,
+            concurrency=1,
+            ticks=8,
+            samples=2,
+            seed_base=2050,
+            repetition=0,
+            rpc_timeout_s=1,
+            teardown_timeout_s=1,
+            teardown_records=[],
+            workload_profile="stop_owned_unit",
+        )
+        self.assertEqual(result["bootstrap_joint_advance_calls"], 1)
+        self.assertEqual(result["bootstrap_ticks_advanced_validated"], 1)
+        self.assertEqual(
+            result["bootstrap_validation_by_slot"]["0"]["purpose"],
+            "owned_actor_and_order_count_bootstrap",
+        )
+        validations = result["joint_advance_validation_by_slot"]["0"]
+        self.assertEqual([item["commands_submitted"] for item in validations], [2, 2])
+        self.assertEqual(
+            [item["actor_id_by_player"] for item in validations],
+            [{"Multi0": 100, "Multi1": 200}, {"Multi0": 100, "Multi1": 200}],
+        )
+        self.assertEqual(
+            [item["order_count_after"] for item in validations],
+            [{"Multi0": 1, "Multi1": 1}, {"Multi0": 2, "Multi1": 2}],
+        )
 
     async def test_failed_advance_retires_sibling_before_teardown(self):
         stub = self.Stub(fail_advance=True)
