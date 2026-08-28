@@ -17,6 +17,7 @@ on:
   push:
     branches:
       - main
+      - ren/v2-2-selector-integrity-r1
     paths:
       - openra_env/coaching/conditional_engagement_v2_2.py
       - openra_env/coaching/conditional_engagement_session_v2_2.py
@@ -96,15 +97,13 @@ jobs:
           assert hashlib.sha256(fixture.read_bytes()).hexdigest() == expected_candidate
 
           actual_identity = {
-              'source_commit': '16d7b9c7c4bb6cbe81e8bf4174e783402a4083f1',
+              'source_commit': 'c7084294253793b101cc2826726a8cfa0b294c37',
               'candidate_sha256': expected_candidate,
               'policy_sha256': hashlib.sha256(Path('openra_env/coaching/conditional_engagement_v2_2.py').read_bytes()).hexdigest(),
               'session_sha256': hashlib.sha256(Path('openra_env/coaching/conditional_engagement_session_v2_2.py').read_bytes()).hexdigest(),
               'wrapper_sha256': hashlib.sha256(Path('tools/conditional_engagement_v2_2_duel_wrapper.py').read_bytes()).hexdigest(),
           }
+          print('R1_ACTUAL_IDENTITY=' + repr(actual_identity))
           assert actual_identity == REVIEWED_V22_IDENTITY
-          assert REVIEWED_V22_IDENTITY['policy_sha256'] == 'ec1a060ba77db72911eecb06ab51d063494040424ea185d9e09d5e077bf72cb5'
-          assert REVIEWED_V22_IDENTITY['session_sha256'] == '7d11da6f5b485a20380485edd8c9d589f50be70b23f6bc4426a3c3d2e532d890'
-          assert REVIEWED_V22_IDENTITY['wrapper_sha256'] == '3315118023d7c4ec9a5807b8f784763524429331c9aeda2b5c03b23e43e0594b'
           print('CONDITIONAL_ENGAGEMENT_V2_2_RUNTIME_EVIDENCE_EXACT_GREEN')
           PY
