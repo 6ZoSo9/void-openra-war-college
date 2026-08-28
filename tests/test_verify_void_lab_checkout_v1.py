@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -23,8 +25,10 @@ def probe(**overrides):
         "engine_repository_url": MODULE.ENGINE_REPOSITORY_URL,
         "engine_checkout_present": False,
         "engine_checkout_head": None,
-        "engine_checkout_clean": None,
-        "war_college_checkout_clean": True,
+        "engine_tracked_checkout_clean": None,
+        "engine_exact_checkout_clean": None,
+        "war_college_tracked_checkout_clean": True,
+        "war_college_exact_checkout_clean": True,
     }
     values.update(overrides)
     return MODULE.Probe(**values)
@@ -52,10 +56,18 @@ class GitlinkParsingTests(unittest.TestCase):
 
 class EvaluationTests(unittest.TestCase):
     def test_source_contract_can_be_green_without_private_checkout(self):
-        report = MODULE.evaluate_probe(probe())
+        report = MODULE.evaluate_probe(probe(), source_only=True)
         self.assertEqual(report["source_contract"], "GREEN")
         self.assertEqual(report["checkout_contract"], "PENDING_ENGINE_CHECKOUT")
         self.assertEqual(report["runtime_evidence"], "PENDING_DESIGNATED_HOST")
+        self.assertEqual(
+            report["requested_contract"], "COMMITTED_TRACKED_COMPOSITION_ONLY"
+        )
+        self.assertEqual(
+            report["source_only_limitation"],
+            "DOES_NOT_ASSERT_EXACT_DESIGNATED_HOST_COMPOSITION",
+        )
+        self.assertFalse(report["exact_checkout_evidence"])
         self.assertFalse(report["checks"]["engine_checkout_present"])
 
     def test_exact_clean_engine_checkout_is_green(self):
@@ -63,7 +75,8 @@ class EvaluationTests(unittest.TestCase):
             probe(
                 engine_checkout_present=True,
                 engine_checkout_head=MODULE.ENGINE_FROZEN_COMMIT,
-                engine_checkout_clean=True,
+                engine_tracked_checkout_clean=True,
+                engine_exact_checkout_clean=True,
             )
         )
         self.assertEqual(report["source_contract"], "GREEN")
@@ -80,20 +93,45 @@ class EvaluationTests(unittest.TestCase):
             probe(
                 engine_checkout_present=True,
                 engine_checkout_head="b" * 40,
-                engine_checkout_clean=True,
+                engine_tracked_checkout_clean=True,
+                engine_exact_checkout_clean=True,
             )
         )
         dirty = MODULE.evaluate_probe(
             probe(
                 engine_checkout_present=True,
                 engine_checkout_head=MODULE.ENGINE_FROZEN_COMMIT,
-                engine_checkout_clean=False,
+                engine_tracked_checkout_clean=False,
+                engine_exact_checkout_clean=False,
             )
         )
         self.assertEqual(wrong["checkout_contract"], "HOLD")
         self.assertIn("engine_checkout_matches_gitlink", wrong["holds"])
         self.assertEqual(dirty["checkout_contract"], "HOLD")
         self.assertIn("engine_tracked_checkout_clean", dirty["holds"])
+
+    def test_untracked_parent_or_engine_input_holds_exact_checkout(self):
+        parent_dirty = MODULE.evaluate_probe(
+            probe(
+                engine_checkout_present=True,
+                engine_checkout_head=MODULE.ENGINE_FROZEN_COMMIT,
+                engine_tracked_checkout_clean=True,
+                engine_exact_checkout_clean=True,
+                war_college_exact_checkout_clean=False,
+            )
+        )
+        engine_dirty = MODULE.evaluate_probe(
+            probe(
+                engine_checkout_present=True,
+                engine_checkout_head=MODULE.ENGINE_FROZEN_COMMIT,
+                engine_tracked_checkout_clean=True,
+                engine_exact_checkout_clean=False,
+            )
+        )
+        self.assertEqual(parent_dirty["checkout_contract"], "HOLD")
+        self.assertIn("war_college_exact_checkout_clean", parent_dirty["holds"])
+        self.assertEqual(engine_dirty["checkout_contract"], "HOLD")
+        self.assertIn("engine_exact_checkout_clean", engine_dirty["holds"])
 
     def test_wrong_url_or_missing_frozen_ancestry_holds_source(self):
         wrong_url = MODULE.evaluate_probe(probe(engine_repository_url="https://example.invalid"))
@@ -110,6 +148,57 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(json.loads(encoded), report)
         self.assertNotIn("\n", encoded)
         self.assertTrue(encoded.startswith('{"checkout_contract":'))
+
+
+class GitBackedCleanlinessTests(unittest.TestCase):
+    def _repository(self, root: Path) -> None:
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "larry-test@example.invalid"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Larry Checkout Test"],
+            cwd=root,
+            check=True,
+        )
+        tracked = root / "tracked.txt"
+        tracked.write_text("preserved\n", encoding="utf-8")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+
+    def test_untracked_war_college_benchmark_input_forces_exact_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._repository(root)
+            untracked = root / "benchmarks" / "untracked-input.json"
+            untracked.parent.mkdir()
+            untracked.write_text("{}\n", encoding="utf-8")
+            self.assertTrue(
+                MODULE.git_checkout_clean(root, include_untracked=False)
+            )
+            self.assertFalse(
+                MODULE.git_checkout_clean(root, include_untracked=True)
+            )
+            untracked.unlink()
+            self.assertTrue(MODULE.git_checkout_clean(root, include_untracked=True))
+
+    def test_untracked_engine_map_input_forces_exact_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._repository(root)
+            untracked = root / "mods" / "ra" / "maps" / "untracked-map.yaml"
+            untracked.parent.mkdir(parents=True)
+            untracked.write_text("MapFormat: 12\n", encoding="utf-8")
+            self.assertTrue(
+                MODULE.git_checkout_clean(root, include_untracked=False)
+            )
+            self.assertFalse(
+                MODULE.git_checkout_clean(root, include_untracked=True)
+            )
+            untracked.unlink()
+            self.assertTrue(MODULE.git_checkout_clean(root, include_untracked=True))
 
 
 if __name__ == "__main__":
