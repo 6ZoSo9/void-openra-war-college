@@ -95,6 +95,51 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertFalse(report["countable"])
             self.assertEqual(report["producer_authentication"], "ABSENT")
 
+    def test_committed_final_with_hard_link_pending_is_exact_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = bench._pending_path(output)
+            receipt = bench._commit_receipt_path(output)
+            payload = b"opaque-final-bytes\n"
+            write_0400(output, payload)
+            os.link(output, pending)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+            before = {str(p): generation(p) for p in (output, pending, receipt)}
+            report = INSPECT.inspect_namespace(output)
+            after = {str(p): generation(p) for p in (output, pending, receipt)}
+            self.assertEqual(before, after)
+            self.assertEqual(
+                report["classification"],
+                "COMMITTED_LOCAL_UNTRUSTED_WITH_PENDING_ALIAS",
+            )
+            self.assertTrue(report["pending_aliases_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_delete"])
+
+    def test_committed_final_with_foreign_pending_generation_is_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = bench._pending_path(output)
+            receipt = bench._commit_receipt_path(output)
+            payload = b"same-bytes-do-not-prove-alias\n"
+            write_0400(output, payload)
+            write_0400(pending, payload)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+            before = {str(p): generation(p) for p in (output, pending, receipt)}
+            report = INSPECT.inspect_namespace(output)
+            after = {str(p): generation(p) for p in (output, pending, receipt)}
+            self.assertEqual(before, after)
+            self.assertEqual(
+                report["classification"],
+                "COMMITTED_LOCAL_UNTRUSTED_WITH_FOREIGN_PENDING_HOLD",
+            )
+            self.assertFalse(report["pending_aliases_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_delete"])
+            self.assertFalse(report["automatic_link"])
+            self.assertFalse(report["automatic_rewrite"])
+
     def test_pending_and_final_without_receipt_remain_explicitly_ambiguous(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
