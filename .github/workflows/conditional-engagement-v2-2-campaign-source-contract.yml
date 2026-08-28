@@ -7,6 +7,14 @@ on:
       - openra_env/analysis/spar_v22_matrix.py
       - tests/test_spar_v22_campaign.py
       - .github/workflows/conditional-engagement-v2-2-campaign-source-contract.yml
+  push:
+    branches:
+      - ren/v2-2-campaign-resume-planner-v1
+    paths:
+      - openra_env/analysis/spar_v22_campaign.py
+      - openra_env/analysis/spar_v22_matrix.py
+      - tests/test_spar_v22_campaign.py
+      - .github/workflows/conditional-engagement-v2-2-campaign-source-contract.yml
 
 permissions:
   contents: read
@@ -45,13 +53,17 @@ jobs:
           from openra_env.analysis.spar_v22_campaign import (
               REVIEWED_CAMPAIGN_SEEDS,
               REVIEWED_PAIR_COUNT,
+              evaluate_campaign,
               reviewed_plan,
           )
           assert REVIEWED_CAMPAIGN_SEEDS == (2051, 2055, 2052, 2053, 2054)
           assert REVIEWED_PAIR_COUNT == 15
           plan = reviewed_plan()
           assert plan['required_pair_count'] == 15
-          assert all(row['required_pairs'] == 3 for row in plan['seeds'])
+          assert plan['execution_phases'][0]['seeds'] == [2051, 2055]
+          assert plan['execution_phases'][1]['seeds'] == [2052, 2053, 2054]
           assert 2060 not in [row['seed'] for row in plan['seeds']]
+          empty = evaluate_campaign([])
+          assert [row['seed'] for row in empty['next_tranche']] == [2051, 2055]
           print('CONDITIONAL_ENGAGEMENT_V2_2_CAMPAIGN_EXACT_GREEN')
           PY
