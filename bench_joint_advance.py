@@ -1021,6 +1021,10 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
             expected_slots = [str(slot) for slot in range(cell["concurrency"])]
             if sorted(repetition["seed_by_slot"]) != expected_slots:
                 raise ContractError("matrix-cell concurrency/slot coverage is inconsistent")
+            if repetition["create_latency"]["count"] != cell["concurrency"]:
+                raise ContractError(
+                    "matrix-cell create latency population is inconsistent"
+                )
             expected_seed_by_slot = {
                 str(slot): parameters["seed"] + slot
                 for slot in range(cell["concurrency"])
