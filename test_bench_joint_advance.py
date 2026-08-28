@@ -1816,8 +1816,13 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             repetitions=2,
             seed_base=2050,
             rpc_timeout_s=1,
-            cell_timeout_s=0.04,
-            teardown_timeout_s=0.05,
+            # Leave enough time for both sessions to become owned before the
+            # cell deadline, then keep the teardown deadline comfortably
+            # beyond it.  This deterministically exercises cancellation while
+            # cleanup is shielded instead of racing cancellation against the
+            # create/bootstrap phase on slower CI workers.
+            cell_timeout_s=0.2,
+            teardown_timeout_s=0.4,
         )
         self.assertEqual(terminal, "timeout")
         self.assertTrue(payload["cleanup_after_work_cancellation"])
