@@ -30,8 +30,8 @@ globals()["__name__"] = _BOOTSTRAP_NAME
 globals()["__file__"] = _BOOTSTRAP_FILE
 
 # Source-contract compatibility note: the core uses asyncio.wait_for( throughout
-# its Python 3.10-compatible deadline implementation.  No asyncio.timeout() is
-# introduced by this facade.
+# its Python 3.10-compatible deadline implementation. This facade introduces no
+# newer timeout context-manager API.
 
 
 def _post_commit_error(error: BaseException, stage: str) -> str:
