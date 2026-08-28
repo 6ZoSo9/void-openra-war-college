@@ -11,7 +11,7 @@ on:
       - .github/workflows/conditional-engagement-v2-2-pair-source-contract.yml
   push:
     branches:
-      - ren/conditional-engagement-v2-2-runtime-evidence-v1
+      - main
     paths:
       - openra_env/analysis/spar_v22_pair_comparison.py
       - openra_env/analysis/spar_v22_pair_binding.py
