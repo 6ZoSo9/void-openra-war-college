@@ -4,8 +4,8 @@
 The source-only mode is safe for CI without private-submodule credentials.  It
 verifies committed/tracked composition, but explicitly does not assert exact
 worktree composition.  The default mode additionally requires both worktrees
-to be exact and clean, including the absence of untracked runtime inputs,
-before a designated-host build or benchmark is attempted.
+to be exact and clean, including the absence of untracked or ignored runtime
+inputs, before a designated-host build or benchmark is attempted.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from typing import Callable, Sequence
 
 
 MARKER = "VOID_WAR_COLLEGE_LAB_CHECKOUT_CONTRACT_V1"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 WAR_COLLEGE_FROZEN_COMMIT = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 ENGINE_FROZEN_COMMIT = "1607a7a6501d42a47638393ecef8b22831064932"
 GENERATION = "ad1926569b12466c"
@@ -63,7 +63,11 @@ def _run_git(root: Path, args: Sequence[str]) -> subprocess.CompletedProcess[str
 
 
 def git_checkout_clean(
-    root: Path, *, include_untracked: bool, ignore_submodules: bool = False
+    root: Path,
+    *,
+    include_untracked: bool,
+    include_ignored: bool = False,
+    ignore_submodules: bool = False,
 ) -> bool:
     """Return exact git cleanliness under the requested explicit policy."""
     args = [
@@ -71,6 +75,8 @@ def git_checkout_clean(
         "--porcelain",
         "--untracked-files=all" if include_untracked else "--untracked-files=no",
     ]
+    if include_ignored:
+        args.append("--ignored=matching")
     if ignore_submodules:
         args.append("--ignore-submodules=all")
     return not bool(_run_git(root, args).stdout.strip())
@@ -136,7 +142,10 @@ def collect_probe(root: Path) -> Probe:
         root, include_untracked=False, ignore_submodules=True
     )
     parent_exact_clean = git_checkout_clean(
-        root, include_untracked=True, ignore_submodules=True
+        root,
+        include_untracked=True,
+        include_ignored=True,
+        ignore_submodules=True,
     )
 
     engine_root = root / ENGINE_SUBMODULE_PATH
@@ -152,7 +161,7 @@ def collect_probe(root: Path) -> Probe:
             engine_root, include_untracked=False
         )
         engine_exact_clean = git_checkout_clean(
-            engine_root, include_untracked=True
+            engine_root, include_untracked=True, include_ignored=True
         )
 
     return Probe(
@@ -222,7 +231,7 @@ def evaluate_probe(probe: Probe, *, source_only: bool = False) -> dict[str, obje
         "requested_contract": (
             "COMMITTED_TRACKED_COMPOSITION_ONLY"
             if source_only
-            else "EXACT_WORKTREE_COMPOSITION_INCLUDING_UNTRACKED"
+            else "EXACT_WORKTREE_COMPOSITION_INCLUDING_UNTRACKED_AND_IGNORED"
         ),
         "source_only_limitation": (
             "DOES_NOT_ASSERT_EXACT_DESIGNATED_HOST_COMPOSITION"
@@ -280,7 +289,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "requested_contract": (
                 "COMMITTED_TRACKED_COMPOSITION_ONLY"
                 if args.source_only
-                else "EXACT_WORKTREE_COMPOSITION_INCLUDING_UNTRACKED"
+                else "EXACT_WORKTREE_COMPOSITION_INCLUDING_UNTRACKED_AND_IGNORED"
             ),
             "source_only_limitation": (
                 "DOES_NOT_ASSERT_EXACT_DESIGNATED_HOST_COMPOSITION"
