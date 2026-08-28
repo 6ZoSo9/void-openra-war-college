@@ -31,6 +31,8 @@ from typing import Any, Awaitable, Iterable
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
 SCHEMA_VERSION = 1
+PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
+PUBLICATION_RECEIPT_SCHEMA_VERSION = 1
 OPERATION_SCHEMA = "void.war-college.joint-advance-operation.v1"
 FROZEN_ENGINE_SHA = "1607a7a6501d42a47638393ecef8b22831064932"
 FROZEN_WAR_COLLEGE_SHA = "973802ef0a614e5afa782ff20e231e18966ae3e5"
@@ -840,6 +842,73 @@ def _pending_path(path: Path) -> Path:
     return path.parent / f".{path.name}.pending"
 
 
+def _commit_receipt_path(path: Path) -> Path:
+    return path.parent / f".{path.name}.commit"
+
+
+def _commit_receipt_payload(path: Path, evidence_payload: bytes) -> bytes:
+    receipt = {
+        "marker": PUBLICATION_RECEIPT_MARKER,
+        "schema_version": PUBLICATION_RECEIPT_SCHEMA_VERSION,
+        "state": "COMMITTED",
+        "evidence_name": path.name,
+        "evidence_sha256": hashlib.sha256(evidence_payload).hexdigest(),
+        "evidence_bytes": len(evidence_payload),
+    }
+    return stable_json(receipt).encode("utf-8")
+
+
+def _validate_commit_receipt(
+    receipt_payload: bytes,
+    path: Path,
+    evidence_payload: bytes,
+) -> dict[str, Any]:
+    try:
+        receipt = json.loads(receipt_payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ContractError(f"evidence commit receipt is not canonical JSON: {error}") from error
+    if not isinstance(receipt, dict) or set(receipt) != {
+        "marker", "schema_version", "state", "evidence_name",
+        "evidence_sha256", "evidence_bytes",
+    }:
+        raise ContractError("evidence commit receipt fields are not exact")
+    if (
+        not isinstance(receipt["marker"], str)
+        or not isinstance(receipt["schema_version"], int)
+        or isinstance(receipt["schema_version"], bool)
+        or not isinstance(receipt["state"], str)
+        or not isinstance(receipt["evidence_name"], str)
+        or not isinstance(receipt["evidence_sha256"], str)
+        or not isinstance(receipt["evidence_bytes"], int)
+        or isinstance(receipt["evidence_bytes"], bool)
+    ):
+        raise ContractError("evidence commit receipt scalar types are not exact")
+    if stable_json(receipt).encode("utf-8") != receipt_payload:
+        raise ContractError("evidence commit receipt is not stable canonical JSON")
+    expected = json.loads(_commit_receipt_payload(path, evidence_payload))
+    if receipt != expected:
+        raise ContractError("evidence commit receipt does not bind the canonical report")
+    return receipt
+
+
+def load_committed_evidence(
+    path: Path,
+    expected_operation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Load countable evidence only after its separate durable commit point.
+
+    A schema-valid pending or final report is not canonical completion authority
+    by itself. Consumers must require the create-only receipt that content-binds
+    the exact final report after its directory entry is durable.
+    """
+    path = Path(os.path.abspath(os.fspath(path)))
+    evidence_payload = _read_regular_read_only(path)
+    report = _validate_recoverable_evidence(evidence_payload, expected_operation)
+    receipt_payload = _read_regular_read_only(_commit_receipt_path(path))
+    _validate_commit_receipt(receipt_payload, path, evidence_payload)
+    return report
+
+
 def _retire_pending(
     parent_descriptor: int,
     staging_name: str,
@@ -884,8 +953,14 @@ def require_unused_evidence_namespace(path: Path) -> None:
     if not path.parent.is_dir():
         raise FileNotFoundError(f"evidence output parent must pre-exist: {path.parent}")
     staging = _pending_path(path)
+    receipt = _commit_receipt_path(path)
     if os.path.lexists(path):
         raise FileExistsError(f"evidence output already exists: {path}")
+    if os.path.lexists(receipt):
+        raise ContractError(
+            "evidence commit receipt requires explicit reconciliation; "
+            "automatic recovery is disabled"
+        )
     if os.path.lexists(staging):
         raise ContractError(
             "pending evidence requires explicit reconciliation; automatic recovery "
@@ -902,6 +977,7 @@ def reserve_evidence_namespace(path: Path) -> EvidenceReservation:
     """
     path = Path(os.path.abspath(os.fspath(path)))
     staging = _pending_path(path)
+    receipt = _commit_receipt_path(path)
     parent_flags = (
         os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     )
@@ -915,6 +991,11 @@ def reserve_evidence_namespace(path: Path) -> EvidenceReservation:
         _assert_parent_path_generation(path.parent, parent_descriptor)
         if _entry_exists(parent_descriptor, path.name):
             raise FileExistsError(f"evidence output already exists: {path}")
+        if _entry_exists(parent_descriptor, receipt.name):
+            raise ContractError(
+                "evidence commit receipt requires explicit reconciliation; "
+                "automatic recovery is disabled"
+            )
         if _entry_exists(parent_descriptor, staging.name):
             raise ContractError(
                 "pending evidence requires explicit reconciliation; automatic recovery "
@@ -968,6 +1049,45 @@ def _write_reserved_payload(reservation: EvidenceReservation, payload: bytes) ->
         os.fsync(stream.fileno())
 
 
+def _publish_commit_receipt_create_only(
+    reservation: EvidenceReservation,
+    evidence_payload: bytes,
+) -> dict[str, Any]:
+    if reservation.descriptor is None or reservation.parent_descriptor is None:
+        raise ContractError("evidence reservation is already closed")
+    path = reservation.path
+    descriptor = reservation.descriptor
+    parent_descriptor = reservation.parent_descriptor
+    receipt = _commit_receipt_path(path)
+    if _entry_exists(parent_descriptor, receipt.name):
+        raise FileExistsError(f"evidence commit receipt already exists: {receipt}")
+    _assert_entry_generation(parent_descriptor, path.name, descriptor, "final")
+    _assert_parent_path_generation(path.parent, parent_descriptor)
+
+    payload = _commit_receipt_payload(path, evidence_payload)
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+    receipt_descriptor = os.open(receipt.name, flags, 0o400, dir_fd=parent_descriptor)
+    try:
+        os.fchmod(receipt_descriptor, 0o400)
+        with os.fdopen(receipt_descriptor, "wb", closefd=False) as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        _fsync_directory(parent_descriptor)
+        _assert_entry_generation(
+            parent_descriptor, receipt.name, receipt_descriptor, "commit receipt",
+        )
+        _assert_entry_generation(parent_descriptor, path.name, descriptor, "final")
+        _assert_parent_path_generation(path.parent, parent_descriptor)
+    finally:
+        os.close(receipt_descriptor)
+    return {
+        "path": str(receipt),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "bytes": len(payload),
+    }
+
+
 def publish_evidence_create_only(
     path: Path,
     payload: bytes,
@@ -991,6 +1111,7 @@ def publish_evidence_create_only(
     parent_descriptor = reservation.parent_descriptor
     retired = False
     retirement_error: str | None = None
+    commit_receipt: dict[str, Any] | None = None
     succeeded = False
     try:
         _write_reserved_payload(reservation, payload)
@@ -1005,6 +1126,10 @@ def publish_evidence_create_only(
         _fsync_directory(parent_descriptor)
         _assert_entry_generation(parent_descriptor, path.name, descriptor, "final")
         _assert_parent_path_generation(path.parent, parent_descriptor)
+        # This separately durable, content-addressed receipt is the canonical
+        # commit point. A crash before it exists leaves only uncountable pending
+        # or final bytes; schema-valid report bytes alone grant no completion.
+        commit_receipt = _publish_commit_receipt_create_only(reservation, payload)
         try:
             _assert_entry_generation(parent_descriptor, staging.name, descriptor, "pending")
         except ContractError as error:
@@ -1036,6 +1161,7 @@ def publish_evidence_create_only(
         "payload_matches_request": True,
         "pending_retired": retired,
         "pending_retirement_error": retirement_error,
+        "commit_receipt": commit_receipt,
     }
 
 
