@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 SOURCE = Path(__file__).parents[1] / "scripts" / "verify_void_lab_checkout_v1.py"
@@ -28,9 +29,11 @@ def probe(**overrides):
         "engine_tracked_checkout_clean": None,
         "engine_exact_checkout_clean": None,
         "engine_ignored_runtime_inputs_absent": True,
+        "engine_snapshot_stable": True,
         "war_college_tracked_checkout_clean": True,
         "war_college_exact_checkout_clean": True,
         "war_college_ignored_runtime_inputs_absent": True,
+        "war_college_snapshot_stable": True,
     }
     values.update(overrides)
     return MODULE.Probe(**values)
@@ -184,6 +187,62 @@ class GitBackedCleanlinessTests(unittest.TestCase):
             check=True,
         )
 
+    def _composed_repositories(self, root: Path) -> tuple[str, str]:
+        engine = root / MODULE.ENGINE_SUBMODULE_PATH
+        engine.mkdir()
+        self._repository(engine)
+        engine_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=engine,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "larry-test@example.invalid"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Larry Checkout Test"],
+            cwd=root,
+            check=True,
+        )
+        (root / "tracked.txt").write_text("preserved\n", encoding="utf-8")
+        (root / ".gitmodules").write_text(
+            '[submodule "OpenRA"]\n'
+            "\tpath = OpenRA\n"
+            f"\turl = {MODULE.ENGINE_REPOSITORY_URL}\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            ["git", "add", "tracked.txt", ".gitmodules"], cwd=root, check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"160000,{engine_head},{MODULE.ENGINE_SUBMODULE_PATH}",
+            ],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-qm", "composed fixture"], cwd=root, check=True
+        )
+        parent_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        return parent_head, engine_head
+
     def test_untracked_war_college_benchmark_input_forces_exact_hold(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -306,6 +365,46 @@ class GitBackedCleanlinessTests(unittest.TestCase):
                 )
             )
             self.assertEqual(report["checkout_contract"], "GREEN")
+
+    def test_post_war_college_sample_mutation_forces_snapshot_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent_head, engine_head = self._composed_repositories(root)
+
+            def mutate(phase: str) -> None:
+                if phase == "after_war_college_initial":
+                    injected = root / "benchmarks" / "post-sample.json"
+                    injected.parent.mkdir()
+                    injected.write_text("{}\n", encoding="utf-8")
+
+            with mock.patch.object(
+                MODULE, "WAR_COLLEGE_FROZEN_COMMIT", parent_head
+            ), mock.patch.object(MODULE, "ENGINE_FROZEN_COMMIT", engine_head):
+                report = MODULE.evaluate_probe(
+                    MODULE.collect_probe(root, phase_hook=mutate)
+                )
+            self.assertEqual(report["checkout_contract"], "HOLD")
+            self.assertIn("war_college_snapshot_stable", report["holds"])
+
+    def test_post_engine_sample_mutation_forces_snapshot_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent_head, engine_head = self._composed_repositories(root)
+
+            def mutate(phase: str) -> None:
+                if phase == "after_engine_initial":
+                    injected = root / MODULE.ENGINE_SUBMODULE_PATH / "mods" / "race.yaml"
+                    injected.parent.mkdir()
+                    injected.write_text("MapFormat: 12\n", encoding="utf-8")
+
+            with mock.patch.object(
+                MODULE, "WAR_COLLEGE_FROZEN_COMMIT", parent_head
+            ), mock.patch.object(MODULE, "ENGINE_FROZEN_COMMIT", engine_head):
+                report = MODULE.evaluate_probe(
+                    MODULE.collect_probe(root, phase_hook=mutate)
+                )
+            self.assertEqual(report["checkout_contract"], "HOLD")
+            self.assertIn("engine_snapshot_stable", report["holds"])
 
 
 if __name__ == "__main__":
