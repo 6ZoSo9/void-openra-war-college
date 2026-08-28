@@ -46,6 +46,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           path: exact-head
+      - name: Checkout current pull-request base ref
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: live-base
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: ${{ matrix.python-version }}
@@ -63,11 +71,17 @@ jobs:
             test -n "$integration_source_sha"
             test -z "${extra_parent:-}"
             test "$integration_source_sha" = "$SOURCE_HEAD_SHA"
+            live_base_sha="$(git -C live-base rev-parse HEAD)"
+            test -n "$live_base_sha"
+            test "$integration_base_sha" = "$live_base_sha"
           else
             integration_base_sha="$EVENT_BASE_SHA"
+            live_base_sha="$integration_base_sha"
           fi
           export INTEGRATION_BASE_SHA="$integration_base_sha"
-          printf 'INTEGRATION_BASE_SHA=%s\n' "$INTEGRATION_BASE_SHA" >> "$GITHUB_ENV"
+          export LIVE_BASE_SHA="$live_base_sha"
+          printf 'INTEGRATION_BASE_SHA=%s\nLIVE_BASE_SHA=%s\n' \
+            "$INTEGRATION_BASE_SHA" "$LIVE_BASE_SHA" >> "$GITHUB_ENV"
 
           python - <<'PY'
           import hashlib
@@ -83,10 +97,14 @@ jobs:
           manifest = {
               "event_base_sha": os.environ["EVENT_BASE_SHA"],
               "integration_base_sha": os.environ["INTEGRATION_BASE_SHA"],
+              "live_base_sha": os.environ["LIVE_BASE_SHA"],
               "integration_sha": os.environ["INTEGRATION_SHA"],
               "source_head_sha": os.environ["SOURCE_HEAD_SHA"],
               "event_base_matches_integration_base": (
                   os.environ["EVENT_BASE_SHA"] == os.environ["INTEGRATION_BASE_SHA"]
+              ),
+              "integration_base_matches_live_base": (
+                  os.environ["INTEGRATION_BASE_SHA"] == os.environ["LIVE_BASE_SHA"]
               ),
               "paths": {},
           }
@@ -119,8 +137,8 @@ jobs:
           MERGE_BASE_SHA="$(git -C exact-head merge-base "$INTEGRATION_BASE_SHA" "$SOURCE_HEAD_SHA")"
           test -n "$MERGE_BASE_SHA"
           git -C exact-head diff --check "${MERGE_BASE_SHA}...${SOURCE_HEAD_SHA}"
-          printf 'event_base_sha=%s\nintegration_base_sha=%s\nsource_head_sha=%s\nmerge_base_sha=%s\nintegration_sha=%s\n' \
-            "$EVENT_BASE_SHA" "$INTEGRATION_BASE_SHA" "$SOURCE_HEAD_SHA" "$MERGE_BASE_SHA" "$INTEGRATION_SHA"
+          printf 'event_base_sha=%s\nintegration_base_sha=%s\nlive_base_sha=%s\nsource_head_sha=%s\nmerge_base_sha=%s\nintegration_sha=%s\n' \
+            "$EVENT_BASE_SHA" "$INTEGRATION_BASE_SHA" "$LIVE_BASE_SHA" "$SOURCE_HEAD_SHA" "$MERGE_BASE_SHA" "$INTEGRATION_SHA"
       - name: Verify pushed-head hygiene
         if: github.event_name == 'push'
         shell: bash
