@@ -1,0 +1,69 @@
+name: general-brain-policy-adapter-r2-source-contract
+
+on:
+  pull_request:
+    paths:
+      - openra_env/learning/general_brain_policy_adapter.py
+      - openra_env/learning/general_brain_direct_policy.py
+      - tools/general_brain_policy_training.py
+      - tests/test_general_brain_policy_adapter.py
+      - .github/workflows/general-brain-policy-adapter-r2-source-contract.yml
+  push:
+    branches:
+      - main
+    paths:
+      - openra_env/learning/general_brain_policy_adapter.py
+      - openra_env/learning/general_brain_direct_policy.py
+      - tools/general_brain_policy_training.py
+      - tests/test_general_brain_policy_adapter.py
+      - .github/workflows/general-brain-policy-adapter-r2-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Python ${{ matrix.python-version }} General Brain policy adapter R2
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install focused dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile focused source
+        run: |
+          python -m py_compile \
+            openra_env/learning/general_brain_policy_adapter.py \
+            openra_env/learning/general_brain_direct_policy.py \
+            tools/general_brain_policy_training.py \
+            tests/test_general_brain_policy_adapter.py
+      - name: Run policy adapter source wall
+        run: python -m pytest -q tests/test_general_brain_policy_adapter.py
+      - name: Prove learning and authority boundaries
+        env:
+          PYTHONPATH: .
+        run: |
+          python - <<'PY'
+          from openra_env.learning.general_brain_policy_adapter import (
+              ALGORITHM_ID,
+              MIN_POLICY_EXAMPLES,
+              UTILITY_HORIZON_ROUNDS,
+          )
+          assert ALGORITHM_ID == 'utility_backed_direct_policy_v1'
+          assert MIN_POLICY_EXAMPLES >= 3
+          assert 1 <= UTILITY_HORIZON_ROUNDS <= 6
+          print('GENERAL_BRAIN_POLICY_ADAPTER_R2_VALIDITY_ONLY_EXAMPLES_FORBIDDEN=true')
+          print('GENERAL_BRAIN_POLICY_ADAPTER_R2_DIRECT_HOST_VALIDATION_REQUIRED=true')
+          print('GENERAL_BRAIN_POLICY_ADAPTER_R2_AUTHORITY_ENVELOPE_TRAINABLE=false')
+          print('GENERAL_BRAIN_POLICY_ADAPTER_R2_AUTOMATIC_WEIGHT_INSTALL=false')
+          print('GENERAL_BRAIN_POLICY_ADAPTER_R2_AUTOMATIC_PROMOTION=false')
+          PY
