@@ -11,7 +11,7 @@ from typing import Any
 from ._spar_conditional_v2_2_reviewed_identity import REVIEWED_V22_IDENTITY
 from .spar_v22_pair_comparison import PAIR_SCHEMA, PairContractError
 
-MATRIX_SCHEMA = "void.apollyon.conditional-engagement-v2-2-pair-matrix.v1"
+MATRIX_SCHEMA = "void.apollyon.conditional-engagement-v2-2-pair-matrix.v2"
 REVIEWED_REGRESSION_SEED = 2051
 REVIEWED_GAIN_SEED = 2055
 MINIMUM_HELD_OUT_SEED_COUNT = 3
@@ -46,6 +46,16 @@ def _sha(value: Any, label: str) -> str:
 def _bool(value: Any, label: str) -> bool:
     _require(type(value) is bool, f"{label} must be bool")
     return value
+
+
+def _behavioral_gate(comparison: Mapping[str, Any], label: str) -> bool:
+    return (
+        _bool(comparison.get("force_preservation_pass"), f"{label}.force_preservation_pass")
+        and _bool(comparison.get("overall_productive_contact_pass"), f"{label}.overall_productive_contact_pass")
+        and _bool(comparison.get("post_conversion_productivity_pass"), f"{label}.post_conversion_productivity_pass")
+        and _bool(comparison.get("productive_contact_pass"), f"{label}.productive_contact_pass")
+        and _bool(comparison.get("attack_move_reduction_pass"), f"{label}.attack_move_reduction_pass")
+    )
 
 
 def evaluate_matrix(
@@ -93,12 +103,9 @@ def evaluate_matrix(
 
         _require(comparison.get("verdict") in {"BETTER", "WORSE", "TIE"}, "pair verdict malformed")
         _num(comparison.get("net_kill_cost_delta"), "net_kill_cost_delta")
-        all_protocol_clean = all_protocol_clean and _bool(comparison.get("protocol_clean"), "protocol_clean")
-        behavioral = (
-            _bool(comparison.get("force_preservation_pass"), "force_preservation_pass")
-            and _bool(comparison.get("productive_contact_pass"), "productive_contact_pass")
-            and _bool(comparison.get("attack_move_reduction_pass"), "attack_move_reduction_pass")
-        )
+        protocol_clean = _bool(comparison.get("protocol_clean"), "protocol_clean")
+        behavioral = _behavioral_gate(comparison, f"pairs[{index}].comparison")
+        all_protocol_clean = all_protocol_clean and protocol_clean
         all_behavioral_gates = all_behavioral_gates and behavioral
         grouped.setdefault(seed, []).append(pair)
 
@@ -118,6 +125,8 @@ def evaluate_matrix(
         protocol_clean = all(row.get("protocol_clean") is True for row in comparisons)
         behavior_clean = all(
             row.get("force_preservation_pass") is True
+            and row.get("overall_productive_contact_pass") is True
+            and row.get("post_conversion_productivity_pass") is True
             and row.get("productive_contact_pass") is True
             and row.get("attack_move_reduction_pass") is True
             for row in comparisons
@@ -181,7 +190,7 @@ def evaluate_matrix(
             "minimum_held_out_seed_count": minimum_held_out_seed_count,
             "held_out_rule": "<=1/3 worse per complete seed; all protocol and behavioral gates pass",
             "repeats_per_seed": repeats_per_seed,
-            "behavioral_gate": "force preserved; productive contact+damage; attack_move fraction <= 0.75",
+            "behavioral_gate": "force preserved; overall contact+damage; contact+damage after first FORCE_CONVERSION when applicable; attack_move fraction <= 0.75",
         },
         "pair_count": len(pairs),
         "complete_held_out_seed_count": complete_held_out,
