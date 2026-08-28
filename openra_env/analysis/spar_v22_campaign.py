@@ -57,6 +57,18 @@ def reviewed_plan() -> dict[str, Any]:
             for seed in REVIEWED_CAMPAIGN_SEEDS
         ],
         "required_pair_count": REVIEWED_PAIR_COUNT,
+        "execution_phases": [
+            {
+                "phase": "critical",
+                "seeds": [REVIEWED_REGRESSION_SEED, REVIEWED_GAIN_SEED],
+                "policy": "complete reviewed regression/gain seeds before spending held-out pairs",
+            },
+            {
+                "phase": "held_out",
+                "seeds": list(REVIEWED_HELD_OUT_SEEDS),
+                "policy": "run held-out seeds only after critical seeds complete without rejection",
+            },
+        ],
         "authority": {
             "candidate_only": True,
             "automatic_corpus_admission": False,
@@ -64,6 +76,42 @@ def reviewed_plan() -> dict[str, Any]:
             "automatic_abaddon_policy_promotion": False,
         },
     }
+
+
+def _next_tranche(
+    counts: Mapping[int, int],
+    *,
+    matrix_status: str,
+) -> list[dict[str, Any]]:
+    if matrix_status == "REJECT":
+        return []
+
+    critical = [REVIEWED_REGRESSION_SEED, REVIEWED_GAIN_SEED]
+    critical_missing = [seed for seed in critical if counts[seed] < REPEATS_PER_SEED]
+    if critical_missing:
+        return [
+            {
+                "seed": seed,
+                "role": _seed_role(seed),
+                "next_pair_ordinal": counts[seed] + 1,
+                "phase": "critical",
+            }
+            for seed in critical_missing
+        ]
+
+    held_out_missing = [
+        seed for seed in REVIEWED_HELD_OUT_SEEDS
+        if counts[seed] < REPEATS_PER_SEED
+    ]
+    return [
+        {
+            "seed": seed,
+            "role": "held_out",
+            "next_pair_ordinal": counts[seed] + 1,
+            "phase": "held_out",
+        }
+        for seed in held_out_missing
+    ]
 
 
 def evaluate_campaign(pairs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -114,6 +162,7 @@ def evaluate_campaign(pairs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         for seed in REVIEWED_CAMPAIGN_SEEDS
         if remaining_by_seed[str(seed)] > 0
     ]
+    next_tranche = _next_tranche(counts, matrix_status=matrix["status"])
 
     return {
         "schema": CAMPAIGN_SCHEMA,
@@ -126,6 +175,7 @@ def evaluate_campaign(pairs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "completed_by_seed": {str(seed): counts[seed] for seed in REVIEWED_CAMPAIGN_SEEDS},
         "remaining_by_seed": remaining_by_seed,
         "next_required_pairs": next_required_pairs,
+        "next_tranche": next_tranche,
         "matrix": matrix,
         "authority": {
             "candidate_only": True,
