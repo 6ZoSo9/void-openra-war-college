@@ -24,6 +24,8 @@ def report(
     attack_move: int = 20,
     contact_rounds=None,
     damage: bool = False,
+    post_conversion_pass: bool = True,
+    conversion_applicable: bool = True,
     warm_sha: str = "8" * 64,
     seed: int = 2060,
     ap_retries=None,
@@ -53,6 +55,7 @@ def report(
         "summary_sha256": hashlib.sha256(f"summary:{v22}:{seed}:{run}".encode()).hexdigest(),
     }
     v22_evidence = absent()
+    conversion = {"present": False}
     if v22:
         v22_evidence = {
             "present": True,
@@ -70,6 +73,33 @@ def report(
             "preferred_move_units_offered_rounds": 30,
             "preferred_move_units_selected_rounds": 20,
             "runtime_seed_branching": False,
+        }
+        first_conversion = 10 if conversion_applicable else None
+        post_contact = [20] if conversion_applicable and post_conversion_pass else []
+        post_damage = [20] if conversion_applicable and post_conversion_pass else []
+        conversion = {
+            "present": True,
+            "schema": "void.apollyon.conditional-engagement-v2-2-conversion-utility.v1",
+            "candidate_only": True,
+            "trajectory_sha256": provenance["trajectory_sha256"],
+            "reviewed_identity_verified": True,
+            "v2_2_candidate_sha256": REVIEWED_V22_IDENTITY["candidate_sha256"],
+            "rounds_verified": 72,
+            "conversion_productivity_applicable": conversion_applicable,
+            "post_conversion_productivity_pass": post_conversion_pass,
+            "first_conversion_round": first_conversion,
+            "conversion_rounds": [10, 13] if conversion_applicable else [],
+            "conversion_round_count": 2 if conversion_applicable else 0,
+            "conversion_selected_tools": {"move_units": 2} if conversion_applicable else {},
+            "conversion_rounds_with_immediate_contact": [],
+            "conversion_rounds_with_immediate_damage": [],
+            "post_conversion_round_count": 63 if conversion_applicable else 0,
+            "post_conversion_contact_rounds": post_contact,
+            "post_conversion_damage_rounds": post_damage,
+            "first_contact_round_after_conversion": post_contact[0] if post_contact else None,
+            "first_damage_round_after_conversion": post_damage[0] if post_damage else None,
+            "post_conversion_selected_tools": {"attack_move": 20, "move_units": 43} if conversion_applicable else {},
+            "post_conversion_attack_move_fraction": 20 / 63 if conversion_applicable else 0.0,
         }
     return {
         "marker": "VOID_WAR_COLLEGE_SPAR_TRAINING_UTILITY_V1",
@@ -114,6 +144,7 @@ def report(
         "conditional_engagement_v2": absent(),
         "conditional_engagement_v2_1": absent(),
         "conditional_engagement_v2_2": v22_evidence,
+        "conditional_engagement_v2_2_conversion_utility": conversion,
     }
 
 
@@ -150,17 +181,30 @@ def warm_start(path: Path, *, run_id: str, final_combat: int = 4) -> str:
 
 
 def passing_candidate(**overrides):
-    values = dict(v22=True, net=0, final_combat=4, attack_move=54, contact_rounds=[20], damage=True, run=1)
+    values = dict(
+        v22=True,
+        net=0,
+        final_combat=4,
+        attack_move=54,
+        contact_rounds=[20],
+        damage=True,
+        post_conversion_pass=True,
+        conversion_applicable=True,
+        run=1,
+    )
     values.update(overrides)
     return report(**values)
 
 
-def test_tie_passes_only_with_force_contact_damage_attack_move_reduction_and_clean_protocol():
+def test_tie_passes_only_with_force_contact_damage_post_conversion_productivity_attack_move_and_clean_protocol():
     out = pair.compare_reports(report(v22=False, net=0, final_combat=0), passing_candidate())
+    assert out["schema"].endswith("pair-comparison.v2")
     assert out["comparison"]["verdict"] == "TIE"
     assert out["comparison"]["net_kill_cost_delta"] == 0
     assert out["comparison"]["final_combat_delta"] == 4
     assert out["comparison"]["force_preservation_pass"] is True
+    assert out["comparison"]["overall_productive_contact_pass"] is True
+    assert out["comparison"]["post_conversion_productivity_pass"] is True
     assert out["comparison"]["productive_contact_pass"] is True
     assert out["comparison"]["attack_move_reduction_pass"] is True
     assert out["comparison"]["protocol_clean"] is True
@@ -168,8 +212,20 @@ def test_tie_passes_only_with_force_contact_damage_attack_move_reduction_and_cle
     assert out["candidate"]["v2_2_wrapper_sha256"] == REVIEWED_V22_IDENTITY["wrapper_sha256"]
 
 
+def test_early_contact_damage_cannot_rescue_failed_post_conversion_productivity():
+    out = pair.compare_reports(
+        report(v22=False),
+        passing_candidate(post_conversion_pass=False),
+    )
+    assert out["comparison"]["overall_productive_contact_pass"] is True
+    assert out["comparison"]["post_conversion_productivity_pass"] is False
+    assert out["comparison"]["productive_contact_pass"] is False
+    assert out["comparison"]["minimum_seed_2060_gate_pass"] is False
+
+
 def test_contact_without_damage_is_not_productive():
     out = pair.compare_reports(report(v22=False), passing_candidate(damage=False))
+    assert out["comparison"]["overall_productive_contact_pass"] is False
     assert out["comparison"]["productive_contact_pass"] is False
     assert out["comparison"]["minimum_seed_2060_gate_pass"] is False
 
@@ -177,6 +233,36 @@ def test_contact_without_damage_is_not_productive():
 def test_damage_without_observed_contact_is_not_productive():
     out = pair.compare_reports(report(v22=False), passing_candidate(contact_rounds=[], damage=True))
     assert out["comparison"]["productive_contact_pass"] is False
+
+
+def test_no_conversion_mode_keeps_post_conversion_gate_not_applicable_and_neutral():
+    out = pair.compare_reports(
+        report(v22=False),
+        passing_candidate(conversion_applicable=False, post_conversion_pass=True),
+    )
+    assert out["candidate"]["conversion_productivity_applicable"] is False
+    assert out["candidate"]["first_conversion_round"] is None
+    assert out["comparison"]["post_conversion_productivity_pass"] is True
+    assert out["comparison"]["minimum_seed_2060_gate_pass"] is True
+
+
+def test_conversion_utility_must_bind_exact_candidate_trajectory_and_identity():
+    candidate = passing_candidate()
+    candidate["conditional_engagement_v2_2_conversion_utility"]["trajectory_sha256"] = "f" * 64
+    with pytest.raises(pair.PairContractError, match="trajectory binding mismatch"):
+        pair.compare_reports(report(v22=False), candidate)
+
+    candidate = passing_candidate()
+    candidate["conditional_engagement_v2_2_conversion_utility"]["v2_2_candidate_sha256"] = "f" * 64
+    with pytest.raises(pair.PairContractError, match="candidate identity mismatch"):
+        pair.compare_reports(report(v22=False), candidate)
+
+
+def test_missing_conversion_utility_fails_closed():
+    candidate = passing_candidate()
+    candidate.pop("conditional_engagement_v2_2_conversion_utility")
+    with pytest.raises(pair.PairContractError, match="must be an object"):
+        pair.compare_reports(report(v22=False), candidate)
 
 
 def test_attack_move_fraction_above_frozen_ceiling_fails_gate():
