@@ -2109,7 +2109,10 @@ def bind_post_cell_daemon_identity(
         "cleanup_terminals": cleanup_terminals,
         "error_type": "DaemonIdentityError",
         "error": "spawned daemon/listener ownership lost during cell",
-        "completed_repetitions": len(bound.get("repetitions", [])),
+        "completed_repetitions": bound.get(
+            "completed_repetitions",
+            len(bound.get("repetitions", [])),
+        ),
     }
     return "rpc_error", failure
 
