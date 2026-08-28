@@ -502,6 +502,145 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertIn("asyncio.wait_for(", source)
 
 
+class ExecuteRuntimeControllerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_post_cell_identity_loss_retires_matrix_and_disposable_daemon(self):
+        fixture = json.loads(EvidencePublicationTests.payload())
+        successful_cell = fixture["cells"][0]
+        cell_payload = {
+            key: copy.deepcopy(value)
+            for key, value in successful_cell.items()
+            if key not in {
+                "key", "terminal", "concurrency", "ticks_per_joint_advance",
+                "process_rss_bytes", "process_cpu_seconds",
+            }
+        }
+        identity = {
+            "pid": 123, "port": 9999, "socket_inode": "456", "proc_table": "tcp",
+        }
+
+        class FakeDaemon:
+            def __init__(self):
+                self.pid = 123
+                self.stdout = io.BytesIO()
+                self.returncode = None
+                self.terminate_calls = 0
+                self.kill_calls = 0
+                self.wait_timeouts = []
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.terminate_calls += 1
+
+            def kill(self):
+                self.kill_calls += 1
+
+            def wait(self, timeout):
+                self.wait_timeouts.append(timeout)
+                self.returncode = -15
+                return self.returncode
+
+        class FakeCapture:
+            def start(self):
+                return None
+
+            def finish(self):
+                return {
+                    "total_bytes": 0, "sha256": hashlib.sha256(b"").hexdigest(),
+                    "tail_utf8": "", "tail_bytes": 0, "drain_error": None,
+                    "drain_thread_retired": True,
+                }
+
+        class FakeSampler:
+            def __init__(self, pid):
+                self.pid = pid
+                self.stop_calls = 0
+
+            async def run(self):
+                return None
+
+            def begin_cell(self):
+                return None
+
+            def end_cell(self):
+                return {"before": 1024, "peak": 2048, "after": 1536}
+
+            def stop(self):
+                self.stop_calls += 1
+
+        class FakeChannel:
+            def __init__(self):
+                self.close_calls = 0
+
+            async def close(self):
+                self.close_calls += 1
+
+        daemon = FakeDaemon()
+        capture = FakeCapture()
+        sampler = FakeSampler(daemon.pid)
+        channel = FakeChannel()
+        grpc = types.SimpleNamespace(
+            aio=types.SimpleNamespace(insecure_channel=lambda *_args, **_kwargs: channel),
+        )
+        pb2 = types.SimpleNamespace()
+        pb2_grpc = types.SimpleNamespace(RLBridgeStub=lambda _channel: object())
+        args = types.SimpleNamespace(
+            designated_hostname="fixture-host", openra_dir="/tmp/frozen-openra",
+            port=9999, ready_timeout_s=30, samples=1, repetitions=2, seed=2050,
+            rpc_timeout_s=60, cell_timeout_s=900, teardown_timeout_s=10,
+            workload_profile="noop_control",
+        )
+        parameters = {
+            "concurrency": [1], "tick_batches": [1, 8],
+        }
+
+        with mock.patch("bench_joint_advance.socket.gethostname", return_value="fixture-host"), \
+            mock.patch("bench_joint_advance.runtime_provenance", return_value={"bound": True}), \
+            mock.patch("bench_joint_advance.ensure_endpoint_unoccupied"), \
+            mock.patch(
+                "bench_joint_advance._runtime_modules",
+                return_value=(grpc, object(), pb2, pb2_grpc),
+            ), mock.patch("bench_joint_advance.start_daemon", return_value=daemon), \
+            mock.patch("bench_joint_advance.BoundedLogCapture", return_value=capture), \
+            mock.patch("bench_joint_advance.RssSampler", return_value=sampler), \
+            mock.patch("bench_joint_advance.wait_ready", return_value=identity), \
+            mock.patch(
+                "bench_joint_advance.process_listener_identity",
+                side_effect=[identity, None],
+            ), mock.patch(
+                "bench_joint_advance.process_cpu_sample",
+                side_effect=[(100, 100), (110, 100)],
+            ), mock.patch(
+                "bench_joint_advance.run_cell",
+                new=mock.AsyncMock(return_value=("success", cell_payload)),
+            ) as run_cell:
+            outcome = await bench.execute_runtime(args, parameters, {"bound": True})
+
+        run_cell.assert_awaited_once()
+        self.assertEqual([cell["terminal"] for cell in outcome["cells"]], [
+            "rpc_error", "not_executed",
+        ])
+        first, second = outcome["cells"]
+        self.assertTrue(first["daemon_identity_lost"])
+        self.assertTrue(first["containment_required"])
+        self.assertEqual(first["prior_cell_terminal"], "success")
+        self.assertEqual(second["blocked_by"], "c1-t1")
+        self.assertEqual(outcome["run"]["terminal"], "completed")
+        self.assertEqual(outcome["run"]["stage"], "matrix_complete")
+        self.assertEqual(outcome["run"]["containment"], {
+            "required_by_cell": True,
+            "boundary": "disposable_daemon_retirement",
+            "daemon_retired": True,
+        })
+        self.assertEqual(outcome["run"]["cleanup"], {"failures": []})
+        self.assertEqual(daemon.terminate_calls, 1)
+        self.assertEqual(daemon.kill_calls, 0)
+        self.assertEqual(daemon.wait_timeouts, [5])
+        self.assertEqual(channel.close_calls, 1)
+        self.assertEqual(sampler.stop_calls, 1)
+
+
 class EvidencePublicationTests(unittest.TestCase):
     @staticmethod
     def payload():
