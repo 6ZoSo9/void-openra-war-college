@@ -862,17 +862,32 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
             r"[0-9a-f]{64}", value["canonical_hash_by_slot"][slot]
         ):
             raise ContractError(f"{label} canonical hash is invalid")
-        validation = _require_exact_fields(
-            value["joint_advance_validation_by_slot"][slot],
-            {"start_tick", "end_tick", "players"}, f"{label}.validation",
-        )
-        if any(
-            isinstance(validation[field], bool) or not isinstance(validation[field], int)
-            for field in ("start_tick", "end_tick")
-        ) or validation["end_tick"] <= validation["start_tick"]:
-            raise ContractError(f"{label} validated tick advancement is invalid")
-        if validation["players"] != ["Multi0", "Multi1"]:
-            raise ContractError(f"{label} validated perspectives are invalid")
+        validations = value["joint_advance_validation_by_slot"][slot]
+        samples_per_slot, remainder = divmod(value["joint_advance_calls"], len(slots))
+        if (
+            remainder
+            or samples_per_slot <= 0
+            or not isinstance(validations, list)
+            or len(validations) != samples_per_slot
+        ):
+            raise ContractError(f"{label} validated sample coverage is inconsistent")
+        previous_end_tick: int | None = None
+        for sample, candidate in enumerate(validations):
+            validation = _require_exact_fields(
+                candidate,
+                {"start_tick", "end_tick", "players"},
+                f"{label}.validation[{slot}][{sample}]",
+            )
+            if any(
+                isinstance(validation[field], bool) or not isinstance(validation[field], int)
+                for field in ("start_tick", "end_tick")
+            ) or validation["end_tick"] <= validation["start_tick"]:
+                raise ContractError(f"{label} validated tick advancement is invalid")
+            if validation["players"] != ["Multi0", "Multi1"]:
+                raise ContractError(f"{label} validated perspectives are invalid")
+            if previous_end_tick is not None and validation["start_tick"] != previous_end_tick:
+                raise ContractError(f"{label} validated tick intervals are not continuous")
+            previous_end_tick = validation["end_tick"]
     _validate_teardown_evidence(value["teardown"], f"{label}.teardown")
 
 
@@ -995,11 +1010,12 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
                 "joint_advance_calls"
             ] * cell["ticks_per_joint_advance"]:
                 raise ContractError("matrix-cell advancement accounting is inconsistent")
-            for validation in repetition["joint_advance_validation_by_slot"].values():
-                if validation["end_tick"] - validation["start_tick"] != cell[
-                    "ticks_per_joint_advance"
-                ]:
-                    raise ContractError("matrix-cell validated tick delta is inconsistent")
+            for validations in repetition["joint_advance_validation_by_slot"].values():
+                for validation in validations:
+                    if validation["end_tick"] - validation["start_tick"] != cell[
+                        "ticks_per_joint_advance"
+                    ]:
+                        raise ContractError("matrix-cell validated tick delta is inconsistent")
         if not isinstance(cell["same_seed_deterministic"], bool) or not isinstance(
             cell["hashes_by_slot"], dict
         ):
@@ -1860,7 +1876,7 @@ async def run_repetition(
         create_latencies.extend(item[2] for item in created)
 
         final_by_slot: dict[int, dict[str, Any]] = {}
-        validation_by_slot: dict[int, dict[str, Any]] = {}
+        validation_by_slot: dict[int, list[dict[str, Any]]] = {}
         for _sample in range(samples):
             async def advance(slot: int, session_id: str) -> tuple[int, float, dict[str, Any]]:
                 request = pb2.JointAdvanceRequest(
@@ -1889,7 +1905,7 @@ async def run_repetition(
             for slot, elapsed_ms, envelope in advanced:
                 advance_latencies.append(elapsed_ms)
                 final_by_slot[slot] = envelope["response"]
-                validation_by_slot[slot] = envelope["validation"]
+                validation_by_slot.setdefault(slot, []).append(envelope["validation"])
 
         for slot, response in sorted(final_by_slot.items()):
             hashes[str(slot)] = canonical_state_hash(response)
