@@ -7,14 +7,6 @@ on:
       - openra_env/analysis/_spar_conditional_v2_2.py
       - tests/test_spar_v22_conversion_utility.py
       - .github/workflows/conditional-engagement-v2-2-conversion-utility-source-contract.yml
-  push:
-    branches:
-      - ren/v2-2-conversion-productivity-evidence-v1
-    paths:
-      - openra_env/analysis/spar_v22_conversion_utility.py
-      - openra_env/analysis/_spar_conditional_v2_2.py
-      - tests/test_spar_v22_conversion_utility.py
-      - .github/workflows/conditional-engagement-v2-2-conversion-utility-source-contract.yml
 
 permissions:
   contents: read
