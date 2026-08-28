@@ -115,11 +115,12 @@ def _parent_candidate_view(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "protocol_clean": True,
         "reviewed_identity_verified": True,
         "reviewed_pair_verdict": "WORSE",
-        "seed_2060_matrix_report_sha256": "b30ea0fe84e5911eb007fbe7e55f24bb314aadf176c06e608af83076fc4c7591",
+        "seed_2060_matrix_report_sha256": "b30ea0fe84e5911eb0079c2643c48bb78fc482",
         "seed_2060_pair_report_sha256": parent.SEED_2060_PAIR_REPORT_SHA256,
         "v2_analysis_sha256": "74ad937d7a4ce8886011c50142904c73e25c85d986cd3e49a9ade0d09daf1e22",
         "warm_start_semantic_match": True,
     }
+    value["source_evidence"]["seed_2060_matrix_report_sha256"] = "b30ea0fe84e5911eb007fbe7e55f24bb314aadf176c06e608af83076fc4c7591"
     value["modes"]["FORCE_CONVERSION"]["instruction"] = (
         "A rebuilt force is available, but repeated blind attack-move has produced no observed contact or military progress. "
         "Do not repeat the same blind attack-move this round unless new observed evidence justifies it. Use a currently offered "
@@ -170,6 +171,8 @@ def format_coaching(decision: Mapping[str, Any], allowed_tool_names: Sequence[st
             lines.append("FORCE_CONVERSION_ACTION_RULE=Do not choose attack_move this round; choose a currently offered alternative with a deliberate observable objective.")
         if "move_units" in names:
             lines.append("PREFERRED_OFFERED_ALTERNATIVE=move_units")
+            lines.append('PREFERRED_MOVE_UNITS_SELECTOR=unit_ids="all_combat"')
+            lines.append('SELECTOR_INTEGRITY_RULE=When choosing move_units for FORCE_CONVERSION, use unit_ids="all_combat" exactly; do not enumerate, remember, or invent actor IDs.')
         lines.append("NON_ATTACK_MOVE_OFFERED_NAMES=" + ",".join(alternatives))
     lines.append(f"COACHING={decision['instruction']}")
     return "\n".join(lines)
