@@ -948,7 +948,7 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
         "teardown_failures", "teardown_latency", "teardown_attempted_session_ids",
         "teardown_destroyed_session_ids", "teardown_unretired_session_ids",
         "create_commit_response_ambiguous", "cleanup_after_work_cancellation",
-        "containment_required", "cleanup_terminals",
+        "daemon_identity_lost", "containment_required", "cleanup_terminals",
     }
     success = common | {
         "repetitions", "same_seed_deterministic", "hashes_by_slot", "cell_wall_seconds",
@@ -977,12 +977,13 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
     _validate_latency_evidence(cell["teardown_latency"], "matrix-cell teardown latency")
     for field in (
         "create_commit_response_ambiguous", "cleanup_after_work_cancellation",
-        "containment_required",
+        "daemon_identity_lost", "containment_required",
     ):
         if not isinstance(cell[field], bool):
             raise ContractError(f"matrix-cell {field} must be boolean")
     if cell["containment_required"] != bool(
         cell["create_commit_response_ambiguous"] or unretired
+        or cell["daemon_identity_lost"]
     ) or cell["containment_required"] != ("daemon_retirement_required" in terminals):
         raise ContractError("matrix-cell containment accounting is inconsistent")
     if terminal in {"success", "teardown_error"}:
@@ -2011,6 +2012,7 @@ async def run_cell(
             "cleanup_after_work_cancellation": any(
                 record["cleanup_after_work_cancellation"] for record in teardown_records
             ),
+            "daemon_identity_lost": False,
             "containment_required": any(
                 record["containment_required"] for record in teardown_records
             ),
@@ -2070,6 +2072,46 @@ async def run_cell(
         if teardown_errors or teardown["containment_required"]
         else "success"
     ), payload
+
+
+def bind_post_cell_daemon_identity(
+    terminal: str,
+    payload: dict[str, Any],
+    cell: dict[str, int],
+    process_rss_bytes: dict[str, int | None],
+    *,
+    identity_intact: bool,
+) -> tuple[str, dict[str, Any]]:
+    """Bind the post-cell listener check to one schema-valid terminal payload."""
+    bound = {
+        **payload,
+        **cell,
+        "process_rss_bytes": process_rss_bytes,
+    }
+    if identity_intact:
+        return terminal, bound
+
+    cleanup_terminals = list(bound["cleanup_terminals"])
+    if "daemon_retirement_required" not in cleanup_terminals:
+        cleanup_terminals.append("daemon_retirement_required")
+    failure = {
+        **cell,
+        "process_rss_bytes": process_rss_bytes,
+        "teardown_failures": bound["teardown_failures"],
+        "teardown_latency": bound["teardown_latency"],
+        "teardown_attempted_session_ids": bound["teardown_attempted_session_ids"],
+        "teardown_destroyed_session_ids": bound["teardown_destroyed_session_ids"],
+        "teardown_unretired_session_ids": bound["teardown_unretired_session_ids"],
+        "create_commit_response_ambiguous": bound["create_commit_response_ambiguous"],
+        "cleanup_after_work_cancellation": bound["cleanup_after_work_cancellation"],
+        "daemon_identity_lost": True,
+        "containment_required": True,
+        "cleanup_terminals": cleanup_terminals,
+        "error_type": "DaemonIdentityError",
+        "error": "spawned daemon/listener ownership lost during cell",
+        "completed_repetitions": len(bound.get("repetitions", [])),
+    }
+    return "rpc_error", failure
 
 
 def finalize_unexecuted_cells(
@@ -2176,11 +2218,16 @@ async def execute_runtime(
                 cell_timeout_s=args.cell_timeout_s,
                 teardown_timeout_s=args.teardown_timeout_s,
             )
-            payload.update(cell)
-            payload["process_rss_bytes"] = sampler.end_cell()
-            if daemon.poll() is not None or process_listener_identity(daemon.pid, args.port) != listener_identity:
-                terminal = "rpc_error"
-                payload["daemon_identity_error"] = "spawned daemon/listener ownership lost during cell"
+            terminal, payload = bind_post_cell_daemon_identity(
+                terminal,
+                payload,
+                cell,
+                sampler.end_cell(),
+                identity_intact=(
+                    daemon.poll() is None
+                    and process_listener_identity(daemon.pid, args.port) == listener_identity
+                ),
+            )
             ledger.finalize(key, terminal, payload)
             if not matrix_may_continue(terminal):
                 finalize_unexecuted_cells(ledger, planned[index + 1:], blocked_by=key)
