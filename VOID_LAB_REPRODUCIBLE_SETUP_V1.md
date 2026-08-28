@@ -84,20 +84,51 @@ baseline ref, or continue to build or benchmark.
 ## Exact checkout receipt
 
 The default verifier checks both worktrees, including ordinary untracked files,
-reviewed ignored runtime/build inputs, and stable initial/final snapshots. Write
-its single JSON record with owner-only permissions and validate the terminal:
+reviewed ignored runtime/build inputs, and stable initial/final snapshots. Publish
+its single JSON record create-only. A pre-existing receipt is a terminal HOLD and
+must remain byte-for-byte untouched:
 
 ```bash
-umask 077
 export VOID_LAB_RECEIPT="$VOID_WAR_COLLEGE_DIR/../void-lab-checkout-c164a7d2.json"
-python "$VOID_WAR_COLLEGE_DIR/scripts/verify_void_lab_checkout_v1.py" \
-  --repo-root "$VOID_WAR_COLLEGE_DIR" > "$VOID_LAB_RECEIPT"
-python -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert d["schema_version"] == 6; assert d["generation"] == "ad1926569b12466c"; assert d["source_contract"] == "GREEN"; assert d["checkout_contract"] == "GREEN"; assert d["exact_checkout_evidence"] is True; assert d["runtime_evidence"] == "PENDING_DESIGNATED_HOST"' "$VOID_LAB_RECEIPT"
-sha256sum "$VOID_LAB_RECEIPT"
+(
+  set -eu
+  umask 077
+  VOID_LAB_RECEIPT_DIR="$(dirname -- "$VOID_LAB_RECEIPT")"
+  test -d "$VOID_LAB_RECEIPT_DIR"
+  test ! -e "$VOID_LAB_RECEIPT"
+  test ! -L "$VOID_LAB_RECEIPT"
+  VOID_LAB_RECEIPT_TEMP="$(mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout.XXXXXX")"
+  cleanup() {
+    if [ -n "${VOID_LAB_RECEIPT_TEMP:-}" ]; then
+      rm -f -- "$VOID_LAB_RECEIPT_TEMP"
+    fi
+  }
+  trap cleanup EXIT HUP INT TERM
+  python "$VOID_WAR_COLLEGE_DIR/scripts/verify_void_lab_checkout_v1.py" \
+    --repo-root "$VOID_WAR_COLLEGE_DIR" > "$VOID_LAB_RECEIPT_TEMP"
+  test -f "$VOID_LAB_RECEIPT_TEMP"
+  test ! -L "$VOID_LAB_RECEIPT_TEMP"
+  test "$(stat -c '%a' "$VOID_LAB_RECEIPT_TEMP")" = '600'
+  python -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert d["schema_version"] == 6; assert d["generation"] == "ad1926569b12466c"; assert d["source_contract"] == "GREEN"; assert d["checkout_contract"] == "GREEN"; assert d["exact_checkout_evidence"] is True; assert d["runtime_evidence"] == "PENDING_DESIGNATED_HOST"' "$VOID_LAB_RECEIPT_TEMP"
+  VOID_LAB_RECEIPT_TEMP_ID="$(stat -c '%d:%i' "$VOID_LAB_RECEIPT_TEMP")"
+  ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"
+  test -f "$VOID_LAB_RECEIPT"
+  test ! -L "$VOID_LAB_RECEIPT"
+  test "$(stat -c '%a' "$VOID_LAB_RECEIPT")" = '600'
+  test "$(stat -c '%d:%i' "$VOID_LAB_RECEIPT")" = "$VOID_LAB_RECEIPT_TEMP_ID"
+  sync -f "$VOID_LAB_RECEIPT_DIR"
+  rm -- "$VOID_LAB_RECEIPT_TEMP"
+  VOID_LAB_RECEIPT_TEMP=''
+  trap - EXIT HUP INT TERM
+  sha256sum "$VOID_LAB_RECEIPT"
+)
 ```
 
 Keep the receipt outside the repository so it does not make the exact worktree
-dirty. Record its SHA-256 with any later designated-host evidence. Do not treat
+dirty. The hard-link publication is create-only even if another process creates
+the destination after the initial preflight. A verifier or validation failure
+removes only the private temporary file and cannot truncate an earlier receipt.
+Record its SHA-256 with any later designated-host evidence. Do not treat
 `--source-only` GREEN, unit tests, or hosted CI as exact designated-host checkout
 evidence.
 
@@ -110,4 +141,3 @@ the exact command and resulting evidence. If either worktree changes, repeat the
 entire identity wall and verifier; never reuse an earlier GREEN receipt.
 
 `runtime_evidence=PENDING_DESIGNATED_HOST`
-
