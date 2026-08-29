@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Callable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 PROTO_INT32_MIN = -(2**31)
 PROTO_INT32_MAX = 2**31 - 1
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
@@ -1102,6 +1102,24 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
     terminal = cell.get("terminal")
     if terminal not in ALLOWED_TERMINALS:
         raise ContractError("pending evidence contains an invalid matrix-cell terminal")
+    concurrency = cell.get("concurrency")
+    ticks_per_joint_advance = cell.get("ticks_per_joint_advance")
+    for field, value in (
+        ("concurrency", concurrency),
+        ("ticks_per_joint_advance", ticks_per_joint_advance),
+    ):
+        if type(value) is not int or value <= 0:
+            raise ContractError(f"matrix cell {field} is invalid")
+    if cell.get("key") != f"c{concurrency}-t{ticks_per_joint_advance}":
+        raise ContractError("matrix cell key is not bound to its workload identity")
+    planned_identities = {
+        (planned_cell["concurrency"], planned_cell["ticks_per_joint_advance"])
+        for planned_cell in build_matrix(
+            tuple(parameters["concurrency"]), tuple(parameters["tick_batches"])
+        )
+    }
+    if (concurrency, ticks_per_joint_advance) not in planned_identities:
+        raise ContractError("matrix cell workload identity is not in the planned matrix")
     if terminal == "not_executed":
         _require_exact_fields(
             cell,
@@ -1134,9 +1152,6 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
         cell, success if terminal in {"success", "teardown_error"} else failure,
         "matrix cell",
     )
-    for field in ("concurrency", "ticks_per_joint_advance"):
-        if isinstance(cell[field], bool) or not isinstance(cell[field], int) or cell[field] <= 0:
-            raise ContractError(f"matrix cell {field} is invalid")
     rss = _require_exact_fields(
         cell["process_rss_bytes"], {"before", "peak", "after"}, "matrix-cell RSS",
     )
