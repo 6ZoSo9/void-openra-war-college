@@ -112,12 +112,11 @@ def get_tools_dict(mcp) -> dict:
 
 # ── Autouse fixtures ──────────────────────────────────────────────────────────
 
-# These tests exercise command-line composition only.  They do not execute the
-# engine, but historically depended on a populated private OpenRA submodule
-# because OpenRAProcessManager refuses to build a command when neither
-# OpenRA.dll nor launch-rl.sh exists.  Give only those exact unit tests a fake
-# zero-byte client marker so default hosted Python CI can remain source-only.
-# Runtime/designated-host paths keep the production fail-closed check unchanged.
+# These tests exercise command-line composition only. They do not execute the
+# engine, but OpenRAProcessManager refuses to build a command when neither
+# OpenRA.dll nor launch-rl.sh exists. Virtualize only the exact client existence
+# check for those tests. This never creates, follows, replaces, or removes any
+# path in the real/private OpenRA namespace.
 _COMMAND_BUILD_TESTS = {
     "tests/test_config.py::TestBotTypeMapping::test_build_command_maps_hard",
     "tests/test_config.py::TestBotTypeMapping::test_build_command_maps_brutal",
@@ -129,30 +128,22 @@ _COMMAND_BUILD_TESTS = {
 
 
 @pytest.fixture(autouse=True)
-def _source_only_fake_openra_client(request):
-    """Isolate command-construction unit tests from the private engine checkout."""
+def _source_only_fake_openra_client(request, monkeypatch):
+    """Virtualize one client-presence probe without filesystem mutation."""
     if request.node.nodeid not in _COMMAND_BUILD_TESTS:
         yield
         return
 
-    openra_dir = Path(__file__).resolve().parents[1] / "OpenRA"
-    created_dir = not openra_dir.exists()
-    openra_dir.mkdir(parents=True, exist_ok=True)
-    fake_client = openra_dir / "OpenRA.dll"
-    created_client = not fake_client.exists()
-    if created_client:
-        fake_client.write_bytes(b"")
+    fake_client = Path(__file__).resolve().parents[1] / "OpenRA" / "OpenRA.dll"
+    original_exists = Path.exists
 
-    try:
-        yield
-    finally:
-        if created_client:
-            fake_client.unlink(missing_ok=True)
-        if created_dir:
-            try:
-                openra_dir.rmdir()
-            except OSError:
-                pass
+    def source_only_exists(path):
+        if path == fake_client:
+            return True
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", source_only_exists)
+    yield
 
 
 # Monkey-patch FastMCP so that mcp._tool_manager._tools works on 3.x
