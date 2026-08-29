@@ -3112,18 +3112,43 @@ def _terminate_runtime_process(
     return True
 
 
+@dataclass
+class RuntimeProcessGroupRetirement:
+    """One-shot ownership state for an authenticated runtime process group."""
+
+    pgid: int
+    retired: bool = False
+
+
+def _runtime_process_leader_exited_unreaped(pgid: int) -> bool:
+    """Observe leader exit while retaining its PID as a generation anchor."""
+    try:
+        result = os.waitid(
+            os.P_PID,
+            pgid,
+            os.WEXITED | os.WNOHANG | os.WNOWAIT,
+        )
+    except ChildProcessError as error:
+        raise ContractError(
+            "runtime supervisor lost its unreaped process-group ownership anchor"
+        ) from error
+    return result is not None
+
+
 def _terminate_runtime_process_group(
     process: multiprocessing.Process,
     *,
     timeout_s: float,
+    retirement: RuntimeProcessGroupRetirement,
 ) -> bool:
-    """Bound TERM/KILL retirement of the supervisor and inherited daemon group."""
+    """Bound one-shot TERM/KILL retirement without numeric-PGID ABA authority."""
     if not math.isfinite(timeout_s) or timeout_s <= 0:
         raise ContractError("runtime supervisor retirement deadline must be finite and positive")
-
+    if retirement.retired:
+        return False
     pgid = process.pid
-    if pgid is None:
-        raise ContractError("runtime supervisor process has no process-group identity")
+    if pgid is None or retirement.pgid != pgid:
+        raise ContractError("runtime supervisor process-group identity changed")
 
     def group_exists() -> bool:
         try:
@@ -3136,35 +3161,48 @@ def _terminate_runtime_process_group(
             ) from error
         return True
 
-    def await_group_retirement() -> bool:
+    def await_leader_exit_unreaped() -> bool:
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            process.join(timeout=0)
-            if not group_exists():
+            if _runtime_process_leader_exited_unreaped(pgid):
                 return True
             time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
-        return not group_exists()
+        return _runtime_process_leader_exited_unreaped(pgid)
 
-    process.join(timeout=0)
-    if not group_exists():
-        return False
-    try:
-        os.killpg(pgid, signal.SIGTERM)
-    except ProcessLookupError:
-        return False
-    if not await_group_retirement():
+    leader_exited = _runtime_process_leader_exited_unreaped(pgid)
+    if not leader_exited:
+        # Give a terminal-publishing child one short, non-reaping exit window.
+        # The leader PID remains reserved throughout this observation.
+        graceful_deadline = time.monotonic() + min(timeout_s, 0.05)
+        while time.monotonic() < graceful_deadline:
+            if _runtime_process_leader_exited_unreaped(pgid):
+                leader_exited = True
+                break
+            time.sleep(min(0.005, max(0.0, graceful_deadline - time.monotonic())))
+    containment_used = not leader_exited
+    if group_exists():
         try:
-            os.killpg(pgid, signal.SIGKILL)
+            os.killpg(pgid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-        if not await_group_retirement():
-            raise ContractError(
-                "runtime supervisor process group did not retire after SIGKILL"
-            )
-    process.join(timeout=0)
-    if process.is_alive():
-        raise ContractError("runtime supervisor process group did not retire after SIGKILL")
-    return True
+        if not leader_exited:
+            leader_exited = await_leader_exit_unreaped()
+        # SIGKILL is sent before reaping even when the leader already exited.
+        # This terminal signal covers every inherited live group member while
+        # the zombie leader still reserves the authenticated numeric PGID.
+        if group_exists():
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    # Reap only after the terminal group signal.  No numeric PGID operation is
+    # permitted after this point; the retired state makes repeated cleanup inert.
+    process.join(timeout_s)
+    if process.exitcode is None:
+        raise ContractError("runtime supervisor leader did not become reapable")
+    retirement.retired = True
+    return containment_used
 
 
 def execute_runtime_supervised(
@@ -3204,7 +3242,7 @@ def execute_runtime_supervised(
     process.start()
     child.close()
     message: tuple[Any, ...] | None = None
-    process_group_ready = False
+    process_group_retirement: RuntimeProcessGroupRetirement | None = None
     terminal_pipe_closed = False
     try:
         if not parent.poll(startup_timeout_s):
@@ -3241,7 +3279,7 @@ def execute_runtime_supervised(
             raise ContractError(
                 "runtime supervisor child returned invalid READY process-group identity"
             )
-        process_group_ready = True
+        process_group_retirement = RuntimeProcessGroupRetirement(expected_identity)
         parent.send(("START", expected_identity, expected_identity))
         if parent.poll(timeout_s):
             try:
@@ -3253,10 +3291,10 @@ def execute_runtime_supervised(
                     "ChildProcessError",
                     "runtime supervisor child closed its terminal pipe without a message",
                 )
-            process.join(retirement_timeout_s)
         process_group_containment_used = _terminate_runtime_process_group(
             process,
             timeout_s=retirement_timeout_s,
+            retirement=process_group_retirement,
         )
         if message is None:
             raise ContractError(
@@ -3286,13 +3324,14 @@ def execute_runtime_supervised(
             )
         raise ContractError("runtime supervisor child returned a malformed terminal")
     finally:
-        if process_group_ready:
+        if process_group_retirement is not None:
             # READY authenticates the child's PID as the owned process-group ID.
             # The group can outlive its leader, so leader liveness must never gate
             # post-READY containment on terminal, error, EOF, or exception paths.
             _terminate_runtime_process_group(
                 process,
                 timeout_s=retirement_timeout_s,
+                retirement=process_group_retirement,
             )
         elif process.is_alive():
             _terminate_runtime_process(
