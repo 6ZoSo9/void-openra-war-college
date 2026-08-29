@@ -31,6 +31,8 @@ from typing import Any, Awaitable, Callable, Iterable
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
 SCHEMA_VERSION = 6
+PROTO_INT32_MIN = -(2**31)
+PROTO_INT32_MAX = 2**31 - 1
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
 PUBLICATION_RECEIPT_SCHEMA_VERSION = 1
 LOCAL_EVIDENCE_MARKER = "VOID_WAR_COLLEGE_UNTRUSTED_LOCAL_EVIDENCE_V1"
@@ -71,6 +73,15 @@ class IncompatibleEvidenceSchemaError(ContractError):
         super().__init__(
             f"pending evidence schema {actual} is incompatible with current schema {expected}"
         )
+
+
+def require_proto_int32_tick(value: Any, label: str) -> int:
+    """Require the exact scalar domain carried by protobuf ``int32`` tick fields."""
+    if type(value) is not int or not PROTO_INT32_MIN <= value <= PROTO_INT32_MAX:
+        raise ContractError(
+            f"{label} must be an exact protobuf signed-int32 integer"
+        )
+    return value
 
 
 def require_sha40(value: str, label: str) -> str:
@@ -895,10 +906,14 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
                 candidate, {"start_tick", "end_tick", "players", "purpose"},
                 f"{label}.bootstrap[{slot}]",
             )
+            require_proto_int32_tick(
+                item["start_tick"], f"{label}.bootstrap[{slot}].start_tick"
+            )
+            require_proto_int32_tick(
+                item["end_tick"], f"{label}.bootstrap[{slot}].end_tick"
+            )
             if (
-                type(item["start_tick"]) is not int
-                or type(item["end_tick"]) is not int
-                or item["end_tick"] - item["start_tick"] != 1
+                item["end_tick"] - item["start_tick"] != 1
                 or item["players"] != ["Multi0", "Multi1"]
                 or item["purpose"] != "owned_actor_and_order_count_bootstrap"
             ):
@@ -944,10 +959,11 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
                 },
                 f"{label}.validation[{slot}][{sample}]",
             )
-            if any(
-                isinstance(validation[field], bool) or not isinstance(validation[field], int)
-                for field in ("start_tick", "end_tick")
-            ) or validation["end_tick"] <= validation["start_tick"]:
+            for field in ("start_tick", "end_tick"):
+                require_proto_int32_tick(
+                    validation[field], f"{label}.validation[{slot}][{sample}].{field}"
+                )
+            if validation["end_tick"] <= validation["start_tick"]:
                 raise ContractError(f"{label} validated tick advancement is invalid")
             if validation["players"] != ["Multi0", "Multi1"]:
                 raise ContractError(f"{label} validated perspectives are invalid")
@@ -2097,8 +2113,8 @@ def validate_joint_response(
         raise ContractError("JointAdvance response session binding mismatch")
     start_tick = getattr(response, "start_tick", None)
     end_tick = getattr(response, "end_tick", None)
-    if not isinstance(start_tick, int) or not isinstance(end_tick, int):
-        raise ContractError("JointAdvance response ticks must be exact integers")
+    require_proto_int32_tick(start_tick, "JointAdvance response start_tick")
+    require_proto_int32_tick(end_tick, "JointAdvance response end_tick")
     if end_tick - start_tick != requested_ticks:
         raise ContractError("JointAdvance response did not prove requested tick advancement")
     observations = _joint_observations_by_player(response)

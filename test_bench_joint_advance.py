@@ -395,6 +395,38 @@ class RuntimeBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(bench.ContractError, "lacks observation payload"):
             bench.validate_joint_response(missing_payload, "session-a", 8)
 
+    def test_joint_response_ticks_are_bound_to_protobuf_signed_int32_domain(self):
+        observations = [
+            types.SimpleNamespace(player="Multi0", observation=types.SimpleNamespace()),
+            types.SimpleNamespace(player="Multi1", observation=types.SimpleNamespace()),
+        ]
+        for start_tick, end_tick in (
+            (bench.PROTO_INT32_MAX, bench.PROTO_INT32_MAX + 1),
+            (bench.PROTO_INT32_MIN - 1, bench.PROTO_INT32_MIN),
+            (False, 1),
+        ):
+            response = types.SimpleNamespace(
+                session_id="session-a", start_tick=start_tick, end_tick=end_tick,
+                player_observations=observations,
+            )
+            with self.subTest(interval=(start_tick, end_tick)), self.assertRaisesRegex(
+                bench.ContractError, "protobuf signed-int32",
+            ):
+                bench.validate_joint_response(response, "session-a", 1)
+
+        for start_tick, end_tick in (
+            (bench.PROTO_INT32_MIN, bench.PROTO_INT32_MIN + 1),
+            (bench.PROTO_INT32_MAX - 1, bench.PROTO_INT32_MAX),
+        ):
+            response = types.SimpleNamespace(
+                session_id="session-a", start_tick=start_tick, end_tick=end_tick,
+                player_observations=observations,
+            )
+            self.assertEqual(
+                bench.validate_joint_response(response, "session-a", 1)["end_tick"],
+                end_tick,
+            )
+
     def test_occupied_endpoint_fails_before_runtime_contact(self):
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
@@ -912,6 +944,36 @@ class EvidencePublicationTests(unittest.TestCase):
                 bench.ContractError, "tick intervals are not continuous",
             ):
                 bench._validate_repetition_evidence(candidate, "repetition")
+
+    def test_tick_evidence_is_bound_to_protobuf_signed_int32_domain(self):
+        repetition = json.loads(self.payload())["cells"][0]["repetitions"][0]
+        for start_tick, end_tick in (
+            (bench.PROTO_INT32_MAX, bench.PROTO_INT32_MAX + 1),
+            (bench.PROTO_INT32_MIN - 1, bench.PROTO_INT32_MIN),
+        ):
+            candidate = copy.deepcopy(repetition)
+            candidate["joint_advance_validation_by_slot"]["0"][0].update({
+                "start_tick": start_tick, "end_tick": end_tick,
+            })
+            with self.subTest(measured=(start_tick, end_tick)), self.assertRaisesRegex(
+                bench.ContractError, "protobuf signed-int32",
+            ):
+                bench._validate_repetition_evidence(candidate, "repetition")
+
+        action = copy.deepcopy(repetition)
+        action["workload_profile"] = "stop_owned_unit"
+        action["bootstrap_joint_advance_calls"] = 1
+        action["bootstrap_ticks_advanced_validated"] = 1
+        action["bootstrap_validation_by_slot"] = {
+            "0": {
+                "start_tick": bench.PROTO_INT32_MIN - 1,
+                "end_tick": bench.PROTO_INT32_MIN,
+                "players": ["Multi0", "Multi1"],
+                "purpose": "owned_actor_and_order_count_bootstrap",
+            },
+        }
+        with self.assertRaisesRegex(bench.ContractError, "protobuf signed-int32"):
+            bench._validate_repetition_evidence(action, "repetition")
 
     def test_rss_peak_covers_observed_cell_endpoints(self):
         report = json.loads(self.payload())
