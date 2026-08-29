@@ -1337,16 +1337,23 @@ class EvidencePublicationTests(unittest.TestCase):
                 with self.assertRaisesRegex(bench.ContractError, "scalar types"):
                     bench.load_committed_evidence(output, self.operation(payload))
 
-    def test_prior_schema_five_is_an_explicit_incompatible_hold(self):
+    def test_prior_schema_six_is_an_explicit_incompatible_hold(self):
         candidate = json.loads(self.payload())
-        self.assertEqual(candidate["schema_version"], 6)
-        candidate["schema_version"] = 5
+        self.assertEqual(candidate["schema_version"], 7)
+        candidate["schema_version"] = 6
+        interval = candidate["cells"][0]["repetitions"][0][
+            "joint_advance_validation_by_slot"
+        ]["0"][0]
+        interval.update({
+            "start_tick": bench.PROTO_INT32_MAX,
+            "end_tick": bench.PROTO_INT32_MAX + 1,
+        })
         with self.assertRaises(bench.IncompatibleEvidenceSchemaError) as raised:
             bench._validate_recoverable_evidence(
                 bench.stable_json(candidate).encode("utf-8")
             )
-        self.assertEqual(raised.exception.actual, 5)
-        self.assertEqual(raised.exception.expected, 6)
+        self.assertEqual(raised.exception.actual, 6)
+        self.assertEqual(raised.exception.expected, 7)
 
     def test_abrupt_termination_before_commit_receipt_is_not_countable(self):
         payload = self.payload()
