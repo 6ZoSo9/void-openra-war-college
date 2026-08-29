@@ -4,12 +4,14 @@
 The full reviewed source is retained byte-for-byte in
 ``bench_joint_advance_core.py``.  It is executed into this module namespace so
 existing imports, monkeypatch-based falsifiers, and function globals keep the
-same behavior.  This facade overrides only the local evidence commit primitive:
-a durable receipt is an irreversible commit boundary, so any later cleanup or
-verification failure may be reported but may never rewrite the committed report
-inode or downgrade its terminal.
+same behavior.  This facade owns two narrow boundaries around that preserved core: local
+evidence publication keeps the durable receipt as an irreversible commit point,
+and designated-host execution runs inside a spawned process group so detached
+cancellation-resistant work cannot hang top-level process retirement.
 """
 
+import multiprocessing as _BootstrapMultiprocessing
+import signal as _BootstrapSignal
 import sys as _BootstrapSys
 from pathlib import Path as _BootstrapPath
 
@@ -36,6 +38,22 @@ globals()["__file__"] = _BOOTSTRAP_FILE
 
 def _post_commit_error(error: BaseException, stage: str) -> str:
     return f"{stage}:{type(error).__name__}:{error}"
+
+
+def _retire_pending(
+    parent_descriptor: int,
+    staging_name: str,
+) -> tuple[bool, str | None]:
+    """Preserve post-commit pending state without compare-then-delete authority.
+
+    A successful exact-generation check cannot authorize a later pathname
+    ``unlink``: another actor can replace that child generation between the
+    check and deletion. Until an atomic generation-conditional removal
+    primitive exists, leave the alias or replacement intact for explicit
+    reconciliation instead of risking deletion of foreign state.
+    """
+    del parent_descriptor, staging_name
+    return False, None
 
 
 def _publish_commit_receipt_create_only(
@@ -227,6 +245,388 @@ def publish_evidence_create_only(
         "post_commit_verification_errors": post_commit_errors,
         "post_commit_report_mutation": False,
     }
+
+
+# Preserve the exact reviewed coroutine for direct source-only tests. Runtime
+# entry through main() is wrapped below in a separate spawned process group.
+_CORE_EXECUTE_RUNTIME = execute_runtime
+_RUNTIME_CHILD_START_TIMEOUT_S = 10.0
+_RUNTIME_CHILD_NATURAL_RETIREMENT_S = 5.0
+_RUNTIME_CHILD_SIGNAL_GRACE_S = 5.0
+_RUNTIME_CONTAINMENT_MIN_MARGIN_S = 60.0
+
+
+def _runtime_process_deadline_s(parameters: dict[str, Any]) -> float:
+    """Derive a finite outer deadline from the already-reviewed inner bounds."""
+    planned = build_matrix(
+        tuple(parameters["concurrency"]),
+        tuple(parameters["tick_batches"]),
+    )
+    per_cell = parameters["cell_timeout_s"] + parameters["teardown_timeout_s"]
+    margin = max(
+        _RUNTIME_CONTAINMENT_MIN_MARGIN_S,
+        2 * parameters["rpc_timeout_s"],
+        2 * parameters["teardown_timeout_s"],
+    )
+    return float(parameters["ready_timeout_s"] + len(planned) * per_cell + margin)
+
+
+def _process_group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError as error:
+        raise ContractError(
+            f"cannot verify runtime process-group retirement for pgid={pgid}: {error}"
+        ) from error
+    return True
+
+
+def _wait_process_group_absent(pgid: int, timeout_s: float) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if not _process_group_exists(pgid):
+            return True
+        time.sleep(0.01)
+    return not _process_group_exists(pgid)
+
+
+def _signal_process_group(pgid: int, signal_number: int) -> None:
+    try:
+        os.killpg(pgid, signal_number)
+    except ProcessLookupError:
+        return
+
+
+def _retire_runtime_process_group(
+    process: Any,
+    pgid: int,
+    *,
+    natural_grace_s: float = _RUNTIME_CHILD_NATURAL_RETIREMENT_S,
+    signal_grace_s: float = _RUNTIME_CHILD_SIGNAL_GRACE_S,
+) -> None:
+    """Retire the child and every inherited runtime descendant within finite bounds."""
+    if pgid != process.pid:
+        raise ContractError("runtime process-group identity is not bound to child PID")
+
+    process.join(natural_grace_s)
+    if not process.is_alive() and not _process_group_exists(pgid):
+        return
+
+    _signal_process_group(pgid, _BootstrapSignal.SIGTERM)
+    process.join(signal_grace_s)
+    if not process.is_alive() and _wait_process_group_absent(pgid, signal_grace_s):
+        return
+
+    _signal_process_group(pgid, _BootstrapSignal.SIGKILL)
+    process.join(signal_grace_s)
+    if process.is_alive() or not _wait_process_group_absent(pgid, signal_grace_s):
+        raise ContractError(
+            f"runtime process-group containment failed to retire pgid={pgid}"
+        )
+
+
+def _retire_unbound_runtime_child(process: Any) -> None:
+    """Retire a child that failed before establishing its private process group."""
+    process.join(0)
+    if not process.is_alive():
+        return
+    process.terminate()
+    process.join(_RUNTIME_CHILD_SIGNAL_GRACE_S)
+    if process.is_alive():
+        process.kill()
+        process.join(_RUNTIME_CHILD_SIGNAL_GRACE_S)
+    if process.is_alive():
+        raise ContractError("unbound runtime child could not be retired")
+
+
+def _runtime_child_entry(
+    sender: Any,
+    args: argparse.Namespace,
+    parameters: dict[str, Any],
+    expected_provenance: dict[str, str],
+) -> None:
+    """Run the reviewed async attempt inside a new session/process group.
+
+    The result is sent from inside the root coroutine, before ``asyncio.run``
+    begins pending-task shutdown. The parent can therefore obtain the closed
+    evidence outcome and still force-retire this process if a cancellation-
+    resistant detached task would otherwise hang event-loop shutdown.
+    """
+    try:
+        os.setsid()
+        child_pid = os.getpid()
+        child_pgid = os.getpgrp()
+        if child_pgid != child_pid:
+            raise ContractError("runtime child failed to establish a private process group")
+        sender.send(("STARTED", child_pid, child_pgid))
+
+        async def attempt() -> None:
+            outcome = await _CORE_EXECUTE_RUNTIME(
+                args, parameters, expected_provenance,
+            )
+            sender.send(("OUTCOME", outcome))
+
+        asyncio.run(attempt())
+    except BaseException as error:
+        try:
+            sender.send(("ERROR", type(error).__name__, str(error)))
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+    finally:
+        sender.close()
+
+
+# Make the spawn target importable by its stable public module name even when
+# the facade itself is invoked as a script.
+_runtime_child_entry.__module__ = _CORE_EXEC_MODULE
+
+
+def _execute_runtime_contained(
+    args: argparse.Namespace,
+    parameters: dict[str, Any],
+    expected_provenance: dict[str, str],
+) -> dict[str, Any]:
+    """Own one runtime attempt in a spawned, killable process group."""
+    if (
+        os.name != "posix"
+        or not hasattr(os, "setsid")
+        or not hasattr(os, "killpg")
+    ):
+        raise ContractError(
+            "designated-host runtime requires POSIX process-group containment"
+        )
+
+    context = _BootstrapMultiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_runtime_child_entry,
+        args=(sender, args, parameters, expected_provenance),
+        name="void-war-college-runtime",
+    )
+    process.start()
+    sender.close()
+
+    pgid: int | None = None
+    outcome: dict[str, Any] | None = None
+    child_error: str | None = None
+    deadline = time.monotonic() + _RUNTIME_CHILD_START_TIMEOUT_S
+    runtime_started = False
+
+    try:
+        while outcome is None and child_error is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                child_error = (
+                    "runtime child start deadline exceeded"
+                    if not runtime_started
+                    else "runtime child outer execution deadline exceeded"
+                )
+                break
+
+            if receiver.poll(min(0.1, remaining)):
+                try:
+                    message = receiver.recv()
+                except EOFError:
+                    child_error = "runtime child pipe closed without a terminal message"
+                    break
+                if not isinstance(message, tuple) or not message:
+                    child_error = "runtime child emitted an invalid control message"
+                    break
+
+                kind = message[0]
+                if kind == "STARTED":
+                    if (
+                        runtime_started
+                        or len(message) != 3
+                        or message[1] != process.pid
+                        or message[2] != process.pid
+                    ):
+                        child_error = "runtime child process-group binding is invalid"
+                        break
+                    runtime_started = True
+                    pgid = message[2]
+                    deadline = (
+                        time.monotonic() + _runtime_process_deadline_s(parameters)
+                    )
+                elif kind == "OUTCOME":
+                    if not runtime_started or len(message) != 2:
+                        child_error = "runtime child outcome arrived before process-group binding"
+                        break
+                    if not isinstance(message[1], dict):
+                        child_error = "runtime child outcome is not a structured object"
+                        break
+                    outcome = message[1]
+                elif kind == "ERROR":
+                    if len(message) != 3:
+                        child_error = "runtime child error message is malformed"
+                    else:
+                        child_error = f"{message[1]}:{message[2]}"
+                else:
+                    child_error = f"runtime child emitted unsupported message type: {kind}"
+            elif not process.is_alive():
+                child_error = (
+                    f"runtime child exited before outcome: exitcode={process.exitcode}"
+                )
+                break
+    finally:
+        receiver.close()
+        if pgid is None:
+            _retire_unbound_runtime_child(process)
+        else:
+            _retire_runtime_process_group(process, pgid)
+
+    if outcome is None:
+        raise ContractError(child_error or "runtime child produced no outcome")
+    return outcome
+
+
+def _run_runtime_from_main(
+    args: argparse.Namespace,
+    parameters: dict[str, Any],
+    provenance: dict[str, str],
+) -> dict[str, Any]:
+    """Use containment in production while preserving monkeypatch-based unit tests."""
+    if execute_runtime is not _CORE_EXECUTE_RUNTIME:
+        return asyncio.run(execute_runtime(args, parameters, provenance))
+    return _execute_runtime_contained(args, parameters, provenance)
+
+
+def _runtime_supervisor_failure_outcome(
+    args: argparse.Namespace,
+    error: BaseException,
+) -> dict[str, Any]:
+    """Return one closed, non-countable terminal for supervisor-layer failure.
+
+    The parent owns this terminal because no authenticated child outcome reached
+    it.  daemon_retired=false is deliberately conservative: without a child
+    terminal, the parent must not claim that runtime descendants were absent or
+    retired merely because its bounded containment attempt returned.
+    """
+    actual_hostname = socket.gethostname()
+    failure = f"{type(error).__name__}:{error}"
+    return {
+        "cells": [],
+        "host": {
+            "hostname": actual_hostname,
+            "designated_hostname": args.designated_hostname,
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+            "cpu_count": os.cpu_count(),
+        },
+        "run": {
+            "terminal": "startup_error",
+            "stage": "runtime_supervisor",
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "listener_identity": None,
+            "runtime_provenance": None,
+            "daemon_log": None,
+            "cleanup": {"failures": [f"runtime_supervisor:{failure}"]},
+            "containment": {
+                "required_by_cell": False,
+                "boundary": "not_required",
+                "daemon_retired": False,
+            },
+        },
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        provenance = validate_provenance(
+            args.engine_sha,
+            args.war_college_sha,
+            args.benchmark_source_sha,
+            args.generation,
+        )
+        parameters = normalized_args(args)
+        if args.mode == "run":
+            if not args.execute_designated_host:
+                raise ContractError("run requires --execute-designated-host")
+            if not args.openra_dir or not args.output or not args.designated_hostname:
+                raise ContractError(
+                    "run requires --openra-dir, --output, and --designated-hostname"
+                )
+            operation = operation_descriptor(
+                provenance,
+                parameters,
+                designated_hostname=args.designated_hostname,
+                openra_dir=Path(args.openra_dir),
+            )
+            # A pre-positioned report is not designated-host authority. Refuse
+            # it before runtime contact; the spawned runtime child never owns
+            # these retained publication descriptors.
+            reservation = reserve_evidence_namespace(Path(args.output))
+            try:
+                try:
+                    outcome = _run_runtime_from_main(args, parameters, provenance)
+                except Exception as error:
+                    outcome = _runtime_supervisor_failure_outcome(args, error)
+                report = build_report(
+                    provenance=provenance,
+                    parameters=parameters,
+                    cells=outcome["cells"],
+                    executed_designated_host=True,
+                    generated_at_utc=utc_now(),
+                    command=sys.argv if argv is None else [Path(sys.argv[0]).name, *argv],
+                    run=outcome["run"],
+                    host=outcome["host"],
+                    operation=operation,
+                )
+                try:
+                    payload = stable_json(report).encode("utf-8")
+                    publication = publish_evidence_create_only(
+                        Path(args.output), payload, reservation=reservation,
+                    )
+                    if not publication["payload_matches_request"]:
+                        report = _validate_recoverable_evidence(
+                            _read_regular_read_only(Path(args.output).resolve())
+                        )
+                except (OSError, ContractError) as error:
+                    report["run"].update({
+                        "terminal": "output_error",
+                        "stage": "evidence_publication",
+                        "error_type": type(error).__name__,
+                        "error": str(error),
+                    })
+                    report = json.loads(json.dumps(report, allow_nan=False))
+                    # The same retained inode that held the attempted completed
+                    # report must carry the process's authoritative failure
+                    # terminal. Otherwise explicit reconciliation could count a
+                    # durable `completed` artifact after canonical publication
+                    # failed and stdout truthfully reported `output_error`.
+                    try:
+                        _write_reserved_payload(
+                            reservation,
+                            stable_json(report).encode("utf-8"),
+                        )
+                    except (OSError, ContractError) as persistence_error:
+                        report["run"]["publication_terminal_persistence_error"] = (
+                            f"{type(persistence_error).__name__}:{persistence_error}"
+                        )
+                        report = json.loads(json.dumps(report, allow_nan=False))
+            finally:
+                reservation.close()
+            print(human_summary(report), file=sys.stderr)
+        else:
+            if args.execute_designated_host:
+                raise ContractError("plan must not use --execute-designated-host")
+            report = build_report(
+                provenance=provenance,
+                parameters=parameters,
+                cells=[],
+                executed_designated_host=False,
+                generated_at_utc=utc_now(),
+                command=sys.argv if argv is None else [Path(sys.argv[0]).name, *argv],
+            )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return terminal_exit_code(report) if args.mode == "run" else 0
+    except (ContractError, OSError) as error:
+        print(f"contract error: {error}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
