@@ -340,7 +340,13 @@ def _record_command(args: argparse.Namespace) -> dict[str, object]:
     record = record_contract.build_record(args.record_id, manifest, evaluation_plan)
     path = Path(args.record)
     write_record_create_only_with_terminal(path, record)
-    return record_contract.load_and_validate_record(path, manifest)
+
+    # The success terminal is historical authority for the exact generation that crossed
+    # the retained-fd file+parent durability checks above. Do not reopen the pathname here:
+    # a same-UID namespace writer could substitute a different valid generation after the
+    # writer closes its retained fd and before a pathname reload. Pure validation of the
+    # exact built/published object keeps PRECOMMIT_RECORDED bound to that generation.
+    return record_contract.validate_record(record, manifest)
 
 
 def _validate_command(args: argparse.Namespace) -> dict[str, object]:
