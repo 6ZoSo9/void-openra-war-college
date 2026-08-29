@@ -3202,6 +3202,10 @@ def _terminate_runtime_process_group(
     pgid = process.pid
     if pgid is None or retirement.pgid != pgid:
         raise ContractError("runtime supervisor process-group identity changed")
+    deadline = time.monotonic() + timeout_s
+
+    def remaining_s() -> float:
+        return max(0.0, deadline - time.monotonic())
 
     def group_exists() -> bool:
         try:
@@ -3215,18 +3219,17 @@ def _terminate_runtime_process_group(
         return True
 
     def await_leader_exit_unreaped() -> bool:
-        deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             if _runtime_process_leader_exited_unreaped(pgid):
                 return True
-            time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+            time.sleep(min(0.01, remaining_s()))
         return _runtime_process_leader_exited_unreaped(pgid)
 
     leader_exited = _runtime_process_leader_exited_unreaped(pgid)
     if not leader_exited:
         # Give a terminal-publishing child one short, non-reaping exit window.
         # The leader PID remains reserved throughout this observation.
-        graceful_deadline = time.monotonic() + min(timeout_s, 0.05)
+        graceful_deadline = min(deadline, time.monotonic() + 0.05)
         while time.monotonic() < graceful_deadline:
             if _runtime_process_leader_exited_unreaped(pgid):
                 leader_exited = True
@@ -3251,7 +3254,7 @@ def _terminate_runtime_process_group(
 
     # Reap only after the terminal group signal.  No numeric PGID operation is
     # permitted after this point; the retired state makes repeated cleanup inert.
-    process.join(timeout_s)
+    process.join(remaining_s())
     if process.exitcode is None:
         raise ContractError("runtime supervisor leader did not become reapable")
     retirement.retired = True
