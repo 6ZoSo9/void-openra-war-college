@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Callable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 PROTO_INT32_MIN = -(2**31)
 PROTO_INT32_MAX = 2**31 - 1
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
@@ -274,6 +274,43 @@ def _consume_late_owned_phase_completion(task: asyncio.Task[Any]) -> None:
         pass
 
 
+class RuntimeTaskContainment:
+    """Retain cancellation-resistant RPC handles through daemon containment."""
+
+    def __init__(self) -> None:
+        self.required = False
+        self.tasks: set[asyncio.Task[Any]] = set()
+
+    def transfer(self, task: asyncio.Task[Any]) -> None:
+        self.required = True
+        self.tasks.add(task)
+
+        def consume(completed: asyncio.Task[Any]) -> None:
+            self.tasks.discard(completed)
+            _consume_late_owned_phase_completion(completed)
+
+        task.add_done_callback(consume)
+
+    def pending(self) -> set[asyncio.Task[Any]]:
+        return {task for task in self.tasks if not task.done()}
+
+
+async def retire_contained_tasks(
+    containment: RuntimeTaskContainment,
+    timeout_s: float,
+) -> int:
+    """Bound post-daemon retirement of RPC tasks transferred from owned phases."""
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ContractError("contained-task retirement deadline must be finite and positive")
+    pending = containment.pending()
+    if not pending:
+        return 0
+    for task in pending:
+        task.cancel()
+    _done, pending = await asyncio.wait(pending, timeout=timeout_s)
+    return len(pending)
+
+
 async def close_channel_with_total_deadline(
     channel: Any,
     timeout_s: float,
@@ -298,6 +335,7 @@ async def run_owned_phase(
     operations: dict[str, Awaitable[Any]],
     *,
     deadline_s: float,
+    containment: RuntimeTaskContainment | None = None,
 ) -> dict[str, Any]:
     """Return keyed results within one total phase-and-retirement deadline.
 
@@ -319,7 +357,10 @@ async def run_owned_phase(
         for task in tasks_to_observe:
             if task not in observed_late:
                 observed_late.add(task)
-                task.add_done_callback(_consume_late_owned_phase_completion)
+                if containment is None:
+                    task.add_done_callback(_consume_late_owned_phase_completion)
+                else:
+                    containment.transfer(task)
 
     try:
         done, pending = await asyncio.wait(
@@ -874,7 +915,9 @@ def _validate_teardown_evidence(value: Any, label: str) -> None:
         raise ContractError(f"{label} latency/session accounting is inconsistent")
     if value["latency"] != latency_summary(samples):
         raise ContractError(f"{label} latency summary is not bound to raw samples")
-    _require_number(value["teardown_total_deadline_s"], f"{label}.deadline")
+    teardown_total_deadline_s = value["teardown_total_deadline_s"]
+    if type(teardown_total_deadline_s) is not int or teardown_total_deadline_s <= 0:
+        raise ContractError(f"{label}.deadline must be an exact positive integer")
     for field in (
         "create_commit_response_ambiguous", "cleanup_after_work_cancellation",
         "containment_required",
@@ -2293,6 +2336,7 @@ async def run_repetition(
     rpc_timeout_s: float,
     teardown_timeout_s: float,
     teardown_records: list[dict[str, Any]],
+    containment: RuntimeTaskContainment | None = None,
     workload_profile: str = "noop_control",
     monotonic_clock: Callable[[], float] = time.monotonic,
 ) -> dict[str, Any]:
@@ -2340,6 +2384,7 @@ async def run_repetition(
             created_by_task = await run_owned_phase(
                 {str(slot): create(slot) for slot in range(concurrency)},
                 deadline_s=rpc_timeout_s,
+                containment=containment,
             )
             create_phase_complete = True
         finally:
@@ -2381,6 +2426,7 @@ async def run_repetition(
                     for slot in range(concurrency)
                 },
                 deadline_s=rpc_timeout_s,
+                containment=containment,
             )
             for slot, response, validation in bootstrapped.values():
                 previous_response_by_slot[slot] = response
@@ -2427,6 +2473,7 @@ async def run_repetition(
                     for slot in range(concurrency)
                 },
                 deadline_s=rpc_timeout_s,
+                containment=containment,
             )
             advanced = list(advanced_by_task.values())
             for slot, elapsed_ms, envelope in advanced:
@@ -2525,6 +2572,7 @@ async def run_cell(
     rpc_timeout_s: float,
     cell_timeout_s: float,
     teardown_timeout_s: float,
+    containment: RuntimeTaskContainment | None = None,
     workload_profile: str = "noop_control",
 ) -> tuple[str, dict[str, Any]]:
     started = time.monotonic()
@@ -2582,6 +2630,7 @@ async def run_cell(
                 rpc_timeout_s=rpc_timeout_s,
                 teardown_timeout_s=teardown_timeout_s,
                 teardown_records=teardown_records,
+                containment=containment,
                 workload_profile=workload_profile,
             ))
     try:
@@ -2740,6 +2789,7 @@ async def execute_runtime(
     sampler: RssSampler | None = None
     sampler_task: asyncio.Task[Any] | None = None
     channel: Any | None = None
+    containment = RuntimeTaskContainment()
     planned = build_matrix(parameters["concurrency"], parameters["tick_batches"])
     try:
         if args.designated_hostname != actual_hostname:
@@ -2798,6 +2848,7 @@ async def execute_runtime(
                 rpc_timeout_s=args.rpc_timeout_s,
                 cell_timeout_s=args.cell_timeout_s,
                 teardown_timeout_s=args.teardown_timeout_s,
+                containment=containment,
                 workload_profile=args.workload_profile,
             )
             cpu_after = process_cpu_sample(daemon.pid)
@@ -2844,7 +2895,7 @@ async def execute_runtime(
         })
     finally:
         cleanup_failures: list[str] = []
-        containment_required = any(
+        containment_required = containment.required or any(
             bool(cell.payload.get("containment_required"))
             for cell in ledger.values()
         )
@@ -2874,6 +2925,11 @@ async def execute_runtime(
                 run["daemon_returncode"] = daemon.returncode
             except Exception as error:
                 cleanup_failures.append(f"daemon:{type(error).__name__}:{error}")
+        remaining_contained_tasks = await retire_contained_tasks(containment, 5.0)
+        if remaining_contained_tasks:
+            cleanup_failures.append(
+                f"owned_phase_tasks_unretired_after_containment:{remaining_contained_tasks}"
+            )
         if capture is not None:
             log = capture.finish()
             run["daemon_log"] = log
