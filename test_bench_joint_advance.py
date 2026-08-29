@@ -897,6 +897,19 @@ class EvidencePublicationTests(unittest.TestCase):
         ):
             bench._validate_repetition_evidence(contradiction, "repetition")
 
+    def test_teardown_deadline_is_bound_to_operation_parameter(self):
+        report = json.loads(self.payload())
+        parameters = report["parameters"]
+        candidate = copy.deepcopy(report["cells"][0])
+        candidate["repetitions"][0]["teardown"][
+            "teardown_total_deadline_s"
+        ] = parameters["teardown_timeout_s"] + 1
+
+        with self.assertRaisesRegex(
+            bench.ContractError, "teardown deadline is not operation-parameter-bound",
+        ):
+            bench._validate_cell_evidence(candidate, parameters)
+
     def test_teardown_latency_summary_is_exactly_bound_to_raw_samples(self):
         report = json.loads(self.payload())
         repetition = report["cells"][0]["repetitions"][0]
