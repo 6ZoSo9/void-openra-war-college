@@ -1229,6 +1229,12 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
         ] != list(range(parameters["repetitions"])):
             raise ContractError("matrix-cell repetition coverage is incomplete")
         for repetition in cell["repetitions"]:
+            if repetition["teardown"]["teardown_total_deadline_s"] != parameters[
+                "teardown_timeout_s"
+            ]:
+                raise ContractError(
+                    "matrix-cell teardown deadline is not operation-parameter-bound"
+                )
             if repetition["workload_profile"] != parameters["workload_profile"]:
                 raise ContractError("matrix-cell workload profile is not parameter-bound")
             expected_slots = [str(slot) for slot in range(cell["concurrency"])]
