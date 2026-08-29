@@ -44,10 +44,10 @@ jobs:
             bench_joint_advance.py \
             bench_joint_advance_core.py \
             tests/test_joint_advance_post_commit_immutability.py
-      - name: Run full benchmark contract
-        run: python -m unittest -v test_bench_joint_advance.py
       - name: Run post-commit immutability falsifiers
         run: python -m unittest -v tests/test_joint_advance_post_commit_immutability.py
+      - name: Run full benchmark contract
+        run: python -m unittest -v test_bench_joint_advance.py
       - name: Prove reviewed core blob remains available behind facade
         run: |
           python - <<'PY'
