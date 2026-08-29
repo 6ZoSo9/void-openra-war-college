@@ -2139,6 +2139,51 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("daemon_retirement_required", payload["cleanup_terminals"])
 
 
+    async def test_destroy_sessions_total_deadline_survives_cancellation_resistant_rpc(self):
+        release = asyncio.Event()
+        cancellation_observed = asyncio.Event()
+
+        class CancellationResistantStub:
+            async def DestroySession(self, request):
+                del request
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    cancellation_observed.set()
+                    await release.wait()
+                return types.SimpleNamespace()
+
+        started = asyncio.get_running_loop().time()
+        try:
+            teardown = await asyncio.wait_for(
+                bench.destroy_sessions(
+                    CancellationResistantStub(),
+                    self.Pb2,
+                    ["session-resistant"],
+                    timeout_s=0.02,
+                ),
+                timeout=0.2,
+            )
+            elapsed = asyncio.get_running_loop().time() - started
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=0.1)
+            self.assertLess(elapsed, 0.15)
+            self.assertEqual(teardown["destroyed_session_ids"], [])
+            self.assertEqual(
+                teardown["unretired_session_ids"], ["session-resistant"],
+            )
+            self.assertEqual(
+                teardown["failures"],
+                ["session-resistant:TimeoutError:total teardown deadline"],
+            )
+            self.assertEqual(
+                teardown["cleanup_terminal"], "daemon_retirement_required",
+            )
+        finally:
+            release.set()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+
 class RetryRecoveryTests(unittest.TestCase):
     @staticmethod
     def invocation(directory, output, *, seed="2050", hostname="fixture"):
