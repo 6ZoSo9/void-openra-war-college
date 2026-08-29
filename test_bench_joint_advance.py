@@ -828,6 +828,33 @@ class EvidencePublicationTests(unittest.TestCase):
         report["cells"].append(second)
         return bench.stable_json(report).encode("utf-8")
 
+    @staticmethod
+    def completed_failure_payload():
+        report = json.loads(EvidencePublicationTests.two_cell_payload())
+        first = copy.deepcopy(report["cells"][0])
+        for field in (
+            "repetitions", "same_seed_deterministic", "hashes_by_slot",
+            "cell_wall_seconds",
+        ):
+            first.pop(field)
+        first.update({
+            "terminal": "timeout",
+            "error": "cell deadline expired",
+            "completed_repetitions": 0,
+        })
+        report["cells"][0] = first
+        report["cells"][1] = {
+            "key": "c1-t8",
+            "terminal": "not_executed",
+            "concurrency": 1,
+            "ticks_per_joint_advance": 8,
+            "blocked_by": "c1-t1",
+            "reason": "matrix retired after first non-success terminal",
+            "process_rss_bytes": None,
+            "process_cpu_seconds": None,
+        }
+        return bench.stable_json(report).encode("utf-8")
+
     def concurrency_two_cell(self):
         report = json.loads(self.payload())
         parameters = report["parameters"]
@@ -867,6 +894,89 @@ class EvidencePublicationTests(unittest.TestCase):
         ]
         bench._validate_cell_evidence(cell, parameters)
         return parameters, cell
+
+    def test_not_executed_cell_identity_is_bound_to_planned_matrix(self):
+        parameters = json.loads(self.payload())["parameters"]
+        parameters["concurrency"] = [1, 2]
+        parameters["tick_batches"] = [8]
+        cell = {
+            "key": "c2-t8",
+            "terminal": "not_executed",
+            "concurrency": 2,
+            "ticks_per_joint_advance": 8,
+            "blocked_by": "c1-t8",
+            "reason": "prior matrix cell was not successful",
+            "process_rss_bytes": None,
+            "process_cpu_seconds": None,
+        }
+        bench._validate_cell_evidence(cell, parameters)
+
+        variants = {
+            "key-does-not-match-concurrency": (
+                {"concurrency": 1}, "key is not bound",
+            ),
+            "key-does-not-match-ticks": (
+                {"ticks_per_joint_advance": 1}, "key is not bound",
+            ),
+            "planned-key-does-not-match-identity": (
+                {"key": "c1-t8"}, "key is not bound",
+            ),
+            "key-consistent-identity-is-not-planned": (
+                {"key": "c4-t8", "concurrency": 4}, "not in the planned matrix",
+            ),
+            "boolean-concurrency": (
+                {"concurrency": True}, "concurrency is invalid",
+            ),
+            "zero-ticks": (
+                {"ticks_per_joint_advance": 0}, "ticks_per_joint_advance is invalid",
+            ),
+        }
+        for label, (changes, error) in variants.items():
+            candidate = copy.deepcopy(cell)
+            candidate.update(changes)
+            with self.subTest(label=label), self.assertRaisesRegex(
+                bench.ContractError, error,
+            ):
+                bench._validate_cell_evidence(candidate, parameters)
+
+    def test_completed_matrix_tail_is_bound_to_first_non_success(self):
+        valid_payload = self.completed_failure_payload()
+        bench._validate_recoverable_evidence(valid_payload)
+
+        for blocked_by in ("c1-t8", "c999-t999"):
+            candidate = json.loads(valid_payload)
+            candidate["cells"][1]["blocked_by"] = blocked_by
+            with self.subTest(blocked_by=blocked_by), self.assertRaisesRegex(
+                bench.ContractError, "not bound to first non-success",
+            ):
+                bench._validate_recoverable_evidence(
+                    bench.stable_json(candidate).encode("utf-8")
+                )
+
+        success_then_skip = json.loads(self.two_cell_payload())
+        success_then_skip["cells"][1] = json.loads(valid_payload)["cells"][1]
+        with self.assertRaisesRegex(
+            bench.ContractError, "without a preceding failure",
+        ):
+            bench._validate_recoverable_evidence(
+                bench.stable_json(success_then_skip).encode("utf-8")
+            )
+
+        failure_then_success = json.loads(valid_payload)
+        failure_then_success["cells"][1] = json.loads(self.two_cell_payload())["cells"][1]
+        failure_then_success["cells"][1]["process_cpu_seconds"] = {
+            "clock_ticks_per_second": None,
+            "before_ticks": None,
+            "after_ticks": None,
+            "delta_ticks": None,
+            "delta_seconds": None,
+        }
+        with self.assertRaisesRegex(
+            bench.ContractError, "executed cell after first non-success",
+        ):
+            bench._validate_recoverable_evidence(
+                bench.stable_json(failure_then_success).encode("utf-8")
+            )
 
     def test_create_latency_population_matches_cell_concurrency(self):
         parameters, cell = self.concurrency_two_cell()
@@ -1368,20 +1478,17 @@ class EvidencePublicationTests(unittest.TestCase):
                 with self.assertRaisesRegex(bench.ContractError, "scalar types"):
                     bench.load_committed_evidence(output, self.operation(payload))
 
-    def test_prior_schema_six_float_deadline_is_an_explicit_incompatible_hold(self):
-        candidate = json.loads(self.payload())
-        self.assertEqual(candidate["schema_version"], 7)
-        candidate["schema_version"] = 6
-        teardown = candidate["cells"][0]["repetitions"][0]["teardown"]
-        teardown["teardown_total_deadline_s"] = float(
-            candidate["parameters"]["teardown_timeout_s"]
-        )
+    def test_prior_schema_eight_unbound_blocker_is_an_explicit_incompatible_hold(self):
+        candidate = json.loads(self.completed_failure_payload())
+        self.assertEqual(candidate["schema_version"], 9)
+        candidate["schema_version"] = 8
+        candidate["cells"][1]["blocked_by"] = "c1-t8"
         with self.assertRaises(bench.IncompatibleEvidenceSchemaError) as raised:
             bench._validate_recoverable_evidence(
                 bench.stable_json(candidate).encode("utf-8")
             )
-        self.assertEqual(raised.exception.actual, 6)
-        self.assertEqual(raised.exception.expected, 7)
+        self.assertEqual(raised.exception.actual, 8)
+        self.assertEqual(raised.exception.expected, 9)
 
     def test_abrupt_termination_before_commit_receipt_is_not_countable(self):
         payload = self.payload()

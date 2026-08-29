@@ -178,12 +178,11 @@ class ReadOnlyInspectionTests(unittest.TestCase):
     def test_receipt_bound_current_schema_invalid_report_is_explicit_hold(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
-            report_payload = json.loads(valid_report_payload())
-            self.assertEqual(report_payload["schema_version"], 7)
-            teardown = report_payload["cells"][0]["repetitions"][0]["teardown"]
-            teardown["teardown_total_deadline_s"] = float(
-                report_payload["parameters"]["teardown_timeout_s"]
+            report_payload = json.loads(
+                benchmark_tests.EvidencePublicationTests.completed_failure_payload()
             )
+            self.assertEqual(report_payload["schema_version"], 9)
+            report_payload["cells"][1]["blocked_by"] = "c1-t8"
             payload = bench.stable_json(report_payload).encode("utf-8")
             write_0400(output, payload)
             receipt = bench._commit_receipt_path(output)
@@ -201,16 +200,15 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertFalse(report["automatic_recovery"])
             self.assertFalse(report["automatic_rewrite"])
 
-    def test_prior_schema_six_float_deadline_is_preserved_as_incompatible_hold(self):
+    def test_prior_schema_eight_unbound_blocker_is_preserved_as_incompatible_hold(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
-            report_payload = json.loads(valid_report_payload())
-            self.assertEqual(report_payload["schema_version"], 7)
-            report_payload["schema_version"] = 6
-            teardown = report_payload["cells"][0]["repetitions"][0]["teardown"]
-            teardown["teardown_total_deadline_s"] = float(
-                report_payload["parameters"]["teardown_timeout_s"]
+            report_payload = json.loads(
+                benchmark_tests.EvidencePublicationTests.completed_failure_payload()
             )
+            self.assertEqual(report_payload["schema_version"], 9)
+            report_payload["schema_version"] = 8
+            report_payload["cells"][1]["blocked_by"] = "c1-t8"
             payload = bench.stable_json(report_payload).encode("utf-8")
             write_0400(output, payload)
             receipt = bench._commit_receipt_path(output)
@@ -223,7 +221,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(report["classification"], "INCOMPATIBLE_SCHEMA_HOLD")
             self.assertFalse(report["final"]["report_schema_valid"])
             self.assertFalse(report["final"]["report_schema_compatible"])
-            self.assertEqual(report["final"]["report_schema_version"], 6)
+            self.assertEqual(report["final"]["report_schema_version"], 8)
             self.assertTrue(
                 report["final"]["validation_error"].startswith("INCOMPATIBLE_SCHEMA_HOLD:")
             )
