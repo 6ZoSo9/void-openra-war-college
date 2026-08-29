@@ -2188,7 +2188,11 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                     await asyncio.sleep(60)
                 except asyncio.CancelledError:
                     cancellation_observed.set()
-                    await release.wait()
+                    while not release.is_set():
+                        try:
+                            await release.wait()
+                        except asyncio.CancelledError:
+                            cancellation_observed.set()
                 late_response_returned.set()
                 return types.SimpleNamespace(session_id=f"session-{request.seed}")
 
@@ -2225,7 +2229,7 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             release.set()
-            await asyncio.wait_for(late_response_returned.wait(), timeout=0.1)
+            await asyncio.wait_for(late_response_returned.wait(), timeout=0.5)
             await asyncio.sleep(0)
             await asyncio.sleep(0)
 
