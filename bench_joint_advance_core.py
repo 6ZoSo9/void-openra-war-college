@@ -233,17 +233,26 @@ async def retire_phase_tasks(
     operations: dict[str, Awaitable[Any]],
     *,
     deadline_s: float,
+    containment: RuntimeTaskContainment,
+    retirement_timeout_s: float | None = None,
 ) -> CellLedger:
-    """Publish immutable terminals, then retire every task before returning.
+    """Publish immutable terminals and bound cancellation-resistant retirement.
 
-    This source-only helper is also the executable proof for the phase rule: a
-    task completing after the monotonic deadline cannot rewrite its timeout, and
-    no caller can start another phase until every old task has been consumed.
+    Timed-out tasks cannot rewrite their immutable terminals.  Tasks that do not
+    retire within the explicit cancellation budget transfer to caller-owned
+    containment before this helper fails, so they cannot become untracked work.
     """
     if not operations:
         raise ContractError("phase requires at least one operation")
     if not math.isfinite(deadline_s) or deadline_s <= 0:
         raise ContractError("phase deadline must be finite and positive")
+    if not isinstance(containment, RuntimeTaskContainment):
+        raise ContractError("phase requires caller-owned task containment")
+    if retirement_timeout_s is None:
+        retirement_timeout_s = deadline_s
+    if not math.isfinite(retirement_timeout_s) or retirement_timeout_s <= 0:
+        raise ContractError("phase retirement deadline must be finite and positive")
+
     tasks = {key: asyncio.create_task(operation) for key, operation in operations.items()}
     reverse = {task: key for key, task in tasks.items()}
     done, pending = await asyncio.wait(tasks.values(), timeout=deadline_s)
@@ -262,7 +271,19 @@ async def retire_phase_tasks(
         ledger.finalize(reverse[task], "timeout", {"deadline_seconds": deadline_s})
         task.cancel()
     if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
+        retired, unretired = await asyncio.wait(
+            pending,
+            timeout=retirement_timeout_s,
+        )
+        for task in retired:
+            _consume_late_owned_phase_completion(task)
+        if unretired:
+            for task in unretired:
+                containment.transfer(task)
+            keys = ",".join(sorted(reverse[task] for task in unretired))
+            raise ContractError(
+                f"phase cancellation retirement exceeded total deadline: {keys}"
+            )
     return ledger
 
 
