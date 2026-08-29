@@ -174,8 +174,13 @@ jobs:
           git -C exact-head cat-file -e "${SOURCE_HEAD_SHA}^{commit}"
           MERGE_BASE_SHA="$(git -C exact-head merge-base "$INTEGRATION_BASE_SHA" "$SOURCE_HEAD_SHA")"
           test -n "$MERGE_BASE_SHA"
+          if [ "$MERGE_BASE_SHA" != "$INTEGRATION_BASE_SHA" ]; then
+            printf 'source head is not based on exact integration base: merge_base=%s integration_base=%s\n' \
+              "$MERGE_BASE_SHA" "$INTEGRATION_BASE_SHA" >&2
+            exit 1
+          fi
           git -C exact-head diff --check "${MERGE_BASE_SHA}...${SOURCE_HEAD_SHA}"
-          printf 'event_base_sha=%s\nintegration_base_sha=%s\nlive_base_sha=%s\nsource_head_sha=%s\nmerge_base_sha=%s\nintegration_sha=%s\n' \
+          printf 'event_base_sha=%s\nintegration_base_sha=%s\nlive_base_sha=%s\nsource_head_sha=%s\nmerge_base_sha=%s\nsource_head_contains_integration_base=true\nintegration_sha=%s\n' \
             "$EVENT_BASE_SHA" "$INTEGRATION_BASE_SHA" "$LIVE_BASE_SHA" "$SOURCE_HEAD_SHA" "$MERGE_BASE_SHA" "$INTEGRATION_SHA"
       - name: Verify pushed-head hygiene
         if: github.event_name == 'push'
