@@ -73,6 +73,7 @@ jobs:
             test -n "$integration_source_sha"
             test -z "${extra_parent:-}"
             test "$integration_source_sha" = "$SOURCE_HEAD_SHA"
+            test "$integration_base_sha" = "$EVENT_BASE_SHA"
             live_base_sha="$(git -C live-base rev-parse HEAD)"
             test -n "$live_base_sha"
             test "$integration_base_sha" = "$live_base_sha"
