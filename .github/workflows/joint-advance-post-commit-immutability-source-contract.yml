@@ -159,10 +159,10 @@ jobs:
             bench_joint_advance_core.py \
             tests/test_joint_advance_post_commit_immutability.py \
             test_bench_joint_advance.py
-      - name: Run integration full benchmark contract
-        run: python -m unittest -v test_bench_joint_advance.py
       - name: Run integration post-commit immutability falsifiers
         run: python -m unittest -v tests/test_joint_advance_post_commit_immutability.py
+      - name: Run integration full benchmark contract
+        run: python -m unittest -v test_bench_joint_advance.py
       - name: Compile exact-head facade, core, and falsifiers
         shell: bash
         run: |
@@ -173,18 +173,18 @@ jobs:
             bench_joint_advance_core.py \
             tests/test_joint_advance_post_commit_immutability.py \
             test_bench_joint_advance.py
-      - name: Run exact-head full benchmark contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd exact-head
-          python -m unittest -v test_bench_joint_advance.py
       - name: Run exact-head post-commit immutability falsifiers
         shell: bash
         run: |
           set -euo pipefail
           cd exact-head
           python -m unittest -v tests/test_joint_advance_post_commit_immutability.py
+      - name: Run exact-head full benchmark contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          python -m unittest -v test_bench_joint_advance.py
       - name: Prove reviewed core blob remains available behind exact-head facade
         run: |
           python - <<'PY'
