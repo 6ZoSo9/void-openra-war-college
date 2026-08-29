@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,6 +34,82 @@ class PostCommitImmutabilityTests(unittest.TestCase):
             )
             self.assertEqual(local["report"]["run"]["terminal"], "completed")
             self.assertFalse(local["countable"])
+
+    def test_replacement_after_pending_generation_check_is_never_deleted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = bench._pending_path(output)
+            payload = EvidencePublicationTests.payload()
+            replacement = b"foreign-pending-generation\n"
+            real_assert = bench._assert_entry_generation
+            pending_checks = 0
+
+            def replace_after_second_pending_check(
+                parent_descriptor, name, descriptor, label,
+            ):
+                nonlocal pending_checks
+                result = real_assert(parent_descriptor, name, descriptor, label)
+                if label == "pending":
+                    pending_checks += 1
+                    if pending_checks == 2:
+                        os.unlink(name, dir_fd=parent_descriptor)
+                        flags = (
+                            os.O_CREAT
+                            | os.O_EXCL
+                            | os.O_WRONLY
+                            | getattr(os, "O_NOFOLLOW", 0)
+                        )
+                        replacement_descriptor = os.open(
+                            name, flags, 0o400, dir_fd=parent_descriptor,
+                        )
+                        try:
+                            os.write(replacement_descriptor, replacement)
+                            os.fchmod(replacement_descriptor, 0o400)
+                            os.fsync(replacement_descriptor)
+                        finally:
+                            os.close(replacement_descriptor)
+                        bench._fsync_directory(parent_descriptor)
+                return result
+
+            with mock.patch(
+                "bench_joint_advance._assert_entry_generation",
+                side_effect=replace_after_second_pending_check,
+            ):
+                publication = bench.publish_evidence_create_only(output, payload)
+
+            self.assertEqual(pending_checks, 2)
+            self.assertTrue(pending.exists())
+            self.assertEqual(pending.read_bytes(), replacement)
+            self.assertFalse(publication["pending_retired"])
+            self.assertIsNone(publication["pending_retirement_error"])
+            self.assertEqual(output.read_bytes(), payload)
+            self.assertTrue(publication["commit_receipt"])
+
+    def test_successful_commit_retains_exact_owned_pending_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = bench._pending_path(output)
+            payload = EvidencePublicationTests.payload()
+
+            publication = bench.publish_evidence_create_only(output, payload)
+
+            self.assertTrue(output.exists())
+            self.assertTrue(pending.exists())
+            output_stat = output.stat()
+            pending_stat = pending.stat()
+            self.assertEqual(
+                (pending_stat.st_dev, pending_stat.st_ino),
+                (output_stat.st_dev, output_stat.st_ino),
+            )
+            self.assertEqual(pending_stat.st_nlink, 2)
+            self.assertEqual(output_stat.st_nlink, 2)
+            self.assertEqual(pending_stat.st_mode & 0o777, 0o400)
+            self.assertEqual(output_stat.st_mode & 0o777, 0o400)
+            self.assertEqual(pending.read_bytes(), payload)
+            self.assertEqual(output.read_bytes(), payload)
+            self.assertTrue(publication["commit_receipt"])
+            self.assertFalse(publication["pending_retired"])
+            self.assertIsNone(publication["pending_retirement_error"])
 
     def test_commit_receipt_post_fsync_verification_failure_is_warning_not_rewrite(self):
         with tempfile.TemporaryDirectory() as directory:
