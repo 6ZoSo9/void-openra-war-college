@@ -59,6 +59,12 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "classification": "INSPECTION_ERROR_HOLD",
             "artifact_state": "INSPECTION_ERROR_HOLD",
             "schema_state": "SCHEMA_NOT_INSPECTED",
+            "operator_guidance": {
+                "artifact_action": "RETRY_READ_ONLY_INSPECTION_AFTER_OPERATOR_FIX",
+                "schema_action": "RETRY_READ_ONLY_INSPECTION",
+                "countability_action": "AUTHENTICATE_PRODUCER_AND_REVIEW_BEFORE_ADMISSION",
+                "automatic_action_allowed": False,
+            },
             "reason_code": reason_code,
             "error_type": report["error_type"],
             "artifacts_inspected": False,
@@ -129,6 +135,15 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(report["classification"], "EMPTY")
             self.assertTrue(report["inspection_read_only"])
             self.assertFalse(report["countable"])
+            self.assertEqual(
+                report["operator_guidance"],
+                {
+                    "artifact_action": "NONE",
+                    "schema_action": "NONE",
+                    "countability_action": "AUTHENTICATE_PRODUCER_AND_REVIEW_BEFORE_ADMISSION",
+                    "automatic_action_allowed": False,
+                },
+            )
             self.assertFalse(output.exists())
             self.assertFalse(bench._pending_path(output).exists())
             self.assertFalse(bench._commit_receipt_path(output).exists())
@@ -176,6 +191,15 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
             self.assertEqual(report["producer_authentication"], "ABSENT")
+            self.assertEqual(
+                report["operator_guidance"]["artifact_action"],
+                "PRESERVE_AND_AUTHENTICATE_PRODUCER",
+            )
+            self.assertEqual(
+                report["operator_guidance"]["schema_action"],
+                "PRESERVE_CURRENT_SCHEMA",
+            )
+            self.assertFalse(report["operator_guidance"]["automatic_action_allowed"])
 
     def test_receipt_bound_current_schema_invalid_report_is_explicit_hold(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -201,6 +225,14 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
             self.assertEqual(report["producer_authentication"], "ABSENT")
+            self.assertEqual(
+                report["operator_guidance"]["artifact_action"],
+                "PRESERVE_AND_AUTHENTICATE_PRODUCER",
+            )
+            self.assertEqual(
+                report["operator_guidance"]["schema_action"],
+                "PRESERVE_AND_REVIEW_CURRENT_SCHEMA_INVALID",
+            )
             self.assertFalse(report["automatic_recovery"])
             self.assertFalse(report["automatic_rewrite"])
 
@@ -234,6 +266,14 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
             self.assertEqual(report["producer_authentication"], "ABSENT")
+            self.assertEqual(
+                report["operator_guidance"]["artifact_action"],
+                "PRESERVE_AND_AUTHENTICATE_PRODUCER",
+            )
+            self.assertEqual(
+                report["operator_guidance"]["schema_action"],
+                "PRESERVE_AND_USE_MATCHING_HISTORICAL_VALIDATOR",
+            )
             self.assertFalse(report["automatic_recovery"])
             self.assertFalse(report["automatic_delete"])
             self.assertFalse(report["automatic_link"])
@@ -247,17 +287,34 @@ class ReadOnlyInspectionTests(unittest.TestCase):
         report_payload["schema_version"] = 8
         payload = bench.stable_json(report_payload).encode("utf-8")
         cases = (
-            ("committed", "COMMITTED_LOCAL_UNTRUSTED"),
-            ("final_without_receipt", "FINAL_WITHOUT_RECEIPT"),
-            ("receipt_mismatch", "FINAL_RECEIPT_BINDING_MISMATCH_HOLD"),
-            ("pending_only", "PENDING_REPORT_ONLY"),
+            (
+                "committed",
+                "COMMITTED_LOCAL_UNTRUSTED",
+                "PRESERVE_AND_AUTHENTICATE_PRODUCER",
+            ),
+            (
+                "final_without_receipt",
+                "FINAL_WITHOUT_RECEIPT",
+                "PRESERVE_AND_RECONCILE_UNCOMMITTED_FINAL",
+            ),
+            (
+                "receipt_mismatch",
+                "FINAL_RECEIPT_BINDING_MISMATCH_HOLD",
+                "PRESERVE_AND_INVESTIGATE_RECEIPT_MISMATCH",
+            ),
+            (
+                "pending_only",
+                "PENDING_REPORT_ONLY",
+                "PRESERVE_AND_RECONCILE_INTERRUPTED_PUBLICATION",
+            ),
             (
                 "foreign_pending",
                 "COMMITTED_LOCAL_UNTRUSTED_WITH_FOREIGN_PENDING_HOLD",
+                "PRESERVE_AND_RECONCILE_FOREIGN_PENDING",
             ),
         )
 
-        for topology, expected_artifact_state in cases:
+        for topology, expected_artifact_state, expected_artifact_action in cases:
             with self.subTest(topology=topology), tempfile.TemporaryDirectory() as directory:
                 output = Path(directory) / "evidence.json"
                 pending = bench._pending_path(output)
@@ -283,6 +340,17 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 self.assertEqual(report["classification"], expected_artifact_state)
                 self.assertEqual(report["artifact_state"], expected_artifact_state)
                 self.assertEqual(report["schema_state"], "INCOMPATIBLE_SCHEMA_HOLD")
+                self.assertEqual(
+                    report["operator_guidance"]["artifact_action"],
+                    expected_artifact_action,
+                )
+                self.assertEqual(
+                    report["operator_guidance"]["schema_action"],
+                    "PRESERVE_AND_USE_MATCHING_HISTORICAL_VALIDATOR",
+                )
+                self.assertFalse(
+                    report["operator_guidance"]["automatic_action_allowed"]
+                )
                 self.assertFalse(report["countable"])
                 self.assertEqual(report["producer_authentication"], "ABSENT")
                 self.assertFalse(report["automatic_recovery"])
@@ -426,6 +494,13 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertFalse(report["countable"])
             self.assertEqual(output.read_bytes(), payload_a)
             self.assertEqual(foreign_output.read_bytes(), payload_b)
+
+    def test_operator_guidance_rejects_unknown_state(self):
+        with self.assertRaisesRegex(
+            bench.ContractError,
+            "inspector state has no closed operator guidance",
+        ):
+            INSPECT._operator_guidance("FOREIGN_STATE", "CURRENT_SCHEMA_VALID")
 
 
 if __name__ == "__main__":

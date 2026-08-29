@@ -19,7 +19,36 @@ if str(REPO_ROOT) not in sys.path:
 import bench_joint_advance as bench
 
 INSPECTION_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_INSPECTION_V1"
-INSPECTION_SCHEMA_VERSION = 2
+INSPECTION_SCHEMA_VERSION = 3
+
+ARTIFACT_RECOVERY_ACTIONS = {
+    "INSPECTION_ERROR_HOLD": "RETRY_READ_ONLY_INSPECTION_AFTER_OPERATOR_FIX",
+    "EMPTY": "NONE",
+    "RECEIPT_WITHOUT_FINAL_HOLD": "PRESERVE_AND_INVESTIGATE_MISSING_FINAL",
+    "COMMITTED_LOCAL_UNTRUSTED": "PRESERVE_AND_AUTHENTICATE_PRODUCER",
+    "COMMITTED_LOCAL_UNTRUSTED_WITH_PENDING_ALIAS":
+        "PRESERVE_AND_REVIEW_PENDING_ALIAS",
+    "COMMITTED_LOCAL_UNTRUSTED_WITH_FOREIGN_PENDING_HOLD":
+        "PRESERVE_AND_RECONCILE_FOREIGN_PENDING",
+    "FINAL_RECEIPT_BINDING_MISMATCH_HOLD":
+        "PRESERVE_AND_INVESTIGATE_RECEIPT_MISMATCH",
+    "FINAL_AND_PENDING_WITHOUT_RECEIPT":
+        "PRESERVE_AND_RECONCILE_AMBIGUOUS_NAMESPACE",
+    "FINAL_WITHOUT_RECEIPT": "PRESERVE_AND_RECONCILE_UNCOMMITTED_FINAL",
+    "PENDING_RESERVATION_ONLY": "PRESERVE_AND_REVIEW_PENDING_RESERVATION",
+    "PENDING_REPORT_ONLY": "PRESERVE_AND_RECONCILE_INTERRUPTED_PUBLICATION",
+    "UNCLASSIFIED_HOLD": "PRESERVE_AND_REVIEW",
+}
+
+SCHEMA_RECOVERY_ACTIONS = {
+    "SCHEMA_NOT_INSPECTED": "RETRY_READ_ONLY_INSPECTION",
+    "SCHEMA_NOT_AVAILABLE": "NONE",
+    "CURRENT_SCHEMA_VALID": "PRESERVE_CURRENT_SCHEMA",
+    "CURRENT_SCHEMA_INVALID_HOLD":
+        "PRESERVE_AND_REVIEW_CURRENT_SCHEMA_INVALID",
+    "INCOMPATIBLE_SCHEMA_HOLD":
+        "PRESERVE_AND_USE_MATCHING_HISTORICAL_VALIDATOR",
+}
 
 
 class InspectionFailure(bench.ContractError):
@@ -28,6 +57,25 @@ class InspectionFailure(bench.ContractError):
     def __init__(self, reason_code: str, detail: str) -> None:
         self.reason_code = reason_code
         super().__init__(detail)
+
+
+def _operator_guidance(
+    artifact_state: str,
+    schema_state: str,
+) -> dict[str, Any]:
+    try:
+        artifact_action = ARTIFACT_RECOVERY_ACTIONS[artifact_state]
+        schema_action = SCHEMA_RECOVERY_ACTIONS[schema_state]
+    except KeyError as error:
+        raise bench.ContractError(
+            f"inspector state has no closed operator guidance: {error.args[0]}"
+        ) from error
+    return {
+        "artifact_action": artifact_action,
+        "schema_action": schema_action,
+        "countability_action": "AUTHENTICATE_PRODUCER_AND_REVIEW_BEFORE_ADMISSION",
+        "automatic_action_allowed": False,
+    }
 
 
 def _inspection_error_report(path: Path, error: BaseException) -> dict[str, Any]:
@@ -48,6 +96,9 @@ def _inspection_error_report(path: Path, error: BaseException) -> dict[str, Any]
         "classification": "INSPECTION_ERROR_HOLD",
         "artifact_state": "INSPECTION_ERROR_HOLD",
         "schema_state": "SCHEMA_NOT_INSPECTED",
+        "operator_guidance": _operator_guidance(
+            "INSPECTION_ERROR_HOLD", "SCHEMA_NOT_INSPECTED",
+        ),
         "reason_code": reason_code,
         "error_type": type(error).__name__,
         "artifacts_inspected": False,
@@ -384,6 +435,7 @@ def inspect_namespace(path: Path) -> dict[str, Any]:
             pending_aliases_final=pending_aliases_final,
         )
         schema_state = _schema_state(final=final, pending=pending)
+        operator_guidance = _operator_guidance(artifact_state, schema_state)
         return {
             "marker": INSPECTION_MARKER,
             "schema_version": INSPECTION_SCHEMA_VERSION,
@@ -391,6 +443,7 @@ def inspect_namespace(path: Path) -> dict[str, Any]:
             "classification": artifact_state,
             "artifact_state": artifact_state,
             "schema_state": schema_state,
+            "operator_guidance": operator_guidance,
             "final": final,
             "pending": pending,
             "commit_receipt": receipt,
