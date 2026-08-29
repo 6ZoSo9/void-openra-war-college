@@ -426,6 +426,69 @@ class RuntimeProcessContainmentTests(unittest.TestCase):
         "fork" in bench.multiprocessing.get_all_start_methods(),
         "runtime process containment requires POSIX fork",
     )
+    def test_supervisor_rejects_outcome_with_live_inherited_descendant(self):
+        read_fd, write_fd = os.pipe()
+
+        async def runtime_with_orphaned_descendant(*_args):
+            descendant = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import signal,time;"
+                        "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+                        "print('READY',flush=True);time.sleep(60)"
+                    ),
+                ],
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(descendant.stdout.readline(), "READY\n")
+            os.write(write_fd, f"{descendant.pid}\n".encode("ascii"))
+            return {"cells": [], "run": {"terminal": "fixture"}, "host": {}}
+
+        descendant_pid = None
+        try:
+            with mock.patch.object(
+                bench,
+                "execute_runtime",
+                new=runtime_with_orphaned_descendant,
+            ), self.assertRaisesRegex(
+                bench.ContractError,
+                "outcome retained an inherited process-group member",
+            ):
+                bench.execute_runtime_supervised(
+                    types.SimpleNamespace(),
+                    {},
+                    {},
+                    timeout_s=1.0,
+                    retirement_timeout_s=0.5,
+                )
+            descendant_pid = int(os.read(read_fd, 128).decode("ascii"))
+            deadline = bench.time.monotonic() + 1.0
+            while True:
+                try:
+                    os.kill(descendant_pid, 0)
+                except ProcessLookupError:
+                    break
+                if bench.time.monotonic() >= deadline:
+                    self.fail(
+                        "inherited runtime descendant survived terminal rejection"
+                    )
+                bench.time.sleep(0.01)
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+            if descendant_pid is not None:
+                try:
+                    os.kill(descendant_pid, bench.signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+    @unittest.skipUnless(
+        "fork" in bench.multiprocessing.get_all_start_methods(),
+        "runtime process containment requires POSIX fork",
+    )
     def test_supervisor_reports_child_exit_without_terminal(self):
         async def abrupt_exit(*_args):
             os._exit(7)
