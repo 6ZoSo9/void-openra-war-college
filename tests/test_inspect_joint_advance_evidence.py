@@ -57,6 +57,8 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "schema_version": INSPECT.INSPECTION_SCHEMA_VERSION,
             "output_path": report["output_path"],
             "classification": "INSPECTION_ERROR_HOLD",
+            "artifact_state": "INSPECTION_ERROR_HOLD",
+            "schema_state": "SCHEMA_NOT_INSPECTED",
             "reason_code": reason_code,
             "error_type": report["error_type"],
             "artifacts_inspected": False,
@@ -196,7 +198,9 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             report = INSPECT.inspect_namespace(output)
 
             self.assertEqual(before, {str(p): generation(p) for p in (output, receipt)})
-            self.assertEqual(report["classification"], "CURRENT_SCHEMA_INVALID_HOLD")
+            self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["artifact_state"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["schema_state"], "CURRENT_SCHEMA_INVALID_HOLD")
             self.assertFalse(report["final"]["report_schema_valid"])
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
@@ -226,7 +230,9 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             report = INSPECT.inspect_namespace(output)
 
             self.assertEqual(before, {str(p): generation(p) for p in (output, receipt)})
-            self.assertEqual(report["classification"], "INCOMPATIBLE_SCHEMA_HOLD")
+            self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["artifact_state"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["schema_state"], "INCOMPATIBLE_SCHEMA_HOLD")
             self.assertFalse(report["final"]["report_schema_valid"])
             self.assertFalse(report["final"]["report_schema_compatible"])
             self.assertEqual(report["final"]["report_schema_version"], 6)
@@ -240,6 +246,61 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertFalse(report["automatic_delete"])
             self.assertFalse(report["automatic_link"])
             self.assertFalse(report["automatic_rewrite"])
+
+
+    def test_prior_schema_preserves_artifact_authority_across_topologies(self):
+        report_payload = json.loads(valid_report_payload())
+        self.assertEqual(report_payload["schema_version"], 7)
+        report_payload["schema_version"] = 6
+        payload = bench.stable_json(report_payload).encode("utf-8")
+        cases = (
+            ("committed", "COMMITTED_LOCAL_UNTRUSTED"),
+            ("final_without_receipt", "FINAL_WITHOUT_RECEIPT"),
+            ("receipt_mismatch", "FINAL_RECEIPT_BINDING_MISMATCH_HOLD"),
+            ("pending_only", "PENDING_REPORT_ONLY"),
+            (
+                "foreign_pending",
+                "COMMITTED_LOCAL_UNTRUSTED_WITH_FOREIGN_PENDING_HOLD",
+            ),
+        )
+
+        for topology, expected_artifact_state in cases:
+            with self.subTest(topology=topology), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "evidence.json"
+                pending = bench._pending_path(output)
+                receipt = bench._commit_receipt_path(output)
+
+                if topology != "pending_only":
+                    write_0400(output, payload)
+                if topology == "pending_only":
+                    write_0400(pending, payload)
+                elif topology == "foreign_pending":
+                    write_0400(pending, payload)
+                    write_0400(receipt, bench._commit_receipt_payload(output, payload))
+                elif topology == "committed":
+                    write_0400(receipt, bench._commit_receipt_payload(output, payload))
+                elif topology == "receipt_mismatch":
+                    write_0400(receipt, bench._commit_receipt_payload(output, b"foreign"))
+
+                paths = tuple(
+                    path for path in (output, pending, receipt) if path.exists()
+                )
+                before = {str(path): generation(path) for path in paths}
+                report = INSPECT.inspect_namespace(output)
+
+                self.assertEqual(
+                    before,
+                    {str(path): generation(path) for path in paths},
+                )
+                self.assertEqual(report["classification"], expected_artifact_state)
+                self.assertEqual(report["artifact_state"], expected_artifact_state)
+                self.assertEqual(report["schema_state"], "INCOMPATIBLE_SCHEMA_HOLD")
+                self.assertFalse(report["countable"])
+                self.assertEqual(report["producer_authentication"], "ABSENT")
+                self.assertFalse(report["automatic_recovery"])
+                self.assertFalse(report["automatic_delete"])
+                self.assertFalse(report["automatic_link"])
+                self.assertFalse(report["automatic_rewrite"])
 
     def test_committed_final_with_hard_link_pending_is_exact_alias(self):
         with tempfile.TemporaryDirectory() as directory:
