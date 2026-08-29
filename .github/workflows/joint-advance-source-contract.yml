@@ -125,9 +125,15 @@ jobs:
                   },
                   "byte_identical": integration_bytes == source_bytes,
               }
-          workflow = ".github/workflows/joint-advance-source-contract.yml"
-          if not manifest["paths"][workflow]["byte_identical"]:
-              raise SystemExit("integration/source workflow byte mismatch")
+          mismatched_paths = [
+              rel
+              for rel, evidence in manifest["paths"].items()
+              if not evidence["byte_identical"]
+          ]
+          if mismatched_paths:
+              raise SystemExit(
+                  "integration/source byte mismatch: " + ",".join(mismatched_paths)
+              )
           print(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
           PY
       - name: Verify committed-range hygiene
