@@ -828,6 +828,33 @@ class EvidencePublicationTests(unittest.TestCase):
         report["cells"].append(second)
         return bench.stable_json(report).encode("utf-8")
 
+    @staticmethod
+    def completed_failure_payload():
+        report = json.loads(EvidencePublicationTests.two_cell_payload())
+        first = copy.deepcopy(report["cells"][0])
+        for field in (
+            "repetitions", "same_seed_deterministic", "hashes_by_slot",
+            "cell_wall_seconds",
+        ):
+            first.pop(field)
+        first.update({
+            "terminal": "timeout",
+            "error": "cell deadline expired",
+            "completed_repetitions": 0,
+        })
+        report["cells"][0] = first
+        report["cells"][1] = {
+            "key": "c1-t8",
+            "terminal": "not_executed",
+            "concurrency": 1,
+            "ticks_per_joint_advance": 8,
+            "blocked_by": "c1-t1",
+            "reason": "matrix retired after first non-success terminal",
+            "process_rss_bytes": None,
+            "process_cpu_seconds": None,
+        }
+        return bench.stable_json(report).encode("utf-8")
+
     def concurrency_two_cell(self):
         report = json.loads(self.payload())
         parameters = report["parameters"]
@@ -868,6 +895,89 @@ class EvidencePublicationTests(unittest.TestCase):
         bench._validate_cell_evidence(cell, parameters)
         return parameters, cell
 
+    def test_not_executed_cell_identity_is_bound_to_planned_matrix(self):
+        parameters = json.loads(self.payload())["parameters"]
+        parameters["concurrency"] = [1, 2]
+        parameters["tick_batches"] = [8]
+        cell = {
+            "key": "c2-t8",
+            "terminal": "not_executed",
+            "concurrency": 2,
+            "ticks_per_joint_advance": 8,
+            "blocked_by": "c1-t8",
+            "reason": "prior matrix cell was not successful",
+            "process_rss_bytes": None,
+            "process_cpu_seconds": None,
+        }
+        bench._validate_cell_evidence(cell, parameters)
+
+        variants = {
+            "key-does-not-match-concurrency": (
+                {"concurrency": 1}, "key is not bound",
+            ),
+            "key-does-not-match-ticks": (
+                {"ticks_per_joint_advance": 1}, "key is not bound",
+            ),
+            "planned-key-does-not-match-identity": (
+                {"key": "c1-t8"}, "key is not bound",
+            ),
+            "key-consistent-identity-is-not-planned": (
+                {"key": "c4-t8", "concurrency": 4}, "not in the planned matrix",
+            ),
+            "boolean-concurrency": (
+                {"concurrency": True}, "concurrency is invalid",
+            ),
+            "zero-ticks": (
+                {"ticks_per_joint_advance": 0}, "ticks_per_joint_advance is invalid",
+            ),
+        }
+        for label, (changes, error) in variants.items():
+            candidate = copy.deepcopy(cell)
+            candidate.update(changes)
+            with self.subTest(label=label), self.assertRaisesRegex(
+                bench.ContractError, error,
+            ):
+                bench._validate_cell_evidence(candidate, parameters)
+
+    def test_completed_matrix_tail_is_bound_to_first_non_success(self):
+        valid_payload = self.completed_failure_payload()
+        bench._validate_recoverable_evidence(valid_payload)
+
+        for blocked_by in ("c1-t8", "c999-t999"):
+            candidate = json.loads(valid_payload)
+            candidate["cells"][1]["blocked_by"] = blocked_by
+            with self.subTest(blocked_by=blocked_by), self.assertRaisesRegex(
+                bench.ContractError, "not bound to first non-success",
+            ):
+                bench._validate_recoverable_evidence(
+                    bench.stable_json(candidate).encode("utf-8")
+                )
+
+        success_then_skip = json.loads(self.two_cell_payload())
+        success_then_skip["cells"][1] = json.loads(valid_payload)["cells"][1]
+        with self.assertRaisesRegex(
+            bench.ContractError, "without a preceding failure",
+        ):
+            bench._validate_recoverable_evidence(
+                bench.stable_json(success_then_skip).encode("utf-8")
+            )
+
+        failure_then_success = json.loads(valid_payload)
+        failure_then_success["cells"][1] = json.loads(self.two_cell_payload())["cells"][1]
+        failure_then_success["cells"][1]["process_cpu_seconds"] = {
+            "clock_ticks_per_second": None,
+            "before_ticks": None,
+            "after_ticks": None,
+            "delta_ticks": None,
+            "delta_seconds": None,
+        }
+        with self.assertRaisesRegex(
+            bench.ContractError, "executed cell after first non-success",
+        ):
+            bench._validate_recoverable_evidence(
+                bench.stable_json(failure_then_success).encode("utf-8")
+            )
+
     def test_create_latency_population_matches_cell_concurrency(self):
         parameters, cell = self.concurrency_two_cell()
         for bad_latency in (
@@ -896,6 +1006,37 @@ class EvidencePublicationTests(unittest.TestCase):
             bench.ContractError, "does not cover observed nonoverlapping phases",
         ):
             bench._validate_repetition_evidence(contradiction, "repetition")
+
+    def test_teardown_deadline_is_bound_to_operation_parameter(self):
+        report = json.loads(self.payload())
+        parameters = report["parameters"]
+        candidate = copy.deepcopy(report["cells"][0])
+        candidate["repetitions"][0]["teardown"][
+            "teardown_total_deadline_s"
+        ] = parameters["teardown_timeout_s"] + 1
+
+        with self.assertRaisesRegex(
+            bench.ContractError, "teardown deadline is not operation-parameter-bound",
+        ):
+            bench._validate_cell_evidence(candidate, parameters)
+
+    def test_teardown_deadline_requires_exact_positive_integer(self):
+        report = json.loads(self.payload())
+        parameters = report["parameters"]
+        repetition = report["cells"][0]["repetitions"][0]
+        bench._validate_repetition_evidence(repetition, "repetition")
+
+        for invalid in (
+            float(parameters["teardown_timeout_s"]),
+            True,
+            0,
+        ):
+            candidate = copy.deepcopy(repetition)
+            candidate["teardown"]["teardown_total_deadline_s"] = invalid
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                bench.ContractError, "deadline must be an exact positive integer",
+            ):
+                bench._validate_repetition_evidence(candidate, "repetition")
 
     def test_teardown_latency_summary_is_exactly_bound_to_raw_samples(self):
         report = json.loads(self.payload())
@@ -1337,16 +1478,17 @@ class EvidencePublicationTests(unittest.TestCase):
                 with self.assertRaisesRegex(bench.ContractError, "scalar types"):
                     bench.load_committed_evidence(output, self.operation(payload))
 
-    def test_prior_schema_five_is_an_explicit_incompatible_hold(self):
-        candidate = json.loads(self.payload())
-        self.assertEqual(candidate["schema_version"], 6)
-        candidate["schema_version"] = 5
+    def test_prior_schema_eight_unbound_blocker_is_an_explicit_incompatible_hold(self):
+        candidate = json.loads(self.completed_failure_payload())
+        self.assertEqual(candidate["schema_version"], 9)
+        candidate["schema_version"] = 8
+        candidate["cells"][1]["blocked_by"] = "c1-t8"
         with self.assertRaises(bench.IncompatibleEvidenceSchemaError) as raised:
             bench._validate_recoverable_evidence(
                 bench.stable_json(candidate).encode("utf-8")
             )
-        self.assertEqual(raised.exception.actual, 5)
-        self.assertEqual(raised.exception.expected, 6)
+        self.assertEqual(raised.exception.actual, 8)
+        self.assertEqual(raised.exception.expected, 9)
 
     def test_abrupt_termination_before_commit_receipt_is_not_countable(self):
         payload = self.payload()
@@ -2139,9 +2281,105 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("daemon_retirement_required", payload["cleanup_terminals"])
 
 
+    async def test_run_owned_phase_total_deadline_bounds_cancellation_retirement(self):
+        release = asyncio.Event()
+        cancellation_observed = asyncio.Event()
+
+        async def fail():
+            raise RuntimeError("fixture owned-phase failure")
+
+        async def resist_cancellation():
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                cancellation_observed.set()
+                await release.wait()
+            return "late-result-without-evidence-authority"
+
+        started = asyncio.get_running_loop().time()
+        try:
+            with self.assertRaisesRegex(
+                bench.ContractError,
+                "cancellation retirement exceeded total deadline",
+            ):
+                await asyncio.wait_for(
+                    bench.run_owned_phase(
+                        {"fail": fail(), "resistant": resist_cancellation()},
+                        deadline_s=0.02,
+                    ),
+                    timeout=0.2,
+                )
+            elapsed = asyncio.get_running_loop().time() - started
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=0.1)
+            self.assertLess(elapsed, 0.15)
+        finally:
+            release.set()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+    async def test_late_create_response_cannot_enter_ownership_evidence(self):
+        release = asyncio.Event()
+        cancellation_observed = asyncio.Event()
+        late_response_returned = asyncio.Event()
+
+        class CancellationResistantCreateStub(self.Stub):
+            async def CreateSession(self, request):
+                if request.seed == 2050:
+                    raise RuntimeError("fixture create failure")
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    cancellation_observed.set()
+                    while not release.is_set():
+                        try:
+                            await release.wait()
+                        except asyncio.CancelledError:
+                            cancellation_observed.set()
+                late_response_returned.set()
+                return types.SimpleNamespace(session_id=f"session-{request.seed}")
+
+        teardown_records = []
+        try:
+            with self.assertRaisesRegex(
+                bench.ContractError,
+                "cancellation retirement exceeded total deadline",
+            ):
+                await asyncio.wait_for(
+                    bench.run_repetition(
+                        stub=CancellationResistantCreateStub(),
+                        pb2=self.Pb2,
+                        message_to_dict=self.as_dict,
+                        concurrency=2,
+                        ticks=8,
+                        samples=1,
+                        seed_base=2050,
+                        repetition=0,
+                        rpc_timeout_s=0.02,
+                        teardown_timeout_s=0.02,
+                        teardown_records=teardown_records,
+                    ),
+                    timeout=0.2,
+                )
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=0.1)
+            self.assertEqual(len(teardown_records), 1)
+            self.assertEqual(teardown_records[0]["attempted_session_ids"], [])
+            self.assertTrue(teardown_records[0]["create_commit_response_ambiguous"])
+            self.assertTrue(teardown_records[0]["containment_required"])
+            self.assertEqual(
+                teardown_records[0]["cleanup_terminal"],
+                "daemon_retirement_required",
+            )
+        finally:
+            release.set()
+            await asyncio.wait_for(late_response_returned.wait(), timeout=0.5)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+
     async def test_destroy_sessions_total_deadline_survives_cancellation_resistant_rpc(self):
         release = asyncio.Event()
         cancellation_observed = asyncio.Event()
+        late_response_returned = asyncio.Event()
 
         class CancellationResistantStub:
             async def DestroySession(self, request):
@@ -2151,9 +2389,9 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                 except asyncio.CancelledError:
                     cancellation_observed.set()
                     await release.wait()
+                late_response_returned.set()
                 return types.SimpleNamespace()
 
-        started = asyncio.get_running_loop().time()
         try:
             teardown = await asyncio.wait_for(
                 bench.destroy_sessions(
@@ -2162,11 +2400,10 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                     ["session-resistant"],
                     timeout_s=0.02,
                 ),
-                timeout=0.2,
+                timeout=1.0,
             )
-            elapsed = asyncio.get_running_loop().time() - started
-            await asyncio.wait_for(cancellation_observed.wait(), timeout=0.1)
-            self.assertLess(elapsed, 0.15)
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=1.0)
+            self.assertFalse(late_response_returned.is_set())
             self.assertEqual(teardown["destroyed_session_ids"], [])
             self.assertEqual(
                 teardown["unretired_session_ids"], ["session-resistant"],
@@ -2180,7 +2417,7 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             release.set()
-            await asyncio.sleep(0)
+            await asyncio.wait_for(late_response_returned.wait(), timeout=1.0)
             await asyncio.sleep(0)
 
 

@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Callable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 9
 PROTO_INT32_MIN = -(2**31)
 PROTO_INT32_MAX = 2**31 - 1
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
@@ -266,26 +266,46 @@ async def retire_phase_tasks(
     return ledger
 
 
+def _consume_late_owned_phase_completion(task: asyncio.Task[Any]) -> None:
+    """Consume a detached phase task terminal without granting it evidence authority."""
+    try:
+        task.result()
+    except BaseException:
+        pass
+
+
 async def run_owned_phase(
     operations: dict[str, Awaitable[Any]],
     *,
     deadline_s: float,
 ) -> dict[str, Any]:
-    """Return keyed results only after every phase task is retired.
+    """Return keyed results within one total phase-and-retirement deadline.
 
-    On the first exception or the shared deadline, every unfinished sibling is
-    cancelled and awaited before the exception escapes.  Callers may therefore
-    begin teardown only after no create/advance operation can still mutate the
-    runtime or its ownership ledger.
+    A failed or expired phase cancels unfinished siblings and uses only the
+    remaining phase budget for cancellation retirement.  Work that suppresses
+    cancellation is detached from result/evidence consumption and transferred
+    to the caller's session teardown or disposable-daemon containment path.
     """
     if not operations:
         raise ContractError("owned phase requires at least one operation")
     if not math.isfinite(deadline_s) or deadline_s <= 0:
         raise ContractError("owned phase deadline must be finite and positive")
+    deadline = time.monotonic() + deadline_s
     tasks = {key: asyncio.create_task(operation) for key, operation in operations.items()}
+    reverse = {task: key for key, task in tasks.items()}
+    observed_late: set[asyncio.Task[Any]] = set()
+
+    def observe_late(tasks_to_observe: Iterable[asyncio.Task[Any]]) -> None:
+        for task in tasks_to_observe:
+            if task not in observed_late:
+                observed_late.add(task)
+                task.add_done_callback(_consume_late_owned_phase_completion)
+
     try:
         done, pending = await asyncio.wait(
-            tasks.values(), timeout=deadline_s, return_when=asyncio.FIRST_EXCEPTION,
+            tasks.values(),
+            timeout=max(0.0, deadline - time.monotonic()),
+            return_when=asyncio.FIRST_EXCEPTION,
         )
         failure: BaseException | None = None
         for key in sorted(tasks):
@@ -298,7 +318,27 @@ async def run_owned_phase(
         if failure is not None or pending:
             for task in pending:
                 task.cancel()
-            await asyncio.gather(*tasks.values(), return_exceptions=True)
+            retired: set[asyncio.Task[Any]] = set()
+            unretired = set(pending)
+            if pending:
+                retired, unretired = await asyncio.wait(
+                    pending,
+                    timeout=max(0.0, deadline - time.monotonic()),
+                )
+                for task in retired:
+                    _consume_late_owned_phase_completion(task)
+            if unretired:
+                observe_late(unretired)
+                keys = ",".join(sorted(reverse[task] for task in unretired))
+                if failure is not None:
+                    raise ContractError(
+                        f"owned phase failed with {type(failure).__name__}: {failure}; "
+                        "cancellation retirement exceeded total deadline for "
+                        f"operation keys: {keys}"
+                    ) from failure
+                raise asyncio.TimeoutError(
+                    f"owned phase exceeded {deadline_s}s with unretired operation keys: {keys}"
+                )
             if failure is not None:
                 raise failure
             raise asyncio.TimeoutError(f"owned phase exceeded {deadline_s}s")
@@ -307,8 +347,7 @@ async def run_owned_phase(
         unfinished = [task for task in tasks.values() if not task.done()]
         for task in unfinished:
             task.cancel()
-        if unfinished:
-            await asyncio.gather(*unfinished, return_exceptions=True)
+        observe_late(unfinished)
 
 
 def validate_provenance(
@@ -815,7 +854,9 @@ def _validate_teardown_evidence(value: Any, label: str) -> None:
         raise ContractError(f"{label} latency/session accounting is inconsistent")
     if value["latency"] != latency_summary(samples):
         raise ContractError(f"{label} latency summary is not bound to raw samples")
-    _require_number(value["teardown_total_deadline_s"], f"{label}.deadline")
+    teardown_total_deadline_s = value["teardown_total_deadline_s"]
+    if type(teardown_total_deadline_s) is not int or teardown_total_deadline_s <= 0:
+        raise ContractError(f"{label}.deadline must be an exact positive integer")
     for field in (
         "create_commit_response_ambiguous", "cleanup_after_work_cancellation",
         "containment_required",
@@ -1061,6 +1102,24 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
     terminal = cell.get("terminal")
     if terminal not in ALLOWED_TERMINALS:
         raise ContractError("pending evidence contains an invalid matrix-cell terminal")
+    concurrency = cell.get("concurrency")
+    ticks_per_joint_advance = cell.get("ticks_per_joint_advance")
+    for field, value in (
+        ("concurrency", concurrency),
+        ("ticks_per_joint_advance", ticks_per_joint_advance),
+    ):
+        if type(value) is not int or value <= 0:
+            raise ContractError(f"matrix cell {field} is invalid")
+    if cell.get("key") != f"c{concurrency}-t{ticks_per_joint_advance}":
+        raise ContractError("matrix cell key is not bound to its workload identity")
+    planned_identities = {
+        (planned_cell["concurrency"], planned_cell["ticks_per_joint_advance"])
+        for planned_cell in build_matrix(
+            tuple(parameters["concurrency"]), tuple(parameters["tick_batches"])
+        )
+    }
+    if (concurrency, ticks_per_joint_advance) not in planned_identities:
+        raise ContractError("matrix cell workload identity is not in the planned matrix")
     if terminal == "not_executed":
         _require_exact_fields(
             cell,
@@ -1093,9 +1152,6 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
         cell, success if terminal in {"success", "teardown_error"} else failure,
         "matrix cell",
     )
-    for field in ("concurrency", "ticks_per_joint_advance"):
-        if isinstance(cell[field], bool) or not isinstance(cell[field], int) or cell[field] <= 0:
-            raise ContractError(f"matrix cell {field} is invalid")
     rss = _require_exact_fields(
         cell["process_rss_bytes"], {"before", "peak", "after"}, "matrix-cell RSS",
     )
@@ -1190,6 +1246,12 @@ def _validate_cell_evidence(cell: dict[str, Any], parameters: dict[str, Any]) ->
         ] != list(range(parameters["repetitions"])):
             raise ContractError("matrix-cell repetition coverage is incomplete")
         for repetition in cell["repetitions"]:
+            if repetition["teardown"]["teardown_total_deadline_s"] != parameters[
+                "teardown_timeout_s"
+            ]:
+                raise ContractError(
+                    "matrix-cell teardown deadline is not operation-parameter-bound"
+                )
             if repetition["workload_profile"] != parameters["workload_profile"]:
                 raise ContractError("matrix-cell workload profile is not parameter-bound")
             expected_slots = [str(slot) for slot in range(cell["concurrency"])]
@@ -1408,6 +1470,39 @@ def _validate_run_global_cpu_evidence(
         previous_after_ticks = after_ticks
 
 
+def _validate_completed_matrix_causality(
+    cells: list[dict[str, Any]],
+    planned: list[dict[str, int]],
+) -> None:
+    """Bind the admitted matrix tail to the producer's first-failure stop rule."""
+    cells_by_key = {cell["key"]: cell for cell in cells}
+    first_non_success_key: str | None = None
+    for planned_cell in planned:
+        key = (
+            f"c{planned_cell['concurrency']}-"
+            f"t{planned_cell['ticks_per_joint_advance']}"
+        )
+        cell = cells_by_key[key]
+        terminal = cell["terminal"]
+        if first_non_success_key is None:
+            if terminal == "success":
+                continue
+            if terminal == "not_executed":
+                raise ContractError(
+                    "completed matrix has a not-executed cell without a preceding failure"
+                )
+            first_non_success_key = key
+            continue
+        if terminal != "not_executed":
+            raise ContractError(
+                "completed matrix contains an executed cell after first non-success"
+            )
+        if cell["blocked_by"] != first_non_success_key:
+            raise ContractError(
+                "not-executed matrix cell is not bound to first non-success"
+            )
+
+
 def _validate_recoverable_evidence(
     payload: bytes,
     expected_operation: dict[str, Any] | None = None,
@@ -1490,6 +1585,8 @@ def _validate_recoverable_evidence(
     _validate_run_global_cpu_evidence(cells, planned)
     if run["terminal"] == "completed" and actual_cell_keys != expected_cell_keys:
         raise ContractError("completed pending evidence does not close the planned matrix")
+    if run["terminal"] == "completed":
+        _validate_completed_matrix_causality(cells, planned)
 
     rebuilt = build_report(
         provenance=provenance,
@@ -2245,6 +2342,7 @@ async def run_repetition(
     }
     create_phase_started = False
     create_phase_complete = False
+    create_phase_accepting_results = False
     end_to_end_started = monotonic_clock()
     measured_wall_s: float | None = None
     try:
@@ -2258,6 +2356,8 @@ async def run_repetition(
                 )),
                 timeout=rpc_timeout_s,
             )
+            if not create_phase_accepting_results:
+                raise ContractError("CreateSession response arrived after owned phase terminal")
             # Record ownership immediately: if a sibling create fails or the
             # phase is cancelled, this session still has to be destroyed.
             if not isinstance(response.session_id, str) or not response.session_id:
@@ -2267,11 +2367,15 @@ async def run_repetition(
             return slot, response.session_id, (time.monotonic() - t0) * 1000
 
         create_phase_started = True
-        created_by_task = await run_owned_phase(
-            {str(slot): create(slot) for slot in range(concurrency)},
-            deadline_s=rpc_timeout_s,
-        )
-        create_phase_complete = True
+        create_phase_accepting_results = True
+        try:
+            created_by_task = await run_owned_phase(
+                {str(slot): create(slot) for slot in range(concurrency)},
+                deadline_s=rpc_timeout_s,
+            )
+            create_phase_complete = True
+        finally:
+            create_phase_accepting_results = False
         created = list(created_by_task.values())
         created.sort(key=lambda item: item[0])
         if [item[0] for item in created] != list(range(concurrency)):
