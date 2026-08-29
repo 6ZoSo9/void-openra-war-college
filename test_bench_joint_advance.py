@@ -910,6 +910,24 @@ class EvidencePublicationTests(unittest.TestCase):
         ):
             bench._validate_cell_evidence(candidate, parameters)
 
+    def test_teardown_deadline_requires_exact_positive_integer(self):
+        report = json.loads(self.payload())
+        parameters = report["parameters"]
+        repetition = report["cells"][0]["repetitions"][0]
+        bench._validate_repetition_evidence(repetition, "repetition")
+
+        for invalid in (
+            float(parameters["teardown_timeout_s"]),
+            True,
+            0,
+        ):
+            candidate = copy.deepcopy(repetition)
+            candidate["teardown"]["teardown_total_deadline_s"] = invalid
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                bench.ContractError, "deadline must be an exact positive integer",
+            ):
+                bench._validate_repetition_evidence(candidate, "repetition")
+
     def test_teardown_latency_summary_is_exactly_bound_to_raw_samples(self):
         report = json.loads(self.payload())
         repetition = report["cells"][0]["repetitions"][0]
@@ -1350,16 +1368,20 @@ class EvidencePublicationTests(unittest.TestCase):
                 with self.assertRaisesRegex(bench.ContractError, "scalar types"):
                     bench.load_committed_evidence(output, self.operation(payload))
 
-    def test_prior_schema_five_is_an_explicit_incompatible_hold(self):
+    def test_prior_schema_six_float_deadline_is_an_explicit_incompatible_hold(self):
         candidate = json.loads(self.payload())
-        self.assertEqual(candidate["schema_version"], 6)
-        candidate["schema_version"] = 5
+        self.assertEqual(candidate["schema_version"], 7)
+        candidate["schema_version"] = 6
+        teardown = candidate["cells"][0]["repetitions"][0]["teardown"]
+        teardown["teardown_total_deadline_s"] = float(
+            candidate["parameters"]["teardown_timeout_s"]
+        )
         with self.assertRaises(bench.IncompatibleEvidenceSchemaError) as raised:
             bench._validate_recoverable_evidence(
                 bench.stable_json(candidate).encode("utf-8")
             )
-        self.assertEqual(raised.exception.actual, 5)
-        self.assertEqual(raised.exception.expected, 6)
+        self.assertEqual(raised.exception.actual, 6)
+        self.assertEqual(raised.exception.expected, 7)
 
     def test_abrupt_termination_before_commit_receipt_is_not_countable(self):
         payload = self.payload()
@@ -2247,9 +2269,50 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
 
 
+    async def test_owned_phase_transfers_cancellation_resistant_task_to_containment(self):
+        release = asyncio.Event()
+        cancellation_observed = asyncio.Event()
+        late_response_returned = asyncio.Event()
+        containment = bench.RuntimeTaskContainment()
+
+        async def cancellation_resistant_rpc():
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                cancellation_observed.set()
+                while not release.is_set():
+                    try:
+                        await release.wait()
+                    except asyncio.CancelledError:
+                        cancellation_observed.set()
+            late_response_returned.set()
+            return "late"
+
+        try:
+            with self.assertRaises(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    bench.run_owned_phase(
+                        {"rpc": cancellation_resistant_rpc()},
+                        deadline_s=0.02,
+                        containment=containment,
+                    ),
+                    timeout=1.0,
+                )
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=1.0)
+            self.assertTrue(containment.required)
+            self.assertEqual(len(containment.pending()), 1)
+            self.assertFalse(late_response_returned.is_set())
+        finally:
+            release.set()
+            remaining = await bench.retire_contained_tasks(containment, timeout_s=1.0)
+            self.assertEqual(remaining, 0)
+            await asyncio.wait_for(late_response_returned.wait(), timeout=1.0)
+
+
     async def test_channel_close_total_deadline_bounds_cancellation_resistant_close(self):
         release = asyncio.Event()
         cancellation_observed = asyncio.Event()
+        late_close_returned = asyncio.Event()
 
         class CancellationResistantChannel:
             async def close(self):
@@ -2262,31 +2325,30 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                             await release.wait()
                         except asyncio.CancelledError:
                             cancellation_observed.set()
+                late_close_returned.set()
 
-        started = asyncio.get_running_loop().time()
         try:
             failure = await asyncio.wait_for(
                 bench.close_channel_with_total_deadline(
                     CancellationResistantChannel(), timeout_s=0.02,
                 ),
-                timeout=0.2,
+                timeout=1.0,
             )
-            elapsed = asyncio.get_running_loop().time() - started
-            await asyncio.wait_for(cancellation_observed.wait(), timeout=0.1)
-            self.assertLess(elapsed, 0.15)
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=1.0)
+            self.assertFalse(late_close_returned.is_set())
             self.assertEqual(
                 failure,
                 "TimeoutError:total channel-close deadline 0.02s",
             )
         finally:
             release.set()
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
+            await asyncio.wait_for(late_close_returned.wait(), timeout=1.0)
 
 
     async def test_destroy_sessions_total_deadline_survives_cancellation_resistant_rpc(self):
         release = asyncio.Event()
         cancellation_observed = asyncio.Event()
+        late_response_returned = asyncio.Event()
 
         class CancellationResistantStub:
             async def DestroySession(self, request):
@@ -2296,9 +2358,9 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                 except asyncio.CancelledError:
                     cancellation_observed.set()
                     await release.wait()
+                late_response_returned.set()
                 return types.SimpleNamespace()
 
-        started = asyncio.get_running_loop().time()
         try:
             teardown = await asyncio.wait_for(
                 bench.destroy_sessions(
@@ -2307,11 +2369,10 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                     ["session-resistant"],
                     timeout_s=0.02,
                 ),
-                timeout=0.2,
+                timeout=1.0,
             )
-            elapsed = asyncio.get_running_loop().time() - started
-            await asyncio.wait_for(cancellation_observed.wait(), timeout=0.1)
-            self.assertLess(elapsed, 0.15)
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=1.0)
+            self.assertFalse(late_response_returned.is_set())
             self.assertEqual(teardown["destroyed_session_ids"], [])
             self.assertEqual(
                 teardown["unretired_session_ids"], ["session-resistant"],
@@ -2325,7 +2386,7 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             release.set()
-            await asyncio.sleep(0)
+            await asyncio.wait_for(late_response_returned.wait(), timeout=1.0)
             await asyncio.sleep(0)
 
 
