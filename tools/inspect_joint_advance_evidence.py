@@ -22,6 +22,45 @@ INSPECTION_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_INSPECTION_V1"
 INSPECTION_SCHEMA_VERSION = 1
 
 
+class InspectionFailure(bench.ContractError):
+    """A read-only inspection failure with a stable automation reason code."""
+
+    def __init__(self, reason_code: str, detail: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(detail)
+
+
+def _inspection_error_report(path: Path, error: BaseException) -> dict[str, Any]:
+    if isinstance(error, InspectionFailure):
+        reason_code = error.reason_code
+    elif isinstance(error, PermissionError):
+        reason_code = "NAMESPACE_ACCESS_DENIED"
+    elif isinstance(error, FileNotFoundError):
+        reason_code = "NAMESPACE_ENTRY_NOT_FOUND"
+    elif isinstance(error, OSError):
+        reason_code = "NAMESPACE_ACQUISITION_FAILED"
+    else:
+        reason_code = "INSPECTION_CONTRACT_ERROR"
+    return {
+        "marker": INSPECTION_MARKER,
+        "schema_version": INSPECTION_SCHEMA_VERSION,
+        "output_path": str(Path(os.path.abspath(os.fspath(path)))),
+        "classification": "INSPECTION_ERROR_HOLD",
+        "reason_code": reason_code,
+        "error_type": type(error).__name__,
+        "artifacts_inspected": False,
+        "artifact_authority": "NONE",
+        "countable": False,
+        "producer_authentication": "ABSENT",
+        "inspection_read_only": True,
+        "automatic_recovery": False,
+        "automatic_delete": False,
+        "automatic_link": False,
+        "automatic_rewrite": False,
+        "namespace_generation_stable": False,
+    }
+
+
 def _generation_from_stat(metadata: os.stat_result) -> dict[str, Any]:
     return {
         "device": metadata.st_dev,
@@ -152,7 +191,8 @@ def _require_retained_namespace_stable(
         canonical_parent_metadata = parent_path.lstat()
         canonical_parent = _generation_from_stat(canonical_parent_metadata)
     except FileNotFoundError as error:
-        raise bench.ContractError(
+        raise InspectionFailure(
+            "NAMESPACE_GENERATION_UNSTABLE",
             "evidence output parent disappeared during read-only inspection"
         ) from error
     if (
@@ -160,7 +200,8 @@ def _require_retained_namespace_stable(
         or not os.path.samestat(retained_parent_metadata, canonical_parent_metadata)
         or retained_parent != canonical_parent
     ):
-        raise bench.ContractError(
+        raise InspectionFailure(
+            "NAMESPACE_GENERATION_UNSTABLE",
             "evidence output parent changed generation during read-only inspection"
         )
 
@@ -170,7 +211,8 @@ def _require_retained_namespace_stable(
                 os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
             except FileNotFoundError:
                 continue
-            raise bench.ContractError(
+            raise InspectionFailure(
+                "NAMESPACE_GENERATION_UNSTABLE",
                 f"evidence artifact {name} appeared during read-only inspection"
             )
         try:
@@ -178,12 +220,14 @@ def _require_retained_namespace_stable(
                 os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
             )
         except FileNotFoundError as error:
-            raise bench.ContractError(
+            raise InspectionFailure(
+                "NAMESPACE_GENERATION_UNSTABLE",
                 f"evidence artifact {name} disappeared during read-only inspection"
             ) from error
         opened = _generation_from_stat(os.fstat(descriptor))
         if row.get("generation") != opened or named != opened:
-            raise bench.ContractError(
+            raise InspectionFailure(
+                "NAMESPACE_GENERATION_UNSTABLE",
                 f"evidence artifact {name} changed generation during read-only inspection"
             )
 
@@ -259,7 +303,24 @@ def inspect_namespace(path: Path) -> dict[str, Any]:
         | getattr(os, "O_DIRECTORY", 0)
         | getattr(os, "O_NOFOLLOW", 0)
     )
-    parent_descriptor = os.open(parent_path, parent_flags)
+    try:
+        parent_descriptor = os.open(parent_path, parent_flags)
+    except FileNotFoundError as error:
+        raise InspectionFailure(
+            "OUTPUT_PARENT_NOT_FOUND", "evidence output parent does not exist"
+        ) from error
+    except NotADirectoryError as error:
+        raise InspectionFailure(
+            "OUTPUT_PARENT_NOT_DIRECTORY", "evidence output parent is not a directory"
+        ) from error
+    except PermissionError as error:
+        raise InspectionFailure(
+            "OUTPUT_PARENT_ACCESS_DENIED", "evidence output parent cannot be inspected"
+        ) from error
+    except OSError as error:
+        raise InspectionFailure(
+            "OUTPUT_PARENT_OPEN_FAILED", "evidence output parent could not be opened"
+        ) from error
     descriptors: list[int] = []
     try:
         final, final_payload, final_descriptor = _artifact(
@@ -340,10 +401,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--output", required=True)
     args = parser.parse_args(argv)
+    output_path = Path(args.output)
     try:
-        report = inspect_namespace(Path(args.output))
+        report = inspect_namespace(output_path)
     except (OSError, bench.ContractError) as error:
-        print(f"VOID_WAR_COLLEGE_EVIDENCE_INSPECTION_HOLD: {error}", file=sys.stderr)
+        report = _inspection_error_report(output_path, error)
+        print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+        print(
+            f"VOID_WAR_COLLEGE_EVIDENCE_INSPECTION_HOLD:"
+            f"{report['reason_code']}:{report['error_type']}",
+            file=sys.stderr,
+        )
         return 2
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
     return 0

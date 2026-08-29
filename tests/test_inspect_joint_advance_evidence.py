@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -47,6 +51,75 @@ def valid_report_payload() -> bytes:
 
 
 class ReadOnlyInspectionTests(unittest.TestCase):
+    def assert_inspection_failure_terminal(self, report, reason_code):
+        self.assertEqual(report, {
+            "marker": INSPECT.INSPECTION_MARKER,
+            "schema_version": INSPECT.INSPECTION_SCHEMA_VERSION,
+            "output_path": report["output_path"],
+            "classification": "INSPECTION_ERROR_HOLD",
+            "reason_code": reason_code,
+            "error_type": report["error_type"],
+            "artifacts_inspected": False,
+            "artifact_authority": "NONE",
+            "countable": False,
+            "producer_authentication": "ABSENT",
+            "inspection_read_only": True,
+            "automatic_recovery": False,
+            "automatic_delete": False,
+            "automatic_link": False,
+            "automatic_rewrite": False,
+            "namespace_generation_stable": False,
+        })
+
+    def test_cli_missing_parent_emits_one_machine_readable_failure_terminal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "missing" / "evidence.json"
+            before = list(root.iterdir())
+            result = subprocess.run(
+                [sys.executable, str(SOURCE), "--output", str(output)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            after = list(root.iterdir())
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(len(result.stdout.strip().splitlines()), 1)
+            report = json.loads(result.stdout)
+            self.assert_inspection_failure_terminal(report, "OUTPUT_PARENT_NOT_FOUND")
+            self.assertEqual(report["output_path"], str(output))
+            self.assertIn("OUTPUT_PARENT_NOT_FOUND", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual(before, after)
+
+    def test_cli_namespace_instability_emits_stable_nonmutating_failure_terminal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "evidence.json"
+            before = list(root.iterdir())
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with mock.patch.object(
+                INSPECT,
+                "_require_retained_namespace_stable",
+                side_effect=INSPECT.InspectionFailure(
+                    "NAMESPACE_GENERATION_UNSTABLE",
+                    "injected retained-namespace instability",
+                ),
+            ), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                returncode = INSPECT.main(["--output", str(output)])
+            after = list(root.iterdir())
+            self.assertEqual(returncode, 2)
+            self.assertEqual(len(stdout.getvalue().strip().splitlines()), 1)
+            report = json.loads(stdout.getvalue())
+            self.assert_inspection_failure_terminal(
+                report, "NAMESPACE_GENERATION_UNSTABLE",
+            )
+            self.assertEqual(report["output_path"], str(output))
+            self.assertIn("NAMESPACE_GENERATION_UNSTABLE", stderr.getvalue())
+            self.assertNotIn("Traceback", stderr.getvalue())
+            self.assertEqual(before, after)
+
     def test_empty_namespace_is_classified_without_creation(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
