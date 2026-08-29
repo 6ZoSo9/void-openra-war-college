@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 import bench_joint_advance as bench
 
 INSPECTION_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_INSPECTION_V1"
-INSPECTION_SCHEMA_VERSION = 4
+INSPECTION_SCHEMA_VERSION = 5
 
 ARTIFACT_RECOVERY_ACTIONS = {
     "INSPECTION_ERROR_HOLD": "RETRY_READ_ONLY_INSPECTION_AFTER_OPERATOR_FIX",
@@ -50,6 +50,15 @@ SCHEMA_RECOVERY_ACTIONS = {
         "PRESERVE_AND_USE_MATCHING_HISTORICAL_VALIDATOR",
 }
 
+EVIDENCE_RECOVERY_ACTIONS = {
+    "EVIDENCE_NOT_INSPECTED": "RETRY_READ_ONLY_INSPECTION",
+    "EVIDENCE_NOT_AVAILABLE": "NONE",
+    "COMPLETED_RUNTIME_REVIEW_REQUIRED":
+        "REVIEW_COMPLETED_RUNTIME_BEFORE_ADMISSION",
+    "FAILED_RUNTIME_HOLD":
+        "PRESERVE_AND_REVIEW_RUNTIME_FAILURE_BEFORE_RETRY",
+}
+
 ARTIFACT_HOLD_STATES = frozenset({
     "INSPECTION_ERROR_HOLD",
     "RECEIPT_WITHOUT_FINAL_HOLD",
@@ -67,6 +76,8 @@ SCHEMA_HOLD_STATES = frozenset({
     "INCOMPATIBLE_SCHEMA_HOLD",
 })
 
+EVIDENCE_HOLD_STATES = frozenset({"FAILED_RUNTIME_HOLD"})
+
 
 class InspectionFailure(bench.ContractError):
     """A read-only inspection failure with a stable automation reason code."""
@@ -79,10 +90,12 @@ class InspectionFailure(bench.ContractError):
 def _operator_guidance(
     artifact_state: str,
     schema_state: str,
+    evidence_state: str,
 ) -> dict[str, Any]:
     try:
         artifact_action = ARTIFACT_RECOVERY_ACTIONS[artifact_state]
         schema_action = SCHEMA_RECOVERY_ACTIONS[schema_state]
+        evidence_action = EVIDENCE_RECOVERY_ACTIONS[evidence_state]
     except KeyError as error:
         raise bench.ContractError(
             f"inspector state has no closed operator guidance: {error.args[0]}"
@@ -90,13 +103,18 @@ def _operator_guidance(
     return {
         "artifact_action": artifact_action,
         "schema_action": schema_action,
+        "evidence_action": evidence_action,
         "countability_action": "AUTHENTICATE_PRODUCER_AND_REVIEW_BEFORE_ADMISSION",
         "automatic_action_allowed": False,
     }
 
 
-def _overall_status(artifact_state: str, schema_state: str) -> str:
-    """Return one closed top-level status without collapsing its two causes."""
+def _overall_status(
+    artifact_state: str,
+    schema_state: str,
+    evidence_state: str,
+) -> str:
+    """Return one closed status without collapsing artifact/schema/run causes."""
     if artifact_state not in ARTIFACT_RECOVERY_ACTIONS:
         raise bench.ContractError(
             f"inspector artifact state has no overall status: {artifact_state}"
@@ -105,7 +123,15 @@ def _overall_status(artifact_state: str, schema_state: str) -> str:
         raise bench.ContractError(
             f"inspector schema state has no overall status: {schema_state}"
         )
-    if artifact_state in ARTIFACT_HOLD_STATES or schema_state in SCHEMA_HOLD_STATES:
+    if evidence_state not in EVIDENCE_RECOVERY_ACTIONS:
+        raise bench.ContractError(
+            f"inspector evidence state has no overall status: {evidence_state}"
+        )
+    if (
+        artifact_state in ARTIFACT_HOLD_STATES
+        or schema_state in SCHEMA_HOLD_STATES
+        or evidence_state in EVIDENCE_HOLD_STATES
+    ):
         return "HOLD"
     if artifact_state == "EMPTY" and schema_state == "SCHEMA_NOT_AVAILABLE":
         return "NO_EVIDENCE"
@@ -132,8 +158,10 @@ def _inspection_error_report(path: Path, error: BaseException) -> dict[str, Any]
         "overall_status": "HOLD",
         "artifact_state": "INSPECTION_ERROR_HOLD",
         "schema_state": "SCHEMA_NOT_INSPECTED",
+        "evidence_state": "EVIDENCE_NOT_INSPECTED",
         "operator_guidance": _operator_guidance(
             "INSPECTION_ERROR_HOLD", "SCHEMA_NOT_INSPECTED",
+            "EVIDENCE_NOT_INSPECTED",
         ),
         "reason_code": reason_code,
         "error_type": type(error).__name__,
@@ -393,6 +421,22 @@ def _schema_state(
     return "CURRENT_SCHEMA_INVALID_HOLD"
 
 
+def _evidence_state(
+    *,
+    final: dict[str, Any],
+    pending: dict[str, Any],
+) -> str:
+    """Classify runtime terminal truth independently from bytes and schema."""
+    primary_report = final if final["present"] else pending
+    if not primary_report["present"] or primary_report.get("payload_bytes") in (None, 0):
+        return "EVIDENCE_NOT_AVAILABLE"
+    if primary_report.get("report_schema_valid") is not True:
+        return "EVIDENCE_NOT_INSPECTED"
+    if primary_report.get("report_terminal") == "completed":
+        return "COMPLETED_RUNTIME_REVIEW_REQUIRED"
+    return "FAILED_RUNTIME_HOLD"
+
+
 def inspect_namespace(path: Path) -> dict[str, Any]:
     path = Path(os.path.abspath(os.fspath(path)))
     pending_path = bench._pending_path(path)
@@ -471,16 +515,22 @@ def inspect_namespace(path: Path) -> dict[str, Any]:
             pending_aliases_final=pending_aliases_final,
         )
         schema_state = _schema_state(final=final, pending=pending)
-        operator_guidance = _operator_guidance(artifact_state, schema_state)
+        evidence_state = _evidence_state(final=final, pending=pending)
+        operator_guidance = _operator_guidance(
+            artifact_state, schema_state, evidence_state,
+        )
         return {
             "marker": INSPECTION_MARKER,
             "schema_version": INSPECTION_SCHEMA_VERSION,
             "output_path": str(path),
             "classification": artifact_state,
             "classification_scope": "ARTIFACT_ONLY",
-            "overall_status": _overall_status(artifact_state, schema_state),
+            "overall_status": _overall_status(
+                artifact_state, schema_state, evidence_state,
+            ),
             "artifact_state": artifact_state,
             "schema_state": schema_state,
+            "evidence_state": evidence_state,
             "operator_guidance": operator_guidance,
             "final": final,
             "pending": pending,
