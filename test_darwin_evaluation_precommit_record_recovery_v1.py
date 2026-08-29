@@ -74,6 +74,37 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
         self.assertEqual(terminal["runtime_execution_authority"], "NONE")
         self.assertEqual(terminal["automatic_promotion_authority"], "NONE")
 
+    def test_recovery_reestablishes_file_fsync_before_parent_terminal(self) -> None:
+        payload = (record_contract.canonical_json(self.record) + "\n").encode("utf-8")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(self.path, flags, 0o600)
+        try:
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+
+        events: list[str] = []
+        original_fsync = os.fsync
+        original_parent_fsync = record_contract._fsync_parent
+
+        def observe_fsync(fd: int) -> None:
+            events.append("file_fsync")
+            original_fsync(fd)
+
+        def observe_parent(path: Path) -> None:
+            events.append("parent_fsync")
+            original_parent_fsync(path)
+
+        with mock.patch.object(recovery.os, "fsync", side_effect=observe_fsync):
+            with mock.patch.object(record_contract, "_fsync_parent", side_effect=observe_parent):
+                recovered = recovery.recover_existing_record(self.path, self.manifest)
+
+        self.assertEqual(recovered["record_digest"], self.record["record_digest"])
+        self.assertGreaterEqual(len(events), 2)
+        self.assertEqual(events[:2], ["file_fsync", "parent_fsync"])
+
     def test_terminal_loss_after_parent_fsync_converges_without_byte_or_inode_change(self) -> None:
         recovery.write_record_create_only_with_terminal(self.path, self.record)
         before = self.path.read_bytes()
