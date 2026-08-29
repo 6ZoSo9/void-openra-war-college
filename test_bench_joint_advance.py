@@ -910,6 +910,24 @@ class EvidencePublicationTests(unittest.TestCase):
         ):
             bench._validate_cell_evidence(candidate, parameters)
 
+    def test_teardown_deadline_requires_exact_positive_integer(self):
+        report = json.loads(self.payload())
+        parameters = report["parameters"]
+        repetition = report["cells"][0]["repetitions"][0]
+        bench._validate_repetition_evidence(repetition, "repetition")
+
+        for invalid in (
+            float(parameters["teardown_timeout_s"]),
+            True,
+            0,
+        ):
+            candidate = copy.deepcopy(repetition)
+            candidate["teardown"]["teardown_total_deadline_s"] = invalid
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                bench.ContractError, "deadline must be an exact positive integer",
+            ):
+                bench._validate_repetition_evidence(candidate, "repetition")
+
     def test_teardown_latency_summary_is_exactly_bound_to_raw_samples(self):
         report = json.loads(self.payload())
         repetition = report["cells"][0]["repetitions"][0]
@@ -1350,16 +1368,20 @@ class EvidencePublicationTests(unittest.TestCase):
                 with self.assertRaisesRegex(bench.ContractError, "scalar types"):
                     bench.load_committed_evidence(output, self.operation(payload))
 
-    def test_prior_schema_five_is_an_explicit_incompatible_hold(self):
+    def test_prior_schema_six_float_deadline_is_an_explicit_incompatible_hold(self):
         candidate = json.loads(self.payload())
-        self.assertEqual(candidate["schema_version"], 6)
-        candidate["schema_version"] = 5
+        self.assertEqual(candidate["schema_version"], 7)
+        candidate["schema_version"] = 6
+        teardown = candidate["cells"][0]["repetitions"][0]["teardown"]
+        teardown["teardown_total_deadline_s"] = float(
+            candidate["parameters"]["teardown_timeout_s"]
+        )
         with self.assertRaises(bench.IncompatibleEvidenceSchemaError) as raised:
             bench._validate_recoverable_evidence(
                 bench.stable_json(candidate).encode("utf-8")
             )
-        self.assertEqual(raised.exception.actual, 5)
-        self.assertEqual(raised.exception.expected, 6)
+        self.assertEqual(raised.exception.actual, 6)
+        self.assertEqual(raised.exception.expected, 7)
 
     def test_abrupt_termination_before_commit_receipt_is_not_countable(self):
         payload = self.payload()
