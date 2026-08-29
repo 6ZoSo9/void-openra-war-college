@@ -252,6 +252,47 @@ class RuntimeProcessContainmentTests(unittest.TestCase):
         "fork" in bench.multiprocessing.get_all_start_methods(),
         "runtime process containment requires POSIX fork",
     )
+    def test_supervisor_retires_child_delayed_before_process_group_ready(self):
+        runtime_contacted = bench.multiprocessing.get_context("fork").Event()
+
+        def delayed_setsid():
+            bench.time.sleep(60)
+
+        async def forbidden_runtime(*_args):
+            runtime_contacted.set()
+            return {"cells": [], "run": {}, "host": {}}
+
+        before = {process.pid for process in bench.multiprocessing.active_children()}
+        started = bench.time.monotonic()
+        with mock.patch.object(
+            bench.os,
+            "setsid",
+            new=delayed_setsid,
+        ), mock.patch.object(
+            bench,
+            "execute_runtime",
+            new=forbidden_runtime,
+        ), self.assertRaisesRegex(
+            bench.ContractError,
+            "startup handshake exceeded total deadline",
+        ):
+            bench.execute_runtime_supervised(
+                types.SimpleNamespace(),
+                {},
+                {},
+                timeout_s=1.0,
+                startup_timeout_s=0.05,
+                retirement_timeout_s=0.5,
+            )
+        self.assertLess(bench.time.monotonic() - started, 2.0)
+        self.assertFalse(runtime_contacted.is_set())
+        after = {process.pid for process in bench.multiprocessing.active_children()}
+        self.assertEqual(after, before)
+
+    @unittest.skipUnless(
+        "fork" in bench.multiprocessing.get_all_start_methods(),
+        "runtime process containment requires POSIX fork",
+    )
     def test_supervisor_retires_cancellation_resistant_event_loop_process(self):
         async def cancellation_resistant_runtime(*_args):
             gate = asyncio.Event()

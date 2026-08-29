@@ -3065,8 +3065,22 @@ def _runtime_supervisor_child(
     """Own the event loop and runtime daemon inside one killable process group."""
     try:
         os.setsid()
+        pid = os.getpid()
+        pgid = os.getpgrp()
+        if pid != pgid:
+            raise ContractError(
+                "runtime supervisor child did not establish process-group ownership"
+            )
+        connection.send(("READY", pid, pgid))
+        start = connection.recv()
+        if start != ("START", pid, pgid):
+            raise ContractError(
+                "runtime supervisor child received invalid start authority"
+            )
         outcome = asyncio.run(execute_runtime(args, parameters, expected_provenance))
         connection.send(("OUTCOME", outcome))
+    except (BrokenPipeError, EOFError, OSError):
+        pass
     except BaseException as error:
         try:
             connection.send(("ERROR", type(error).__name__, str(error)))
@@ -3074,6 +3088,28 @@ def _runtime_supervisor_child(
             pass
     finally:
         connection.close()
+
+
+def _terminate_runtime_process(
+    process: multiprocessing.Process,
+    *,
+    timeout_s: float,
+) -> bool:
+    """Bound direct-PID retirement before process-group ownership is verified."""
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ContractError("runtime supervisor retirement deadline must be finite and positive")
+
+    process.join(timeout=0)
+    if not process.is_alive():
+        return False
+    process.terminate()
+    process.join(timeout_s)
+    if process.is_alive():
+        process.kill()
+        process.join(timeout_s)
+    if process.is_alive():
+        raise ContractError("runtime supervisor child did not retire after direct PID kill")
+    return True
 
 
 def _terminate_runtime_process_group(
@@ -3137,6 +3173,7 @@ def execute_runtime_supervised(
     expected_provenance: dict[str, str],
     *,
     timeout_s: float | None = None,
+    startup_timeout_s: float = 5.0,
     retirement_timeout_s: float = 5.0,
 ) -> dict[str, Any]:
     """Run the controller behind a finite process-group containment boundary.
@@ -3151,11 +3188,15 @@ def execute_runtime_supervised(
         timeout_s = runtime_supervisor_deadline_s(parameters)
     if not math.isfinite(timeout_s) or timeout_s <= 0:
         raise ContractError("runtime supervisor deadline must be finite and positive")
+    if not math.isfinite(startup_timeout_s) or startup_timeout_s <= 0:
+        raise ContractError(
+            "runtime supervisor startup deadline must be finite and positive"
+        )
     if "fork" not in multiprocessing.get_all_start_methods():
         raise ContractError("runtime supervisor requires POSIX fork process containment")
 
     context = multiprocessing.get_context("fork")
-    parent, child = context.Pipe(duplex=False)
+    parent, child = context.Pipe(duplex=True)
     process = context.Process(
         target=_runtime_supervisor_child,
         args=(child, args, parameters, expected_provenance),
@@ -3163,7 +3204,44 @@ def execute_runtime_supervised(
     process.start()
     child.close()
     message: tuple[Any, ...] | None = None
+    process_group_ready = False
     try:
+        if not parent.poll(startup_timeout_s):
+            _terminate_runtime_process(
+                process,
+                timeout_s=retirement_timeout_s,
+            )
+            raise ContractError(
+                "runtime supervisor startup handshake exceeded total deadline; "
+                "child retired before runtime contact"
+            )
+        try:
+            ready = parent.recv()
+        except EOFError as error:
+            _terminate_runtime_process(
+                process,
+                timeout_s=retirement_timeout_s,
+            )
+            raise ContractError(
+                "runtime supervisor child closed its startup pipe before READY"
+            ) from error
+        expected_identity = process.pid
+        if (
+            not isinstance(ready, tuple)
+            or len(ready) != 3
+            or ready[0] != "READY"
+            or ready[1] != expected_identity
+            or ready[2] != expected_identity
+        ):
+            _terminate_runtime_process(
+                process,
+                timeout_s=retirement_timeout_s,
+            )
+            raise ContractError(
+                "runtime supervisor child returned invalid READY process-group identity"
+            )
+        process_group_ready = True
+        parent.send(("START", expected_identity, expected_identity))
         if parent.poll(timeout_s):
             try:
                 message = parent.recv()
@@ -3197,10 +3275,16 @@ def execute_runtime_supervised(
         raise ContractError("runtime supervisor child returned a malformed terminal")
     finally:
         if process.is_alive():
-            _terminate_runtime_process_group(
-                process,
-                timeout_s=retirement_timeout_s,
-            )
+            if process_group_ready:
+                _terminate_runtime_process_group(
+                    process,
+                    timeout_s=retirement_timeout_s,
+                )
+            else:
+                _terminate_runtime_process(
+                    process,
+                    timeout_s=retirement_timeout_s,
+                )
         parent.close()
         process.close()
 
