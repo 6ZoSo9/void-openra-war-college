@@ -179,8 +179,14 @@ class ReadOnlyInspectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
             report_payload = json.loads(valid_report_payload())
-            teardown = report_payload["cells"][0]["repetitions"][0]["teardown"]
-            teardown["latency"] = bench.latency_summary([9.0])
+            self.assertEqual(report_payload["schema_version"], 7)
+            interval = report_payload["cells"][0]["repetitions"][0][
+                "joint_advance_validation_by_slot"
+            ]["0"][0]
+            interval.update({
+                "start_tick": bench.PROTO_INT32_MAX,
+                "end_tick": bench.PROTO_INT32_MAX + 1,
+            })
             payload = bench.stable_json(report_payload).encode("utf-8")
             write_0400(output, payload)
             receipt = bench._commit_receipt_path(output)
@@ -198,22 +204,20 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertFalse(report["automatic_recovery"])
             self.assertFalse(report["automatic_rewrite"])
 
-    def test_prior_report_schema_is_preserved_as_incompatible_hold(self):
+    def test_prior_schema_six_tick_domain_artifact_is_incompatible_hold(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
-            payload = bench.stable_json({
-                "marker": bench.MARKER,
-                "schema_version": 1,
-                "runtime_evidence": "EXECUTED",
-                "generated_at_utc": "2026-08-28T00:00:00Z",
-                "provenance": {},
-                "command": ["prior-schema-fixture"],
-                "host": {},
-                "run": {},
-                "parameters": {},
-                "operation": {},
-                "cells": [],
-            }).encode("utf-8")
+            report_payload = json.loads(valid_report_payload())
+            self.assertEqual(report_payload["schema_version"], 7)
+            report_payload["schema_version"] = 6
+            interval = report_payload["cells"][0]["repetitions"][0][
+                "joint_advance_validation_by_slot"
+            ]["0"][0]
+            interval.update({
+                "start_tick": bench.PROTO_INT32_MAX,
+                "end_tick": bench.PROTO_INT32_MAX + 1,
+            })
+            payload = bench.stable_json(report_payload).encode("utf-8")
             write_0400(output, payload)
             receipt = bench._commit_receipt_path(output)
             write_0400(receipt, bench._commit_receipt_payload(output, payload))
@@ -225,13 +229,16 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(report["classification"], "INCOMPATIBLE_SCHEMA_HOLD")
             self.assertFalse(report["final"]["report_schema_valid"])
             self.assertFalse(report["final"]["report_schema_compatible"])
-            self.assertEqual(report["final"]["report_schema_version"], 1)
+            self.assertEqual(report["final"]["report_schema_version"], 6)
             self.assertTrue(
                 report["final"]["validation_error"].startswith("INCOMPATIBLE_SCHEMA_HOLD:")
             )
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
+            self.assertEqual(report["producer_authentication"], "ABSENT")
             self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_delete"])
+            self.assertFalse(report["automatic_link"])
             self.assertFalse(report["automatic_rewrite"])
 
     def test_committed_final_with_hard_link_pending_is_exact_alias(self):
