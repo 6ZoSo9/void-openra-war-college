@@ -65,6 +65,31 @@ class HeldOutEvaluationSplitTests(unittest.TestCase):
         with self.assertRaisesRegex(split.SplitError, "non-canonical"):
             split.parse_seed_set("02050,12050")
 
+    def test_runtime_random_seed_sentinel_cannot_enter_evaluation_partitions(self):
+        with self.assertRaisesRegex(split.SplitError, "reserved"):
+            split.build_manifest("singles.oramap", (0,), (12050,))
+        with self.assertRaisesRegex(split.SplitError, "reserved"):
+            split.build_manifest("singles.oramap", (2050,), (0,))
+        with self.assertRaisesRegex(split.SplitError, "non-canonical deterministic"):
+            split.parse_seed_set("0")
+
+    def test_deterministic_seed_domain_preserves_signed_int32_upper_bound(self):
+        manifest = split.build_manifest(
+            "singles.oramap",
+            (split.MIN_DETERMINISTIC_RUNTIME_SEED,),
+            (split.MAX_RUNTIME_SEED,),
+        )
+        binding = split.bind_evaluation_seed(
+            manifest, "held_out", split.MAX_RUNTIME_SEED
+        )
+        self.assertEqual(binding["seed"], split.MAX_RUNTIME_SEED)
+        self.assertEqual(manifest["split_policy"]["runtime_random_seed_sentinel"], 0)
+        self.assertEqual(manifest["split_policy"]["deterministic_runtime_seed_min"], 1)
+        self.assertEqual(
+            manifest["split_policy"]["deterministic_runtime_seed_max"],
+            split.MAX_RUNTIME_SEED,
+        )
+
     def test_split_change_changes_digest(self):
         left = self.manifest()
         right = split.build_manifest(
