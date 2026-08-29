@@ -267,11 +267,31 @@ async def retire_phase_tasks(
 
 
 def _consume_late_owned_phase_completion(task: asyncio.Task[Any]) -> None:
-    """Consume a detached phase task terminal without granting it evidence authority."""
+    """Consume detached asynchronous work without granting it evidence authority."""
     try:
         task.result()
     except BaseException:
         pass
+
+
+async def close_channel_with_total_deadline(
+    channel: Any,
+    timeout_s: float,
+) -> str | None:
+    """Bound channel-close ownership so daemon retirement remains reachable."""
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ContractError("channel-close deadline must be finite and positive")
+    close_task = asyncio.create_task(channel.close())
+    done, _pending = await asyncio.wait({close_task}, timeout=timeout_s)
+    if close_task in done:
+        try:
+            close_task.result()
+        except Exception as error:
+            return f"{type(error).__name__}:{error}"
+        return None
+    close_task.cancel()
+    close_task.add_done_callback(_consume_late_owned_phase_completion)
+    return f"TimeoutError:total channel-close deadline {timeout_s}s"
 
 
 async def run_owned_phase(
@@ -2830,7 +2850,9 @@ async def execute_runtime(
         )
         if channel is not None:
             try:
-                await channel.close()
+                close_failure = await close_channel_with_total_deadline(channel, 5.0)
+                if close_failure is not None:
+                    cleanup_failures.append(f"channel:{close_failure}")
             except Exception as error:
                 cleanup_failures.append(f"channel:{type(error).__name__}:{error}")
         if sampler is not None:
