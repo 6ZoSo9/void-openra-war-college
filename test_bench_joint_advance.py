@@ -2554,6 +2554,65 @@ class RetryRecoveryTests(unittest.TestCase):
                 (output.stat().st_dev, output.stat().st_ino),
             )
 
+
+    def test_runtime_supervisor_failure_families_preserve_distinct_operator_truth(self):
+        cases = (
+            ("process_start", OSError("fixture process start failure")),
+            ("pipe_close", BrokenPipeError("fixture terminal pipe closed")),
+            ("child_error", ChildProcessError("fixture child terminal error")),
+            ("outer_deadline", TimeoutError("fixture outer execution deadline")),
+            (
+                "containment_retirement",
+                bench.ContractError("fixture containment retirement failure"),
+            ),
+        )
+        for family, error in cases:
+            with self.subTest(family=family), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "evidence.json"
+                pending = Path(directory) / ".evidence.json.pending"
+                argv, _ = self.invocation(
+                    directory, output, hostname=socket.gethostname(),
+                )
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+
+                with mock.patch(
+                    "bench_joint_advance._run_runtime_from_main",
+                    side_effect=error,
+                ) as runtime, mock.patch("sys.stdout", stdout), mock.patch(
+                    "sys.stderr", stderr,
+                ):
+                    self.assertEqual(bench.main(argv), 1)
+
+                runtime.assert_called_once()
+                stdout_report = json.loads(stdout.getvalue())
+                pending_report = json.loads(pending.read_bytes())
+                final_report = json.loads(output.read_bytes())
+                self.assertEqual(stdout_report, pending_report)
+                self.assertEqual(stdout_report, final_report)
+                self.assertEqual(stdout_report["run"]["terminal"], "startup_error")
+                self.assertEqual(stdout_report["run"]["stage"], "runtime_supervisor")
+                self.assertEqual(
+                    stdout_report["run"]["error_type"], type(error).__name__,
+                )
+                self.assertEqual(stdout_report["run"]["error"], str(error))
+                self.assertEqual(
+                    stdout_report["run"]["cleanup"]["failures"],
+                    [f"runtime_supervisor:{type(error).__name__}:{error}"],
+                )
+                self.assertFalse(
+                    stdout_report["run"]["containment"]["daemon_retired"],
+                )
+                self.assertEqual(
+                    bench._validate_recoverable_evidence(pending.read_bytes()),
+                    stdout_report,
+                )
+                self.assertTrue(bench._commit_receipt_path(output).exists())
+                self.assertEqual(
+                    (pending.stat().st_dev, pending.stat().st_ino),
+                    (output.stat().st_dev, output.stat().st_ino),
+                )
+
     def test_final_name_race_preserves_foreign_final_and_exact_pending_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
