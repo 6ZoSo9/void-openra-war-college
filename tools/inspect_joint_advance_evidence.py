@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 import bench_joint_advance as bench
 
 INSPECTION_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_INSPECTION_V1"
-INSPECTION_SCHEMA_VERSION = 5
+INSPECTION_SCHEMA_VERSION = 6
 
 ARTIFACT_RECOVERY_ACTIONS = {
     "INSPECTION_ERROR_HOLD": "RETRY_READ_ONLY_INSPECTION_AFTER_OPERATOR_FIX",
@@ -55,6 +55,8 @@ EVIDENCE_RECOVERY_ACTIONS = {
     "EVIDENCE_NOT_AVAILABLE": "NONE",
     "COMPLETED_RUNTIME_REVIEW_REQUIRED":
         "REVIEW_COMPLETED_RUNTIME_BEFORE_ADMISSION",
+    "COMPLETED_RUNTIME_WITH_CELL_FAILURE_HOLD":
+        "PRESERVE_AND_REVIEW_FAILED_MATRIX_BEFORE_RETRY",
     "FAILED_RUNTIME_HOLD":
         "PRESERVE_AND_REVIEW_RUNTIME_FAILURE_BEFORE_RETRY",
 }
@@ -76,7 +78,10 @@ SCHEMA_HOLD_STATES = frozenset({
     "INCOMPATIBLE_SCHEMA_HOLD",
 })
 
-EVIDENCE_HOLD_STATES = frozenset({"FAILED_RUNTIME_HOLD"})
+EVIDENCE_HOLD_STATES = frozenset({
+    "COMPLETED_RUNTIME_WITH_CELL_FAILURE_HOLD",
+    "FAILED_RUNTIME_HOLD",
+})
 
 
 class InspectionFailure(bench.ContractError):
@@ -257,6 +262,7 @@ def _artifact(
         "report_schema_compatible": None,
         "report_schema_version": None,
         "report_terminal": None,
+        "report_cell_terminals": None,
         "validation_error": None,
     }
     if not generation["regular_file"] or generation["symlink"]:
@@ -294,6 +300,9 @@ def _artifact(
                 row["report_schema_compatible"] = True
                 row["report_schema_version"] = report["schema_version"]
                 row["report_terminal"] = report["run"]["terminal"]
+                row["report_cell_terminals"] = [
+                    cell["terminal"] for cell in report["cells"]
+                ]
     return row, payload, descriptor
 
 
@@ -433,6 +442,13 @@ def _evidence_state(
     if primary_report.get("report_schema_valid") is not True:
         return "EVIDENCE_NOT_INSPECTED"
     if primary_report.get("report_terminal") == "completed":
+        cell_terminals = primary_report.get("report_cell_terminals")
+        if not isinstance(cell_terminals, list):
+            raise bench.ContractError(
+                "inspector valid completed report has no cell terminal summary"
+            )
+        if any(terminal != "success" for terminal in cell_terminals):
+            return "COMPLETED_RUNTIME_WITH_CELL_FAILURE_HOLD"
         return "COMPLETED_RUNTIME_REVIEW_REQUIRED"
     return "FAILED_RUNTIME_HOLD"
 
