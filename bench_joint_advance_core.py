@@ -30,7 +30,9 @@ from typing import Any, Awaitable, Callable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
+PROTO_INT32_MIN = -(2**31)
+PROTO_INT32_MAX = 2**31 - 1
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
 PUBLICATION_RECEIPT_SCHEMA_VERSION = 1
 LOCAL_EVIDENCE_MARKER = "VOID_WAR_COLLEGE_UNTRUSTED_LOCAL_EVIDENCE_V1"
@@ -71,6 +73,15 @@ class IncompatibleEvidenceSchemaError(ContractError):
         super().__init__(
             f"pending evidence schema {actual} is incompatible with current schema {expected}"
         )
+
+
+def require_proto_int32_tick(value: Any, label: str) -> int:
+    """Require the exact scalar domain carried by protobuf ``int32`` tick fields."""
+    if type(value) is not int or not PROTO_INT32_MIN <= value <= PROTO_INT32_MAX:
+        raise ContractError(
+            f"{label} must be an exact protobuf signed-int32 integer"
+        )
+    return value
 
 
 def require_sha40(value: str, label: str) -> str:
@@ -802,6 +813,8 @@ def _validate_teardown_evidence(value: Any, label: str) -> None:
     _validate_latency_evidence(value["latency"], f"{label}.latency")
     if value["latency"]["count"] != len(samples) or len(destroyed) != len(samples):
         raise ContractError(f"{label} latency/session accounting is inconsistent")
+    if value["latency"] != latency_summary(samples):
+        raise ContractError(f"{label} latency summary is not bound to raw samples")
     _require_number(value["teardown_total_deadline_s"], f"{label}.deadline")
     for field in (
         "create_commit_response_ambiguous", "cleanup_after_work_cancellation",
@@ -893,10 +906,14 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
                 candidate, {"start_tick", "end_tick", "players", "purpose"},
                 f"{label}.bootstrap[{slot}]",
             )
+            require_proto_int32_tick(
+                item["start_tick"], f"{label}.bootstrap[{slot}].start_tick"
+            )
+            require_proto_int32_tick(
+                item["end_tick"], f"{label}.bootstrap[{slot}].end_tick"
+            )
             if (
-                type(item["start_tick"]) is not int
-                or type(item["end_tick"]) is not int
-                or item["end_tick"] - item["start_tick"] != 1
+                item["end_tick"] - item["start_tick"] != 1
                 or item["players"] != ["Multi0", "Multi1"]
                 or item["purpose"] != "owned_actor_and_order_count_bootstrap"
             ):
@@ -927,7 +944,11 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
             or len(validations) != samples_per_slot
         ):
             raise ContractError(f"{label} validated sample coverage is inconsistent")
-        previous_end_tick: int | None = None
+        previous_end_tick: int | None = (
+            bootstrap[slot]["end_tick"]
+            if profile == "stop_owned_unit"
+            else None
+        )
         for sample, candidate in enumerate(validations):
             validation = _require_exact_fields(
                 candidate,
@@ -938,10 +959,11 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
                 },
                 f"{label}.validation[{slot}][{sample}]",
             )
-            if any(
-                isinstance(validation[field], bool) or not isinstance(validation[field], int)
-                for field in ("start_tick", "end_tick")
-            ) or validation["end_tick"] <= validation["start_tick"]:
+            for field in ("start_tick", "end_tick"):
+                require_proto_int32_tick(
+                    validation[field], f"{label}.validation[{slot}][{sample}].{field}"
+                )
+            if validation["end_tick"] <= validation["start_tick"]:
                 raise ContractError(f"{label} validated tick advancement is invalid")
             if validation["players"] != ["Multi0", "Multi1"]:
                 raise ContractError(f"{label} validated perspectives are invalid")
@@ -973,6 +995,27 @@ def _validate_repetition_evidence(value: Any, label: str) -> None:
                 raise ContractError(f"{label} validated tick intervals are not continuous")
             previous_end_tick = validation["end_tick"]
     _validate_teardown_evidence(value["teardown"], f"{label}.teardown")
+    create_latency = value["create_latency"]
+    create_max_s = (
+        float(create_latency["max_ms"]) / 1000
+        if create_latency["count"]
+        else 0.0
+    )
+    teardown_latency = value["teardown"]["latency"]
+    teardown_max_s = (
+        float(teardown_latency["max_ms"]) / 1000
+        if teardown_latency["count"]
+        else 0.0
+    )
+    observed_phase_lower_bound = wall_seconds + create_max_s + teardown_max_s
+    rounding_slack = 8 * max(
+        math.ulp(end_to_end_wall_seconds),
+        math.ulp(observed_phase_lower_bound),
+    )
+    if end_to_end_wall_seconds + rounding_slack < observed_phase_lower_bound:
+        raise ContractError(
+            f"{label}.end_to_end_wall_seconds does not cover observed nonoverlapping phases"
+        )
 
 
 def _validate_parameters_evidence(parameters: Any) -> dict[str, Any]:
@@ -2070,8 +2113,8 @@ def validate_joint_response(
         raise ContractError("JointAdvance response session binding mismatch")
     start_tick = getattr(response, "start_tick", None)
     end_tick = getattr(response, "end_tick", None)
-    if not isinstance(start_tick, int) or not isinstance(end_tick, int):
-        raise ContractError("JointAdvance response ticks must be exact integers")
+    require_proto_int32_tick(start_tick, "JointAdvance response start_tick")
+    require_proto_int32_tick(end_tick, "JointAdvance response end_tick")
     if end_tick - start_tick != requested_ticks:
         raise ContractError("JointAdvance response did not prove requested tick advancement")
     observations = _joint_observations_by_player(response)
@@ -2308,9 +2351,14 @@ async def run_repetition(
                 previous_response_by_slot[slot] = envelope["raw_response"]
                 final_by_slot[slot] = envelope["response"]
                 interval_chain = validation_by_slot.setdefault(slot, [])
+                expected_start_tick = (
+                    interval_chain[-1]["end_tick"]
+                    if interval_chain
+                    else bootstrap_validation_by_slot.get(slot, {}).get("end_tick")
+                )
                 if (
-                    interval_chain
-                    and envelope["validation"]["start_tick"] != interval_chain[-1]["end_tick"]
+                    expected_start_tick is not None
+                    and envelope["validation"]["start_tick"] != expected_start_tick
                 ):
                     raise ContractError(
                         "JointAdvance responses do not prove continuous tick advancement"
@@ -2789,7 +2837,17 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--tick-batches", default="1,8,32,128")
     result.add_argument("--samples", default="5")
     result.add_argument("--repetitions", default="2")
-    result.add_argument("--workload-profile", choices=WORKLOAD_PROFILES, default="noop_control")
+    result.add_argument(
+        "--workload-profile",
+        choices=WORKLOAD_PROFILES,
+        default="noop_control",
+        help=(
+            "experiment contract: noop_control sends no player commands and measures "
+            "JointAdvance control traffic; stop_owned_unit submits one STOP per player "
+            "and proves aggregate order-pressure only, not action-specific application "
+            "or representative tactical training (default: noop_control)"
+        ),
+    )
     result.add_argument("--seed", default="2050")
     result.add_argument("--rpc-timeout-s", default="60")
     result.add_argument("--cell-timeout-s", default="900")

@@ -64,6 +64,43 @@ class InputContractTests(unittest.TestCase):
         with self.assertRaisesRegex(bench.ContractError, "runtime integer domain"):
             bench.normalized_args(rejected)
 
+    def test_workload_profiles_are_self_describing_and_plan_is_explicit(self):
+        help_result = subprocess.run(
+            [sys.executable, str(Path(bench.__file__)), "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        help_text = " ".join(help_result.stdout.split())
+        self.assertIn("noop_control sends no player commands", help_text)
+        self.assertIn("aggregate order-pressure only", help_text)
+        self.assertIn("not action-specific application", help_text)
+        self.assertIn("representative tactical training", help_text)
+
+        plan_result = subprocess.run(
+            [
+                sys.executable, str(Path(bench.__file__)), "plan",
+                "--engine-sha", bench.FROZEN_ENGINE_SHA,
+                "--war-college-sha", bench.FROZEN_WAR_COLLEGE_SHA,
+                "--benchmark-source-sha", BENCHMARK_SOURCE_SHA,
+                "--generation", bench.GENERATION,
+                "--concurrency", "1",
+                "--tick-batches", "1",
+                "--samples", "1",
+                "--repetitions", "2",
+                "--workload-profile", "stop_owned_unit",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(plan_result.returncode, 0, plan_result.stderr)
+        plan = json.loads(plan_result.stdout)
+        self.assertEqual(plan["parameters"]["workload_profile"], "stop_owned_unit")
+        flag_index = plan["command"].index("--workload-profile")
+        self.assertEqual(plan["command"][flag_index + 1], "stop_owned_unit")
+
 
 class StatisticsTests(unittest.TestCase):
     def test_nearest_rank(self):
@@ -358,6 +395,38 @@ class RuntimeBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(bench.ContractError, "lacks observation payload"):
             bench.validate_joint_response(missing_payload, "session-a", 8)
 
+    def test_joint_response_ticks_are_bound_to_protobuf_signed_int32_domain(self):
+        observations = [
+            types.SimpleNamespace(player="Multi0", observation=types.SimpleNamespace()),
+            types.SimpleNamespace(player="Multi1", observation=types.SimpleNamespace()),
+        ]
+        for start_tick, end_tick in (
+            (bench.PROTO_INT32_MAX, bench.PROTO_INT32_MAX + 1),
+            (bench.PROTO_INT32_MIN - 1, bench.PROTO_INT32_MIN),
+            (False, 1),
+        ):
+            response = types.SimpleNamespace(
+                session_id="session-a", start_tick=start_tick, end_tick=end_tick,
+                player_observations=observations,
+            )
+            with self.subTest(interval=(start_tick, end_tick)), self.assertRaisesRegex(
+                bench.ContractError, "protobuf signed-int32",
+            ):
+                bench.validate_joint_response(response, "session-a", 1)
+
+        for start_tick, end_tick in (
+            (bench.PROTO_INT32_MIN, bench.PROTO_INT32_MIN + 1),
+            (bench.PROTO_INT32_MAX - 1, bench.PROTO_INT32_MAX),
+        ):
+            response = types.SimpleNamespace(
+                session_id="session-a", start_tick=start_tick, end_tick=end_tick,
+                player_observations=observations,
+            )
+            self.assertEqual(
+                bench.validate_joint_response(response, "session-a", 1)["end_tick"],
+                end_tick,
+            )
+
     def test_occupied_endpoint_fails_before_runtime_contact(self):
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
@@ -465,6 +534,145 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertIn("asyncio.wait_for(", source)
 
 
+class ExecuteRuntimeControllerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_post_cell_identity_loss_retires_matrix_and_disposable_daemon(self):
+        fixture = json.loads(EvidencePublicationTests.payload())
+        successful_cell = fixture["cells"][0]
+        cell_payload = {
+            key: copy.deepcopy(value)
+            for key, value in successful_cell.items()
+            if key not in {
+                "key", "terminal", "concurrency", "ticks_per_joint_advance",
+                "process_rss_bytes", "process_cpu_seconds",
+            }
+        }
+        identity = {
+            "pid": 123, "port": 9999, "socket_inode": "456", "proc_table": "tcp",
+        }
+
+        class FakeDaemon:
+            def __init__(self):
+                self.pid = 123
+                self.stdout = io.BytesIO()
+                self.returncode = None
+                self.terminate_calls = 0
+                self.kill_calls = 0
+                self.wait_timeouts = []
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.terminate_calls += 1
+
+            def kill(self):
+                self.kill_calls += 1
+
+            def wait(self, timeout):
+                self.wait_timeouts.append(timeout)
+                self.returncode = -15
+                return self.returncode
+
+        class FakeCapture:
+            def start(self):
+                return None
+
+            def finish(self):
+                return {
+                    "total_bytes": 0, "sha256": hashlib.sha256(b"").hexdigest(),
+                    "tail_utf8": "", "tail_bytes": 0, "drain_error": None,
+                    "drain_thread_retired": True,
+                }
+
+        class FakeSampler:
+            def __init__(self, pid):
+                self.pid = pid
+                self.stop_calls = 0
+
+            async def run(self):
+                return None
+
+            def begin_cell(self):
+                return None
+
+            def end_cell(self):
+                return {"before": 1024, "peak": 2048, "after": 1536}
+
+            def stop(self):
+                self.stop_calls += 1
+
+        class FakeChannel:
+            def __init__(self):
+                self.close_calls = 0
+
+            async def close(self):
+                self.close_calls += 1
+
+        daemon = FakeDaemon()
+        capture = FakeCapture()
+        sampler = FakeSampler(daemon.pid)
+        channel = FakeChannel()
+        grpc = types.SimpleNamespace(
+            aio=types.SimpleNamespace(insecure_channel=lambda *_args, **_kwargs: channel),
+        )
+        pb2 = types.SimpleNamespace()
+        pb2_grpc = types.SimpleNamespace(RLBridgeStub=lambda _channel: object())
+        args = types.SimpleNamespace(
+            designated_hostname="fixture-host", openra_dir="/tmp/frozen-openra",
+            port=9999, ready_timeout_s=30, samples=1, repetitions=2, seed=2050,
+            rpc_timeout_s=60, cell_timeout_s=900, teardown_timeout_s=10,
+            workload_profile="noop_control",
+        )
+        parameters = {
+            "concurrency": [1], "tick_batches": [1, 8],
+        }
+
+        with mock.patch("bench_joint_advance.socket.gethostname", return_value="fixture-host"), \
+            mock.patch("bench_joint_advance.runtime_provenance", return_value={"bound": True}), \
+            mock.patch("bench_joint_advance.ensure_endpoint_unoccupied"), \
+            mock.patch(
+                "bench_joint_advance._runtime_modules",
+                return_value=(grpc, object(), pb2, pb2_grpc),
+            ), mock.patch("bench_joint_advance.start_daemon", return_value=daemon), \
+            mock.patch("bench_joint_advance.BoundedLogCapture", return_value=capture), \
+            mock.patch("bench_joint_advance.RssSampler", return_value=sampler), \
+            mock.patch("bench_joint_advance.wait_ready", return_value=identity), \
+            mock.patch(
+                "bench_joint_advance.process_listener_identity",
+                side_effect=[identity, None],
+            ), mock.patch(
+                "bench_joint_advance.process_cpu_sample",
+                side_effect=[(100, 100), (110, 100)],
+            ), mock.patch(
+                "bench_joint_advance.run_cell",
+                new=mock.AsyncMock(return_value=("success", cell_payload)),
+            ) as run_cell:
+            outcome = await bench.execute_runtime(args, parameters, {"bound": True})
+
+        run_cell.assert_awaited_once()
+        self.assertEqual([cell["terminal"] for cell in outcome["cells"]], [
+            "rpc_error", "not_executed",
+        ])
+        first, second = outcome["cells"]
+        self.assertTrue(first["daemon_identity_lost"])
+        self.assertTrue(first["containment_required"])
+        self.assertEqual(first["prior_cell_terminal"], "success")
+        self.assertEqual(second["blocked_by"], "c1-t1")
+        self.assertEqual(outcome["run"]["terminal"], "completed")
+        self.assertEqual(outcome["run"]["stage"], "matrix_complete")
+        self.assertEqual(outcome["run"]["containment"], {
+            "required_by_cell": True,
+            "boundary": "disposable_daemon_retirement",
+            "daemon_retired": True,
+        })
+        self.assertEqual(outcome["run"]["cleanup"], {"failures": []})
+        self.assertEqual(daemon.terminate_calls, 1)
+        self.assertEqual(daemon.kill_calls, 0)
+        self.assertEqual(daemon.wait_timeouts, [5])
+        self.assertEqual(channel.close_calls, 1)
+        self.assertEqual(sampler.stop_calls, 1)
+
+
 class EvidencePublicationTests(unittest.TestCase):
     @staticmethod
     def payload():
@@ -529,7 +737,7 @@ class EvidencePublicationTests(unittest.TestCase):
                     "containment_required": False,
                 },
                 "wall_seconds": 1.0,
-                "end_to_end_wall_seconds": 1.0,
+                "end_to_end_wall_seconds": 1.002,
             }
 
         repetitions = [repetition(0), repetition(1)]
@@ -672,6 +880,100 @@ class EvidencePublicationTests(unittest.TestCase):
                 bench.ContractError, "create latency population is inconsistent",
             ):
                 bench._validate_cell_evidence(candidate, parameters)
+
+    def test_end_to_end_wall_covers_observed_nonoverlapping_phase_maxima(self):
+        report = json.loads(self.payload())
+        repetition = report["cells"][0]["repetitions"][0]
+        repetition["create_latency"] = bench.latency_summary([100.0])
+        repetition["teardown"]["latency"] = bench.latency_summary([200.0])
+        repetition["teardown"]["latency_samples_ms"] = [200.0]
+        repetition["end_to_end_wall_seconds"] = 1.3
+        bench._validate_repetition_evidence(repetition, "repetition")
+
+        contradiction = copy.deepcopy(repetition)
+        contradiction["end_to_end_wall_seconds"] = 1.299
+        with self.assertRaisesRegex(
+            bench.ContractError, "does not cover observed nonoverlapping phases",
+        ):
+            bench._validate_repetition_evidence(contradiction, "repetition")
+
+    def test_teardown_latency_summary_is_exactly_bound_to_raw_samples(self):
+        report = json.loads(self.payload())
+        repetition = report["cells"][0]["repetitions"][0]
+        for forged_summary in (
+            bench.latency_summary([0.0]),
+            bench.latency_summary([9.0]),
+        ):
+            candidate = copy.deepcopy(repetition)
+            candidate["teardown"]["latency"] = forged_summary
+            with self.subTest(summary=forged_summary), self.assertRaisesRegex(
+                bench.ContractError, "latency summary is not bound to raw samples",
+            ):
+                bench._validate_repetition_evidence(candidate, "repetition")
+
+    def test_action_bootstrap_is_contiguous_with_first_measured_interval(self):
+        repetition = json.loads(self.payload())["cells"][0]["repetitions"][0]
+        repetition["workload_profile"] = "stop_owned_unit"
+        repetition["bootstrap_joint_advance_calls"] = 1
+        repetition["bootstrap_ticks_advanced_validated"] = 1
+        repetition["bootstrap_validation_by_slot"] = {
+            "0": {
+                "start_tick": 9,
+                "end_tick": 10,
+                "players": ["Multi0", "Multi1"],
+                "purpose": "owned_actor_and_order_count_bootstrap",
+            },
+        }
+        validation = repetition["joint_advance_validation_by_slot"]["0"][0]
+        validation.update({
+            "workload_profile": "stop_owned_unit",
+            "commands_submitted": 2,
+            "actor_id_by_player": {"Multi0": 100, "Multi1": 200},
+            "order_count_before": {"Multi0": 0, "Multi1": 0},
+            "order_count_after": {"Multi0": 1, "Multi1": 1},
+        })
+        bench._validate_repetition_evidence(repetition, "repetition")
+
+        for start_tick, end_tick in ((8, 9), (10, 11)):
+            candidate = copy.deepcopy(repetition)
+            candidate["bootstrap_validation_by_slot"]["0"].update({
+                "start_tick": start_tick,
+                "end_tick": end_tick,
+            })
+            with self.subTest(interval=(start_tick, end_tick)), self.assertRaisesRegex(
+                bench.ContractError, "tick intervals are not continuous",
+            ):
+                bench._validate_repetition_evidence(candidate, "repetition")
+
+    def test_tick_evidence_is_bound_to_protobuf_signed_int32_domain(self):
+        repetition = json.loads(self.payload())["cells"][0]["repetitions"][0]
+        for start_tick, end_tick in (
+            (bench.PROTO_INT32_MAX, bench.PROTO_INT32_MAX + 1),
+            (bench.PROTO_INT32_MIN - 1, bench.PROTO_INT32_MIN),
+        ):
+            candidate = copy.deepcopy(repetition)
+            candidate["joint_advance_validation_by_slot"]["0"][0].update({
+                "start_tick": start_tick, "end_tick": end_tick,
+            })
+            with self.subTest(measured=(start_tick, end_tick)), self.assertRaisesRegex(
+                bench.ContractError, "protobuf signed-int32",
+            ):
+                bench._validate_repetition_evidence(candidate, "repetition")
+
+        action = copy.deepcopy(repetition)
+        action["workload_profile"] = "stop_owned_unit"
+        action["bootstrap_joint_advance_calls"] = 1
+        action["bootstrap_ticks_advanced_validated"] = 1
+        action["bootstrap_validation_by_slot"] = {
+            "0": {
+                "start_tick": bench.PROTO_INT32_MIN - 1,
+                "end_tick": bench.PROTO_INT32_MIN,
+                "players": ["Multi0", "Multi1"],
+                "purpose": "owned_actor_and_order_count_bootstrap",
+            },
+        }
+        with self.assertRaisesRegex(bench.ContractError, "protobuf signed-int32"):
+            bench._validate_repetition_evidence(action, "repetition")
 
     def test_rss_peak_covers_observed_cell_endpoints(self):
         report = json.loads(self.payload())
@@ -980,6 +1282,10 @@ class EvidencePublicationTests(unittest.TestCase):
         variants["end-to-end-clock-does-not-cover-measured-phase"] = candidate
 
         candidate = json.loads(payload)
+        candidate["cells"][0]["repetitions"][0]["end_to_end_wall_seconds"] = 1.001
+        variants["end-to-end-clock-does-not-cover-observed-create-and-teardown"] = candidate
+
+        candidate = json.loads(payload)
         candidate["run"]["containment"]["daemon_retired"] = False
         variants["completed-daemon-not-retired"] = candidate
 
@@ -1030,6 +1336,17 @@ class EvidencePublicationTests(unittest.TestCase):
                 receipt.chmod(0o400)
                 with self.assertRaisesRegex(bench.ContractError, "scalar types"):
                     bench.load_committed_evidence(output, self.operation(payload))
+
+    def test_prior_schema_five_is_an_explicit_incompatible_hold(self):
+        candidate = json.loads(self.payload())
+        self.assertEqual(candidate["schema_version"], 6)
+        candidate["schema_version"] = 5
+        with self.assertRaises(bench.IncompatibleEvidenceSchemaError) as raised:
+            bench._validate_recoverable_evidence(
+                bench.stable_json(candidate).encode("utf-8")
+            )
+        self.assertEqual(raised.exception.actual, 5)
+        self.assertEqual(raised.exception.expected, 6)
 
     def test_abrupt_termination_before_commit_receipt_is_not_countable(self):
         payload = self.payload()
@@ -1636,6 +1953,11 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             "owned_actor_and_order_count_bootstrap",
         )
         validations = result["joint_advance_validation_by_slot"]["0"]
+        self.assertEqual(
+            result["bootstrap_validation_by_slot"]["0"]["end_tick"],
+            validations[0]["start_tick"],
+        )
+        self.assertEqual(result["ticks_advanced_validated"], 16)
         self.assertEqual([item["commands_submitted"] for item in validations], [2, 2])
         self.assertEqual(
             [item["actor_id_by_player"] for item in validations],
@@ -1645,6 +1967,44 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             [item["order_count_after"] for item in validations],
             [{"Multi0": 1, "Multi1": 1}, {"Multi0": 2, "Multi1": 2}],
         )
+
+    async def test_action_profile_rejects_gap_or_overlap_after_bootstrap(self):
+        class CrossPhaseStub(self.Stub):
+            def __init__(inner_self, offset):
+                super().__init__()
+                inner_self.offset = offset
+                inner_self.calls_by_session = {}
+
+            async def JointAdvance(inner_self, request):
+                response = await super(CrossPhaseStub, inner_self).JointAdvance(request)
+                count = inner_self.calls_by_session.get(request.session_id, 0) + 1
+                inner_self.calls_by_session[request.session_id] = count
+                if count == 2:
+                    response.start_tick += inner_self.offset
+                    response.end_tick += inner_self.offset
+                    inner_self.next_tick_by_session[request.session_id] += inner_self.offset
+                return response
+
+        for offset in (-1, 1):
+            stub = CrossPhaseStub(offset)
+            with self.subTest(offset=offset), self.assertRaisesRegex(
+                bench.ContractError, "continuous tick advancement",
+            ):
+                await bench.run_repetition(
+                    stub=stub,
+                    pb2=self.Pb2,
+                    message_to_dict=self.as_dict,
+                    concurrency=1,
+                    ticks=8,
+                    samples=1,
+                    seed_base=2050,
+                    repetition=0,
+                    rpc_timeout_s=1,
+                    teardown_timeout_s=1,
+                    teardown_records=[],
+                    workload_profile="stop_owned_unit",
+                )
+            self.assertEqual(stub.destroyed, ["session-2050"])
 
     async def test_measured_throughput_excludes_create_bootstrap_and_teardown_clock(self):
         class FakeClock:
@@ -1759,8 +2119,13 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             repetitions=2,
             seed_base=2050,
             rpc_timeout_s=1,
-            cell_timeout_s=0.04,
-            teardown_timeout_s=0.05,
+            # Leave enough time for both sessions to become owned before the
+            # cell deadline, then keep the teardown deadline comfortably
+            # beyond it.  This deterministically exercises cancellation while
+            # cleanup is shielded instead of racing cancellation against the
+            # create/bootstrap phase on slower CI workers.
+            cell_timeout_s=0.2,
+            teardown_timeout_s=0.4,
         )
         self.assertEqual(terminal, "timeout")
         self.assertTrue(payload["cleanup_after_work_cancellation"])
