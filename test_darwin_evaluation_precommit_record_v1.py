@@ -84,6 +84,28 @@ class EvaluationPrecommitRecordTests(unittest.TestCase):
             values["workload_profile"],
         ]
 
+    def assert_json_hold(
+        self,
+        result: subprocess.CompletedProcess[str],
+        reason_code: str,
+    ) -> dict[str, object]:
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertNotIn("usage:", result.stderr.lower())
+        self.assertNotIn("traceback", result.stderr.lower())
+        lines = result.stderr.splitlines()
+        self.assertEqual(len(lines), 1, result.stderr)
+        terminal = json.loads(lines[0])
+        self.assertEqual(terminal["marker"], record_contract.HANDOFF_MARKER)
+        self.assertEqual(terminal["status"], "HOLD")
+        self.assertEqual(terminal["reason_code"], reason_code)
+        self.assertEqual(terminal["runtime_evidence"], "PENDING_DESIGNATED_HOST")
+        self.assertEqual(terminal["runtime_execution_authority"], "NONE")
+        self.assertEqual(terminal["model_weight_mutation_authority"], "NONE")
+        self.assertEqual(terminal["corpus_admission_authority"], "NONE")
+        self.assertEqual(terminal["automatic_promotion_authority"], "NONE")
+        return terminal
+
     def test_fresh_process_record_then_restart_resume_validation(self) -> None:
         created = self.run_cli(*self.record_args())
         self.assertEqual(created.returncode, 0, created.stderr)
@@ -178,6 +200,62 @@ class EvaluationPrecommitRecordTests(unittest.TestCase):
         repetitions_over = self.run_cli(*self.record_args(repetitions="11"))
         self.assertEqual(repetitions_over.returncode, 2)
         self.assertFalse(self.record_path.exists())
+
+    def test_overlong_numeric_tokens_fail_inside_json_hold_before_int_conversion(self) -> None:
+        scalar = self.run_cli(*self.record_args(samples="9" * 5000))
+        scalar_terminal = self.assert_json_hold(scalar, "NUMERIC_ARGUMENT_ERROR")
+        self.assertIn("samples must be in 1..1000", scalar_terminal["reason"])
+        self.assertFalse(self.record_path.exists())
+
+        csv_token = self.run_cli(*self.record_args(tick_batches="1," + ("9" * 5000)))
+        csv_terminal = self.assert_json_hold(csv_token, "NUMERIC_ARGUMENT_ERROR")
+        self.assertIn("tick_batches must be in 1..10000", csv_terminal["reason"])
+        self.assertFalse(self.record_path.exists())
+
+    def test_exact_numeric_upper_bound_controls_remain_admissible(self) -> None:
+        created = self.run_cli(
+            *self.record_args(
+                concurrency="1",
+                tick_batches="1,10000",
+                samples="1000",
+                repetitions="10",
+            )
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        summary = json.loads(created.stdout)
+        self.assertEqual(summary["status"], "PRECOMMIT_RECORDED")
+
+    def test_argument_errors_use_one_machine_readable_hold_terminal(self) -> None:
+        missing_args = self.record_args()
+        index = missing_args.index("--samples")
+        del missing_args[index:index + 2]
+        missing = self.run_cli(*missing_args)
+        missing_terminal = self.assert_json_hold(missing, "ARGUMENT_ERROR")
+        self.assertIn("required", missing_terminal["reason"])
+        self.assertFalse(self.record_path.exists())
+
+        unknown = self.run_cli(
+            "validate",
+            "--manifest",
+            str(self.manifest_path),
+            "--record",
+            str(self.record_path),
+            "--unknown-option",
+        )
+        unknown_terminal = self.assert_json_hold(unknown, "ARGUMENT_ERROR")
+        self.assertIn("unrecognized arguments", unknown_terminal["reason"])
+        self.assertFalse(self.record_path.exists())
+
+        invalid_choice = self.run_cli(*self.record_args(workload_profile="not-a-profile"))
+        invalid_terminal = self.assert_json_hold(invalid_choice, "ARGUMENT_ERROR")
+        self.assertIn("invalid choice", invalid_terminal["reason"])
+        self.assertFalse(self.record_path.exists())
+
+        help_result = self.run_cli("--help")
+        self.assertEqual(help_result.returncode, 0)
+        self.assertEqual(help_result.stderr, "")
+        self.assertIn("record", help_result.stdout)
+        self.assertIn("validate", help_result.stdout)
 
     def test_hardlink_or_symlink_record_authority_fails_closed(self) -> None:
         created = self.run_cli(*self.record_args())

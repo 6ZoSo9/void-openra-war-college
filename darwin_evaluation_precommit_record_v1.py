@@ -26,6 +26,7 @@ import darwin_heldout_evaluation_split_v1 as split
 import darwin_precommitted_evaluation_plan_v1 as plan_contract
 
 MARKER = "VOID_WAR_COLLEGE_PRECOMMITTED_EVALUATION_RECORD_V1"
+HANDOFF_MARKER = "VOID_WAR_COLLEGE_PRECOMMIT_OPERATOR_HANDOFF_V1"
 SCHEMA_VERSION = 1
 MAX_JSON_BYTES = 1_048_576
 RECORD_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}\Z")
@@ -35,6 +36,21 @@ POSITIVE_DECIMAL_RE = re.compile(r"[1-9][0-9]*\Z")
 
 class RecordError(ValueError):
     """Raised when the process-independent precommit record fails closed."""
+
+
+class ArgumentContractError(RecordError):
+    """Raised when CLI argument shape fails the machine-readable terminal contract."""
+
+
+class NumericArgumentError(RecordError):
+    """Raised before integer conversion when a decimal token exceeds its field domain."""
+
+
+class StableArgumentParser(argparse.ArgumentParser):
+    """Argument parser whose expected invocation errors remain inside the JSON contract."""
+
+    def error(self, message: str) -> None:
+        raise ArgumentContractError(message)
 
 
 def canonical_json(value: object) -> str:
@@ -53,22 +69,34 @@ def _validate_record_id(value: object) -> str:
     return value
 
 
-def _parse_positive_decimal(value: str, label: str) -> int:
-    if not POSITIVE_DECIMAL_RE.fullmatch(value):
-        raise argparse.ArgumentTypeError(f"{label} must be a canonical positive decimal")
+def _parse_positive_decimal(value: str, label: str, maximum: int) -> int:
+    if not isinstance(value, str) or not POSITIVE_DECIMAL_RE.fullmatch(value):
+        raise NumericArgumentError(f"{label} must be a canonical positive decimal")
+    maximum_text = str(maximum)
+    if len(value) > len(maximum_text) or (
+        len(value) == len(maximum_text) and value > maximum_text
+    ):
+        raise NumericArgumentError(f"{label} must be in 1..{maximum}")
     return int(value, 10)
 
 
-def _parse_csv_positive_decimals(value: str, label: str) -> tuple[int, ...]:
+def _parse_csv_positive_decimals(
+    value: str,
+    label: str,
+    maximum: int,
+) -> tuple[int, ...]:
     if not value or " " in value or "\t" in value or "\n" in value:
-        raise argparse.ArgumentTypeError(f"{label} must be a comma-separated canonical decimal list")
+        raise NumericArgumentError(
+            f"{label} must be a comma-separated canonical decimal list"
+        )
     parts = value.split(",")
-    try:
-        result = tuple(_parse_positive_decimal(part, label) for part in parts)
-    except argparse.ArgumentTypeError:
-        raise
+    if not all(parts):
+        raise NumericArgumentError(
+            f"{label} must be a comma-separated canonical decimal list"
+        )
+    result = tuple(_parse_positive_decimal(part, label, maximum) for part in parts)
     if not result:
-        raise argparse.ArgumentTypeError(f"{label} must not be empty")
+        raise NumericArgumentError(f"{label} must not be empty")
     return result
 
 
@@ -278,7 +306,7 @@ def load_and_validate_record(path: Path, manifest: Mapping[str, object]) -> dict
 def _summary(status: str, record: Mapping[str, object]) -> str:
     return canonical_json(
         {
-            "marker": "VOID_WAR_COLLEGE_PRECOMMIT_OPERATOR_HANDOFF_V1",
+            "marker": HANDOFF_MARKER,
             "status": status,
             "record_id": record["record_id"],
             "record_digest": record["record_digest"],
@@ -294,11 +322,31 @@ def _summary(status: str, record: Mapping[str, object]) -> str:
     )
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+def _hold_summary(reason_code: str, reason: str) -> str:
+    return canonical_json(
+        {
+            "marker": HANDOFF_MARKER,
+            "status": "HOLD",
+            "reason_code": reason_code,
+            "reason": reason,
+            "runtime_evidence": "PENDING_DESIGNATED_HOST",
+            "runtime_execution_authority": "NONE",
+            "model_weight_mutation_authority": "NONE",
+            "corpus_admission_authority": "NONE",
+            "automatic_promotion_authority": "NONE",
+        }
+    )
+
+
+def _build_parser() -> StableArgumentParser:
+    parser = StableArgumentParser(
         description="Record or revalidate a Darwin evaluation precommit without executing runtime work."
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(
+        dest="command",
+        required=True,
+        parser_class=StableArgumentParser,
+    )
 
     record = subparsers.add_parser("record", help="create one immutable local precommit record")
     record.add_argument("--manifest", required=True)
@@ -328,12 +376,24 @@ def _record_command(args: argparse.Namespace) -> dict[str, object]:
     evaluation_plan = plan_contract.build_precommitted_evaluation_plan(
         manifest,
         args.benchmark_source_sha,
-        _parse_positive_decimal(args.calibration_base_seed, "calibration_base_seed"),
-        _parse_positive_decimal(args.held_out_base_seed, "held_out_base_seed"),
-        _parse_csv_positive_decimals(args.concurrency, "concurrency"),
-        _parse_csv_positive_decimals(args.tick_batches, "tick_batches"),
-        _parse_positive_decimal(args.samples, "samples"),
-        _parse_positive_decimal(args.repetitions, "repetitions"),
+        _parse_positive_decimal(
+            args.calibration_base_seed,
+            "calibration_base_seed",
+            split.MAX_RUNTIME_SEED,
+        ),
+        _parse_positive_decimal(
+            args.held_out_base_seed,
+            "held_out_base_seed",
+            split.MAX_RUNTIME_SEED,
+        ),
+        _parse_csv_positive_decimals(args.concurrency, "concurrency", 8),
+        _parse_csv_positive_decimals(args.tick_batches, "tick_batches", 10_000),
+        _parse_positive_decimal(args.samples, "samples", plan_contract.MAX_SAMPLES),
+        _parse_positive_decimal(
+            args.repetitions,
+            "repetitions",
+            plan_contract.MAX_REPETITIONS,
+        ),
         args.workload_profile,
     )
     record = build_record(args.record_id, manifest, evaluation_plan)
@@ -351,27 +411,22 @@ def _validate_command(args: argparse.Namespace) -> dict[str, object]:
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = _build_parser()
-    args = parser.parse_args(list(argv) if argv is not None else None)
     try:
+        args = parser.parse_args(list(argv) if argv is not None else None)
         if args.command == "record":
             record = _record_command(args)
             print(_summary("PRECOMMIT_RECORDED", record))
         else:
             record = _validate_command(args)
             print(_summary("PRECOMMIT_REVALIDATED", record))
-    except (RecordError, split.SplitError, argparse.ArgumentTypeError, OSError) as exc:
-        print(
-            canonical_json(
-                {
-                    "marker": "VOID_WAR_COLLEGE_PRECOMMIT_OPERATOR_HANDOFF_V1",
-                    "status": "HOLD",
-                    "reason": str(exc),
-                    "runtime_execution_authority": "NONE",
-                    "automatic_promotion_authority": "NONE",
-                }
-            ),
-            file=sys.stderr,
-        )
+    except ArgumentContractError as exc:
+        print(_hold_summary("ARGUMENT_ERROR", str(exc)), file=sys.stderr)
+        return 2
+    except NumericArgumentError as exc:
+        print(_hold_summary("NUMERIC_ARGUMENT_ERROR", str(exc)), file=sys.stderr)
+        return 2
+    except (RecordError, split.SplitError, OSError) as exc:
+        print(_hold_summary("VALIDATION_ERROR", str(exc)), file=sys.stderr)
         return 2
     return 0
 
