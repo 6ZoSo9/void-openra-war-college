@@ -19,9 +19,11 @@ SCHEMA_VERSION = 1
 ENGINE_FROZEN_COMMIT = "1607a7a6501d42a47638393ecef8b22831064932"
 WAR_COLLEGE_COMPARISON_POINT = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 GENERATION = "ad1926569b12466c"
+RANDOM_RUNTIME_SEED_SENTINEL = 0
+MIN_DETERMINISTIC_RUNTIME_SEED = 1
 MAX_RUNTIME_SEED = 2_147_483_647
 PARTITIONS = ("calibration", "held_out")
-SEED_RE = re.compile(r"(?:0|[1-9][0-9]*)\Z")
+SEED_RE = re.compile(r"[1-9][0-9]*\Z")
 
 
 class SplitError(ValueError):
@@ -49,8 +51,10 @@ def _validate_map_name(map_name: str) -> str:
 def _validate_seed(seed: object) -> int:
     if type(seed) is not int:
         raise SplitError("seed must be an integer")
-    if seed < 0 or seed > MAX_RUNTIME_SEED:
-        raise SplitError("seed is outside the signed runtime-integer range")
+    if seed == RANDOM_RUNTIME_SEED_SENTINEL:
+        raise SplitError("seed 0 is reserved as the runtime random-seed sentinel")
+    if seed < MIN_DETERMINISTIC_RUNTIME_SEED or seed > MAX_RUNTIME_SEED:
+        raise SplitError("seed is outside the deterministic signed runtime-integer range")
     return seed
 
 
@@ -59,7 +63,7 @@ def parse_seed_set(text: str) -> tuple[int, ...]:
         raise SplitError("seed set must be a non-empty comma-separated string")
     tokens = text.split(",")
     if any(not SEED_RE.fullmatch(token) for token in tokens):
-        raise SplitError("seed set contains a non-canonical decimal integer")
+        raise SplitError("seed set contains a non-canonical deterministic decimal integer")
     seeds = tuple(_validate_seed(int(token, 10)) for token in tokens)
     return _validate_seed_set(seeds, "seed set")
 
@@ -104,6 +108,9 @@ def _manifest_core(
         "split_policy": {
             "disjoint_seed_sets": True,
             "same_seed_cross_partition_reuse": False,
+            "runtime_random_seed_sentinel": RANDOM_RUNTIME_SEED_SENTINEL,
+            "deterministic_runtime_seed_min": MIN_DETERMINISTIC_RUNTIME_SEED,
+            "deterministic_runtime_seed_max": MAX_RUNTIME_SEED,
             "held_out_tuning_authority": "NONE",
             "runtime_execution_authority": "NONE",
             "model_weight_mutation_authority": "NONE",
