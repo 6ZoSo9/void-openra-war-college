@@ -90,6 +90,7 @@ jobs:
           import hashlib
           import json
           import os
+          import subprocess
           from pathlib import Path
 
           paths = (
@@ -98,6 +99,23 @@ jobs:
               "test_bench_joint_advance.py",
               ".github/workflows/joint-advance-source-contract.yml",
           )
+
+          def tree_entry(repo, rel):
+              completed = subprocess.run(
+                  ["git", "-C", repo, "ls-tree", "HEAD", "--", rel],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              raw = completed.stdout.rstrip("\n")
+              if not raw:
+                  raise SystemExit(f"missing tracked path in {repo}: {rel}")
+              prefix, listed_path = raw.split("\t", 1)
+              mode, object_type, object_id = prefix.split()
+              if listed_path != rel or object_type != "blob":
+                  raise SystemExit(f"unexpected tree entry in {repo}: {rel}")
+              return mode, object_id
+
           manifest = {
               "event_base_sha": os.environ["EVENT_BASE_SHA"],
               "integration_base_sha": os.environ["INTEGRATION_BASE_SHA"],
@@ -115,25 +133,35 @@ jobs:
           for rel in paths:
               integration_bytes = Path(rel).read_bytes()
               source_bytes = (Path("exact-head") / rel).read_bytes()
+              integration_mode, integration_object = tree_entry(".", rel)
+              source_mode, source_object = tree_entry("exact-head", rel)
               manifest["paths"][rel] = {
                   "integration": {
                       "sha256": hashlib.sha256(integration_bytes).hexdigest(),
                       "bytes": len(integration_bytes),
+                      "git_mode": integration_mode,
+                      "git_object": integration_object,
                   },
                   "source_head": {
                       "sha256": hashlib.sha256(source_bytes).hexdigest(),
                       "bytes": len(source_bytes),
+                      "git_mode": source_mode,
+                      "git_object": source_object,
                   },
                   "byte_identical": integration_bytes == source_bytes,
+                  "tree_entry_identical": (
+                      integration_mode == source_mode
+                      and integration_object == source_object
+                  ),
               }
           mismatched_paths = [
               rel
               for rel, evidence in manifest["paths"].items()
-              if not evidence["byte_identical"]
+              if not evidence["byte_identical"] or not evidence["tree_entry_identical"]
           ]
           if mismatched_paths:
               raise SystemExit(
-                  "integration/source byte mismatch: " + ",".join(mismatched_paths)
+                  "integration/source tree-entry mismatch: " + ",".join(mismatched_paths)
               )
           print(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
           PY
