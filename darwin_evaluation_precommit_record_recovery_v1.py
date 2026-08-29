@@ -175,6 +175,16 @@ def recover_existing_record(
         before_raw = _read_retained_fd(fd, retained.st_size)
         record = _decode_validate_record_bytes(before_raw, manifest)
 
+        # Recovery may follow an abrupt process loss before the original writer reached
+        # its file-fsync terminal. Re-establish file durability on the retained exact
+        # inode before making the parent-directory terminal authoritative.
+        try:
+            os.fsync(fd)
+        except OSError as exc:
+            raise RecoveryError(
+                f"cannot fsync retained precommit record during recovery: {exc.strerror or exc}"
+            ) from exc
+
         record_contract._fsync_parent(path)
 
         after_info = os.fstat(fd)
