@@ -673,6 +673,184 @@ class ExecuteRuntimeControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sampler.stop_calls, 1)
 
 
+    async def test_execute_runtime_contains_late_rpc_until_daemon_retirement(self):
+        fixture = json.loads(EvidencePublicationTests.payload())
+        successful_cell = fixture["cells"][0]
+        failure_payload = {
+            key: copy.deepcopy(value)
+            for key, value in successful_cell.items()
+            if key not in {
+                "key", "terminal", "concurrency", "ticks_per_joint_advance",
+                "repetitions", "same_seed_deterministic", "hashes_by_slot",
+                "cell_wall_seconds", "process_rss_bytes", "process_cpu_seconds",
+            }
+        }
+        failure_payload.update({
+            "error": "owned phase exceeded total deadline",
+            "completed_repetitions": 0,
+            "containment_required": True,
+        })
+        identity = {
+            "pid": 123, "port": 9999, "socket_inode": "456", "proc_table": "tcp",
+        }
+        release = asyncio.Event()
+        first_cancellation = asyncio.Event()
+        late_rpc_returned = asyncio.Event()
+        lifecycle = []
+        cancellation_count = 0
+
+        async def cancellation_resistant_rpc():
+            nonlocal cancellation_count
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                cancellation_count += 1
+                first_cancellation.set()
+                while not release.is_set():
+                    try:
+                        await release.wait()
+                    except asyncio.CancelledError:
+                        cancellation_count += 1
+            lifecycle.append("late_rpc_returned")
+            late_rpc_returned.set()
+            return "late"
+
+        class FakeDaemon:
+            def __init__(self):
+                self.pid = 123
+                self.stdout = io.BytesIO()
+                self.returncode = None
+                self.terminate_calls = 0
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.terminate_calls += 1
+                lifecycle.append("daemon_terminated")
+                release.set()
+
+            def kill(self):
+                raise AssertionError("graceful fake daemon retirement must suffice")
+
+            def wait(self, timeout):
+                self.returncode = -15
+                return self.returncode
+
+        class FakeCapture:
+            def __init__(self, _stream):
+                pass
+
+            def start(self):
+                return None
+
+            def finish(self):
+                return {
+                    "total_bytes": 0, "sha256": hashlib.sha256(b"").hexdigest(),
+                    "tail_utf8": "", "tail_bytes": 0, "drain_error": None,
+                    "drain_thread_retired": True,
+                }
+
+        class FakeSampler:
+            def __init__(self, pid):
+                self.pid = pid
+
+            async def run(self):
+                return None
+
+            def begin_cell(self):
+                return None
+
+            def end_cell(self):
+                return {"before": 1024, "peak": 2048, "after": 1536}
+
+            def stop(self):
+                return None
+
+        class FakeChannel:
+            async def close(self):
+                lifecycle.append("channel_closed")
+
+        daemon = FakeDaemon()
+        channel = FakeChannel()
+        grpc = types.SimpleNamespace(
+            aio=types.SimpleNamespace(insecure_channel=lambda *_args, **_kwargs: channel),
+        )
+        pb2 = types.SimpleNamespace()
+        pb2_grpc = types.SimpleNamespace(RLBridgeStub=lambda _channel: object())
+        args = types.SimpleNamespace(
+            designated_hostname="fixture-host", openra_dir="/tmp/frozen-openra",
+            port=9999, ready_timeout_s=30, samples=1, repetitions=2, seed=2050,
+            rpc_timeout_s=0.02, cell_timeout_s=1, teardown_timeout_s=0.02,
+            workload_profile="noop_control",
+        )
+        parameters = {"concurrency": [1], "tick_batches": [1, 8]}
+
+        async def cancellation_resistant_cell(**kwargs):
+            with self.assertRaises(asyncio.TimeoutError):
+                await bench.run_owned_phase(
+                    {"rpc": cancellation_resistant_rpc()},
+                    deadline_s=args.rpc_timeout_s,
+                    containment=kwargs["containment"],
+                )
+            await asyncio.wait_for(first_cancellation.wait(), timeout=1.0)
+            self.assertFalse(late_rpc_returned.is_set())
+            return "timeout", copy.deepcopy(failure_payload)
+
+        try:
+            with mock.patch("bench_joint_advance.socket.gethostname", return_value="fixture-host"), \
+                mock.patch("bench_joint_advance.runtime_provenance", return_value={"bound": True}), \
+                mock.patch("bench_joint_advance.ensure_endpoint_unoccupied"), \
+                mock.patch(
+                    "bench_joint_advance._runtime_modules",
+                    return_value=(grpc, object(), pb2, pb2_grpc),
+                ), mock.patch("bench_joint_advance.start_daemon", return_value=daemon), \
+                mock.patch("bench_joint_advance.BoundedLogCapture", FakeCapture), \
+                mock.patch("bench_joint_advance.RssSampler", FakeSampler), \
+                mock.patch("bench_joint_advance.wait_ready", return_value=identity), \
+                mock.patch(
+                    "bench_joint_advance.process_listener_identity",
+                    return_value=identity,
+                ), mock.patch(
+                    "bench_joint_advance.process_cpu_sample",
+                    side_effect=[(100, 100), (110, 100)],
+                ), mock.patch(
+                    "bench_joint_advance.run_cell",
+                    new=mock.AsyncMock(side_effect=cancellation_resistant_cell),
+                ):
+                outcome = await asyncio.wait_for(
+                    bench.execute_runtime(args, parameters, {"bound": True}),
+                    timeout=2.0,
+                )
+
+            await asyncio.wait_for(late_rpc_returned.wait(), timeout=1.0)
+            self.assertGreaterEqual(cancellation_count, 2)
+            self.assertLess(
+                lifecycle.index("channel_closed"),
+                lifecycle.index("daemon_terminated"),
+            )
+            self.assertLess(
+                lifecycle.index("daemon_terminated"),
+                lifecycle.index("late_rpc_returned"),
+            )
+            self.assertEqual(outcome["run"]["terminal"], "completed")
+            self.assertEqual(outcome["run"]["stage"], "matrix_complete")
+            self.assertEqual(outcome["run"]["cleanup"], {"failures": []})
+            self.assertEqual(outcome["run"]["containment"], {
+                "required_by_cell": True,
+                "boundary": "disposable_daemon_retirement",
+                "daemon_retired": True,
+            })
+            self.assertEqual(
+                [cell["terminal"] for cell in outcome["cells"]],
+                ["timeout", "not_executed"],
+            )
+            self.assertEqual(daemon.terminate_calls, 1)
+        finally:
+            release.set()
+            await asyncio.sleep(0)
+
+
 class EvidencePublicationTests(unittest.TestCase):
     @staticmethod
     def payload():
