@@ -29,7 +29,8 @@ WORKLOAD_PROFILES = ("noop_control", "stop_owned_unit")
 SHA40_RE = re.compile(r"[0-9a-f]{40}\Z")
 PLAN_DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
 MAX_MATRIX_CELLS = 64
-MAX_SCALAR_COUNT = 10_000
+MAX_SAMPLES = 1_000
+MAX_REPETITIONS = 10
 
 
 def canonical_json(value: object) -> str:
@@ -70,9 +71,15 @@ def _validate_tick_batches(values: Iterable[object]) -> tuple[int, ...]:
     return result
 
 
-def _validate_positive_count(value: object, label: str, *, minimum: int = 1) -> int:
-    if type(value) is not int or value < minimum or value > MAX_SCALAR_COUNT:
-        raise split.SplitError(f"{label} must be an exact integer in {minimum}..{MAX_SCALAR_COUNT}")
+def _validate_positive_count(
+    value: object,
+    label: str,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    if type(value) is not int or value < minimum or value > maximum:
+        raise split.SplitError(f"{label} must be an exact integer in {minimum}..{maximum}")
     return value
 
 
@@ -98,8 +105,18 @@ def _plan_core(
     tick_values = _validate_tick_batches(tick_batches)
     if len(concurrency_values) * len(tick_values) > MAX_MATRIX_CELLS:
         raise split.SplitError(f"benchmark matrix exceeds {MAX_MATRIX_CELLS} cells")
-    sample_count = _validate_positive_count(samples, "samples")
-    repetition_count = _validate_positive_count(repetitions, "repetitions", minimum=2)
+    sample_count = _validate_positive_count(
+        samples,
+        "samples",
+        minimum=1,
+        maximum=MAX_SAMPLES,
+    )
+    repetition_count = _validate_positive_count(
+        repetitions,
+        "repetitions",
+        minimum=2,
+        maximum=MAX_REPETITIONS,
+    )
     if workload_profile not in WORKLOAD_PROFILES:
         raise split.SplitError("workload_profile is not supported by the current JointAdvance benchmark")
 
