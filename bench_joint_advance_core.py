@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Callable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 PROTO_INT32_MIN = -(2**31)
 PROTO_INT32_MAX = 2**31 - 1
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
@@ -1470,6 +1470,39 @@ def _validate_run_global_cpu_evidence(
         previous_after_ticks = after_ticks
 
 
+def _validate_completed_matrix_causality(
+    cells: list[dict[str, Any]],
+    planned: list[dict[str, int]],
+) -> None:
+    """Bind the admitted matrix tail to the producer's first-failure stop rule."""
+    cells_by_key = {cell["key"]: cell for cell in cells}
+    first_non_success_key: str | None = None
+    for planned_cell in planned:
+        key = (
+            f"c{planned_cell['concurrency']}-"
+            f"t{planned_cell['ticks_per_joint_advance']}"
+        )
+        cell = cells_by_key[key]
+        terminal = cell["terminal"]
+        if first_non_success_key is None:
+            if terminal == "success":
+                continue
+            if terminal == "not_executed":
+                raise ContractError(
+                    "completed matrix has a not-executed cell without a preceding failure"
+                )
+            first_non_success_key = key
+            continue
+        if terminal != "not_executed":
+            raise ContractError(
+                "completed matrix contains an executed cell after first non-success"
+            )
+        if cell["blocked_by"] != first_non_success_key:
+            raise ContractError(
+                "not-executed matrix cell is not bound to first non-success"
+            )
+
+
 def _validate_recoverable_evidence(
     payload: bytes,
     expected_operation: dict[str, Any] | None = None,
@@ -1552,6 +1585,8 @@ def _validate_recoverable_evidence(
     _validate_run_global_cpu_evidence(cells, planned)
     if run["terminal"] == "completed" and actual_cell_keys != expected_cell_keys:
         raise ContractError("completed pending evidence does not close the planned matrix")
+    if run["terminal"] == "completed":
+        _validate_completed_matrix_causality(cells, planned)
 
     rebuilt = build_report(
         provenance=provenance,
