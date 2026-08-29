@@ -3079,9 +3079,9 @@ def _runtime_supervisor_child(
                 "runtime supervisor child received invalid start authority"
             )
         outcome = asyncio.run(execute_runtime(args, parameters, expected_provenance))
-        if _runtime_process_group_has_owned_children(pgid):
+        if _runtime_supervisor_has_owned_children():
             raise ContractError(
-                "runtime supervisor outcome retained an inherited process-group member"
+                "runtime supervisor outcome retained an inherited runtime descendant"
             )
         connection.send(("OUTCOME", outcome))
     except (BrokenPipeError, EOFError, OSError):
@@ -3147,26 +3147,28 @@ def _enable_runtime_child_subreaper() -> None:
         ) from OSError(error_number, os.strerror(error_number))
 
 
-def _runtime_process_group_has_owned_children(pgid: int) -> bool:
-    """Return whether the subreaper still owns any child in its process group.
+def _runtime_supervisor_has_owned_children() -> bool:
+    """Return whether the subreaper still owns any runtime descendant.
 
     ``waitid(..., WNOWAIT)`` observes exited children without reaping them and
     returns ``None`` when matching children are live but have no waitable state.
     It raises ``ChildProcessError`` only when no matching child exists.  Thus a
-    clean runtime outcome requires that exception; every other result is an
-    inherited-process HOLD that the parent will retire after the terminal.
+    clean runtime outcome requires that exception.  ``P_ALL`` is deliberate:
+    subreaper ownership follows the process tree, while a descendant can leave
+    the authenticated process group with ``setsid()`` or ``setpgid()``.  Every
+    other result is therefore an inherited-process HOLD, regardless of PGID.
     """
     try:
         os.waitid(
-            os.P_PGID,
-            pgid,
+            os.P_ALL,
+            0,
             os.WEXITED | os.WNOHANG | os.WNOWAIT,
         )
     except ChildProcessError:
         return False
     except OSError as error:
         raise ContractError(
-            "runtime supervisor cannot verify owned process-group children"
+            "runtime supervisor cannot verify owned runtime descendants"
         ) from error
     return True
 
