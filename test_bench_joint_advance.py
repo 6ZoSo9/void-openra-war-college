@@ -2488,9 +2488,71 @@ class RetryRecoveryTests(unittest.TestCase):
                 self.assertEqual(bench.main(argv), 0)
             runtime.assert_called_once()
             self.assertTrue(output.exists())
-            self.assertFalse(pending.exists())
-            self.assertEqual(output.stat().st_mode & 0o777, 0o400)
+            self.assertTrue(pending.exists())
+            output_stat = output.stat()
+            pending_stat = pending.stat()
+            self.assertEqual(
+                (pending_stat.st_dev, pending_stat.st_ino),
+                (output_stat.st_dev, output_stat.st_ino),
+            )
+            self.assertEqual(pending_stat.st_nlink, 2)
+            self.assertEqual(output_stat.st_nlink, 2)
+            self.assertEqual(pending_stat.st_mode & 0o777, 0o400)
+            self.assertEqual(output_stat.st_mode & 0o777, 0o400)
+            self.assertEqual(pending.read_bytes(), output.read_bytes())
             self.assertEqual(json.loads(stdout.getvalue())["run"]["terminal"], "completed")
+
+    def test_runtime_supervisor_failure_publishes_machine_readable_terminal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = Path(directory) / ".evidence.json.pending"
+            argv, _ = self.invocation(
+                directory, output, hostname=socket.gethostname(),
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with mock.patch(
+                "bench_joint_advance._run_runtime_from_main",
+                side_effect=bench.ContractError("fixture supervisor failure"),
+            ) as runtime, mock.patch("sys.stdout", stdout), mock.patch(
+                "sys.stderr", stderr,
+            ):
+                self.assertEqual(bench.main(argv), 1)
+
+            runtime.assert_called_once()
+            stdout_report = json.loads(stdout.getvalue())
+            pending_report = json.loads(pending.read_bytes())
+            final_report = json.loads(output.read_bytes())
+            self.assertEqual(stdout_report, pending_report)
+            self.assertEqual(stdout_report, final_report)
+            self.assertEqual(stdout_report["runtime_evidence"], "EXECUTED")
+            self.assertEqual(stdout_report["cells"], [])
+            self.assertEqual(stdout_report["run"]["terminal"], "startup_error")
+            self.assertEqual(stdout_report["run"]["stage"], "runtime_supervisor")
+            self.assertEqual(stdout_report["run"]["error_type"], "ContractError")
+            self.assertEqual(
+                stdout_report["run"]["error"], "fixture supervisor failure",
+            )
+            self.assertEqual(
+                stdout_report["run"]["cleanup"]["failures"],
+                [
+                    "runtime_supervisor:ContractError:"
+                    "fixture supervisor failure",
+                ],
+            )
+            self.assertFalse(
+                stdout_report["run"]["containment"]["daemon_retired"],
+            )
+            self.assertEqual(
+                bench._validate_recoverable_evidence(pending.read_bytes()),
+                stdout_report,
+            )
+            self.assertTrue(bench._commit_receipt_path(output).exists())
+            self.assertEqual(
+                (pending.stat().st_dev, pending.stat().st_ino),
+                (output.stat().st_dev, output.stat().st_ino),
+            )
 
     def test_final_name_race_preserves_foreign_final_and_exact_pending_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
