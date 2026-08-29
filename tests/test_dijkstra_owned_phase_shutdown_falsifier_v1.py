@@ -1,29 +1,38 @@
 #!/usr/bin/env python3
-"""Source-only falsifier for detached owned-phase event-loop shutdown.
+"""Source-only proof that detached owned work cannot hang runtime process retirement.
 
-This test deliberately proves the current HOLD rather than claiming closure. A
-cancellation-resistant operation can outlive ``run_owned_phase``'s logical
-terminal while remaining an owned live task, then keep ``asyncio.run`` in its
-pending-task shutdown gather forever. The parent process owns the destructive
-containment boundary so the test itself always retires the child without
-contacting the OpenRA runtime.
+The reviewed core still permits a cancellation-resistant operation to outlive
+``run_owned_phase``'s logical terminal. The canonical facade now owns that
+residual lifetime in a private process group and may force-retire it after the
+closed runtime outcome has been transferred to the parent.
 """
 
 from __future__ import annotations
 
 import asyncio
 import multiprocessing
+import time
 import unittest
 
-from bench_joint_advance_core import run_owned_phase
+import bench_joint_advance as bench
 
 
 PHASE_DEADLINE_S = 0.10
 PARENT_OBSERVATION_S = 2.0
-CHILD_RETIREMENT_S = 1.0
+PRECONTAINMENT_OBSERVATION_S = 0.05
+CONTAINMENT_GRACE_S = 0.50
 
 
 def _shutdown_falsifier_child(connection: object) -> None:
+    # Match the canonical runtime-child ownership boundary: this process is the
+    # leader of a private session/process group before any owned async work.
+    import os
+
+    os.setsid()
+    connection.send(  # type: ignore[attr-defined]
+        f"PROCESS_GROUP={os.getpid()}:{os.getpgrp()}"
+    )
+
     async def cancellation_resistant_operation() -> None:
         gate = asyncio.Event()
         cancellation_count = 0
@@ -36,13 +45,11 @@ def _shutdown_falsifier_child(connection: object) -> None:
                 connection.send(  # type: ignore[attr-defined]
                     f"TASK_CANCEL_IGNORED_{cancellation_count}"
                 )
-                # Model an RPC awaitable that does not retire merely because
-                # its owning phase, finalizer, or asyncio.run shutdown cancelled it.
                 continue
 
     async def scenario() -> None:
         try:
-            await run_owned_phase(
+            await bench.run_owned_phase(
                 {"stubborn": cancellation_resistant_operation()},
                 deadline_s=PHASE_DEADLINE_S,
             )
@@ -56,97 +63,85 @@ def _shutdown_falsifier_child(connection: object) -> None:
             connection.send(  # type: ignore[attr-defined]
                 f"PENDING_OWNED_TASKS_AT_LOGICAL_TERMINAL={len(pending_owned)}"
             )
-            # The falsifier is only meaningful if run_owned_phase has already
-            # returned authority to its caller while the stubborn operation is
-            # still live and owned by this event loop.
             if len(pending_owned) != 1:
                 raise AssertionError(
                     "expected exactly one live detached owned task at logical terminal"
                 )
-            connection.send("LOGICAL_TERMINAL")  # type: ignore[attr-defined]
+            # Canonical runtime-child entry transfers its structured outcome at
+            # this point, before asyncio.run begins pending-task shutdown.
+            connection.send("OUTCOME_TRANSFERRED")  # type: ignore[attr-defined]
             return
         raise AssertionError("owned phase unexpectedly succeeded")
 
     asyncio.run(scenario())
-    # Reaching this line would mean top-level loop shutdown retired the detached
-    # task and the current Dijkstra HOLD no longer reproduces.
-    connection.send("PROCESS_TERMINAL")  # type: ignore[attr-defined]
+    connection.send("NATURAL_PROCESS_TERMINAL")  # type: ignore[attr-defined]
 
 
-class OwnedPhaseShutdownFalsifierTests(unittest.TestCase):
-    def test_detached_cancellation_resistant_task_rehangs_asyncio_run_shutdown(self) -> None:
+class OwnedPhaseShutdownContainmentTests(unittest.TestCase):
+    def test_detached_task_shutdown_hang_is_force_retired_by_outer_process_owner(self) -> None:
         context = multiprocessing.get_context("fork")
         parent, child = context.Pipe(duplex=False)
         process = context.Process(target=_shutdown_falsifier_child, args=(child,))
         process.start()
         child.close()
         try:
-            self.assertTrue(parent.poll(PARENT_OBSERVATION_S), "child never started owned operation")
+            self.assertTrue(parent.poll(PARENT_OBSERVATION_S))
+            self.assertEqual(
+                parent.recv(),
+                f"PROCESS_GROUP={process.pid}:{process.pid}",
+            )
+            self.assertTrue(parent.poll(PARENT_OBSERVATION_S))
             self.assertEqual(parent.recv(), "TASK_STARTED")
 
-            # The phase deadline issues cancellation #1. The operation
-            # deliberately survives it, so run_owned_phase must detach it and
-            # reach its logical timeout terminal.
-            self.assertTrue(parent.poll(PARENT_OBSERVATION_S), "phase cancellation was never observed")
+            self.assertTrue(parent.poll(PARENT_OBSERVATION_S))
             self.assertEqual(parent.recv(), "TASK_CANCEL_IGNORED_1")
-            self.assertTrue(
-                parent.poll(PARENT_OBSERVATION_S),
-                "live-task ownership at logical terminal was never observed",
-            )
+            self.assertTrue(parent.poll(PARENT_OBSERVATION_S))
             self.assertEqual(
                 parent.recv(),
                 "PENDING_OWNED_TASKS_AT_LOGICAL_TERMINAL=1",
             )
-            self.assertTrue(parent.poll(PARENT_OBSERVATION_S), "owned phase never reached logical terminal")
-            self.assertEqual(parent.recv(), "LOGICAL_TERMINAL")
+            self.assertTrue(parent.poll(PARENT_OBSERVATION_S))
+            self.assertEqual(parent.recv(), "OUTCOME_TRANSFERRED")
 
-            # run_owned_phase's finally block issues cancellation #2 to the same
-            # still-unfinished task after the timeout path has already detached it.
-            self.assertTrue(
-                parent.poll(PARENT_OBSERVATION_S),
-                "run_owned_phase finalizer cancellation was never observed",
-            )
+            # run_owned_phase's finally issues cancellation #2 after the logical
+            # terminal, then asyncio.run shutdown issues cancellation #3.
+            self.assertTrue(parent.poll(PARENT_OBSERVATION_S))
             self.assertEqual(parent.recv(), "TASK_CANCEL_IGNORED_2")
-
-            # Only after scenario() returns does asyncio.run enter loop shutdown
-            # and issue cancellation #3 to pending tasks.
-            self.assertTrue(
-                parent.poll(PARENT_OBSERVATION_S),
-                "asyncio.run shutdown cancellation was never observed",
-            )
+            self.assertTrue(parent.poll(PARENT_OBSERVATION_S))
             self.assertEqual(parent.recv(), "TASK_CANCEL_IGNORED_3")
 
-            # The logical phase terminal has already been published and the real
-            # shutdown cancellation has fired. The process must still remain
-            # alive because asyncio.run is waiting for the detached task to retire.
-            process.join(CHILD_RETIREMENT_S)
+            process.join(PRECONTAINMENT_OBSERVATION_S)
             self.assertTrue(
                 process.is_alive(),
-                "falsifier no longer reproduces: top-level loop shutdown retired boundedly",
+                "fixture must still demonstrate the raw asyncio.run shutdown hang",
             )
 
-            # Drain by message identity. A queued cancellation diagnostic is not
-            # process termination evidence.
+            started = time.monotonic()
+            bench._retire_runtime_process_group(
+                process,
+                process.pid,
+                natural_grace_s=0.01,
+                signal_grace_s=CONTAINMENT_GRACE_S,
+            )
+            elapsed = time.monotonic() - started
+
+            self.assertLess(elapsed, 1.1)
+            self.assertFalse(process.is_alive())
+            self.assertFalse(bench._process_group_exists(process.pid))
+
             while parent.poll(0.0):
-                message = parent.recv()
                 self.assertNotEqual(
-                    message,
-                    "PROCESS_TERMINAL",
-                    "process terminal was published despite live child",
-                )
-                self.assertTrue(
-                    str(message).startswith("TASK_CANCEL_IGNORED_"),
-                    f"unexpected child message while process remains live: {message}",
+                    parent.recv(),
+                    "NATURAL_PROCESS_TERMINAL",
+                    "fixture unexpectedly retired naturally instead of by containment",
                 )
         finally:
             if process.is_alive():
-                process.terminate()
-                process.join(CHILD_RETIREMENT_S)
-            if process.is_alive():
                 process.kill()
-                process.join(CHILD_RETIREMENT_S)
+                process.join(CONTAINMENT_GRACE_S)
             parent.close()
-        self.assertFalse(process.is_alive(), "parent containment failed to retire falsifier child")
+
+        self.assertFalse(process.is_alive())
 
 
 if __name__ == "__main__":
