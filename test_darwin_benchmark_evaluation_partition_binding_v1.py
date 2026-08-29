@@ -62,6 +62,12 @@ class BenchmarkEvaluationPartitionBindingTests(unittest.TestCase):
                 self.manifest(), "held_out", 2050, 1
             )
 
+    def test_random_seed_sentinel_cannot_bind_held_out_benchmark_window(self):
+        with self.assertRaisesRegex(split.SplitError, "reserved"):
+            benchmark_binding.bind_benchmark_seed_window(
+                self.manifest(), "held_out", 0, 1
+            )
+
     def test_concurrency_must_match_live_joint_advance_matrix_domain(self):
         for bad in (True, 0, 3, 16, 1.0, "8"):
             with self.subTest(bad=bad):
