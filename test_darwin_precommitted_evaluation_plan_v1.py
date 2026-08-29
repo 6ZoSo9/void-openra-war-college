@@ -95,6 +95,16 @@ class PrecommittedEvaluationPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(split.SplitError, "strictly ascending"):
             self.build(tick_batches=(8, 1))
 
+    def test_count_domain_matches_canonical_benchmark(self) -> None:
+        boundary = self.build(samples=1000, repetitions=10)
+        self.assertEqual(boundary["shared_parameters"]["samples"], 1000)
+        self.assertEqual(boundary["shared_parameters"]["repetitions"], 10)
+
+        with self.assertRaisesRegex(split.SplitError, r"samples.*1\.\.1000"):
+            self.build(samples=1001)
+        with self.assertRaisesRegex(split.SplitError, r"repetitions.*2\.\.10"):
+            self.build(repetitions=11)
+
     def test_authority_policy_or_manifest_tamper_cannot_validate(self) -> None:
         committed = self.build()
         tampered = copy.deepcopy(committed)
