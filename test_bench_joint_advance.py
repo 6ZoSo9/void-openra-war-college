@@ -885,16 +885,31 @@ class EvidencePublicationTests(unittest.TestCase):
         bench._validate_cell_evidence(cell, parameters)
 
         variants = {
-            "key-does-not-match-concurrency": {"concurrency": 1},
-            "key-does-not-match-ticks": {"ticks_per_joint_advance": 1},
-            "planned-key-does-not-match-identity": {"key": "c1-t8"},
-            "boolean-concurrency": {"concurrency": True},
-            "zero-ticks": {"ticks_per_joint_advance": 0},
+            "key-does-not-match-concurrency": (
+                {"concurrency": 1}, "key is not bound",
+            ),
+            "key-does-not-match-ticks": (
+                {"ticks_per_joint_advance": 1}, "key is not bound",
+            ),
+            "planned-key-does-not-match-identity": (
+                {"key": "c1-t8"}, "key is not bound",
+            ),
+            "key-consistent-identity-is-not-planned": (
+                {"key": "c4-t8", "concurrency": 4}, "not in the planned matrix",
+            ),
+            "boolean-concurrency": (
+                {"concurrency": True}, "concurrency is invalid",
+            ),
+            "zero-ticks": (
+                {"ticks_per_joint_advance": 0}, "ticks_per_joint_advance is invalid",
+            ),
         }
-        for label, changes in variants.items():
+        for label, (changes, error) in variants.items():
             candidate = copy.deepcopy(cell)
             candidate.update(changes)
-            with self.subTest(label=label), self.assertRaises(bench.ContractError):
+            with self.subTest(label=label), self.assertRaisesRegex(
+                bench.ContractError, error,
+            ):
                 bench._validate_cell_evidence(candidate, parameters)
 
     def test_create_latency_population_matches_cell_concurrency(self):
