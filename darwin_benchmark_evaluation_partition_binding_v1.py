@@ -41,14 +41,19 @@ def bind_benchmark_seed_window(
         raise split.SplitError("partition must be calibration or held_out")
     if type(base_seed) is not int:
         raise split.SplitError("benchmark base_seed must be an integer")
-    if base_seed < 0 or base_seed > split.MAX_RUNTIME_SEED:
+    if base_seed == split.RANDOM_RUNTIME_SEED_SENTINEL:
         raise split.SplitError(
-            "benchmark base_seed is outside the signed runtime-integer range"
+            "benchmark base_seed 0 is reserved as the runtime random-seed sentinel"
+        )
+    if (
+        base_seed < split.MIN_DETERMINISTIC_RUNTIME_SEED
+        or base_seed > split.MAX_RUNTIME_SEED
+    ):
+        raise split.SplitError(
+            "benchmark base_seed is outside the deterministic signed runtime-integer range"
         )
     if type(concurrency) is not int or concurrency not in ALLOWED_JOINT_ADVANCE_CONCURRENCY:
-        raise split.SplitError(
-            "benchmark concurrency must be one of 1,2,4,8"
-        )
+        raise split.SplitError("benchmark concurrency must be one of 1,2,4,8")
     last_seed = base_seed + concurrency - 1
     if last_seed > split.MAX_RUNTIME_SEED:
         raise split.SplitError(
