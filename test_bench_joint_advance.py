@@ -2488,8 +2488,18 @@ class RetryRecoveryTests(unittest.TestCase):
                 self.assertEqual(bench.main(argv), 0)
             runtime.assert_called_once()
             self.assertTrue(output.exists())
-            self.assertFalse(pending.exists())
-            self.assertEqual(output.stat().st_mode & 0o777, 0o400)
+            self.assertTrue(pending.exists())
+            output_stat = output.stat()
+            pending_stat = pending.stat()
+            self.assertEqual(
+                (pending_stat.st_dev, pending_stat.st_ino),
+                (output_stat.st_dev, output_stat.st_ino),
+            )
+            self.assertEqual(pending_stat.st_nlink, 2)
+            self.assertEqual(output_stat.st_nlink, 2)
+            self.assertEqual(pending_stat.st_mode & 0o777, 0o400)
+            self.assertEqual(output_stat.st_mode & 0o777, 0o400)
+            self.assertEqual(pending.read_bytes(), output.read_bytes())
             self.assertEqual(json.loads(stdout.getvalue())["run"]["terminal"], "completed")
 
     def test_final_name_race_preserves_foreign_final_and_exact_pending_evidence(self):
