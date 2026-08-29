@@ -2165,15 +2165,26 @@ async def destroy_sessions(
     failures: list[str] = []
     latencies: list[float] = []
     destroyed: list[str] = []
+    deadline = time.monotonic() + timeout_s
 
     async def destroy(session_id: str) -> tuple[str, float]:
         started = time.monotonic()
         await stub.DestroySession(pb2.DestroySessionRequest(session_id=session_id))
         return session_id, (time.monotonic() - started) * 1000
 
+    def consume_late_completion(task: asyncio.Task[Any]) -> None:
+        # A cancellation-resistant RPC must not extend the total deadline. Its
+        # session remains unretired and therefore requires daemon containment;
+        # consume any eventual terminal only to avoid an orphan-task warning.
+        try:
+            task.result()
+        except BaseException:
+            pass
+
     tasks = {session_id: asyncio.create_task(destroy(session_id)) for session_id in attempted}
     if tasks:
-        done, pending = await asyncio.wait(tasks.values(), timeout=timeout_s)
+        remaining = max(0.0, deadline - time.monotonic())
+        done, pending = await asyncio.wait(tasks.values(), timeout=remaining)
         for session_id in attempted:
             task = tasks[session_id]
             if task in done:
@@ -2185,8 +2196,8 @@ async def destroy_sessions(
                     failures.append(f"{session_id}:{type(error).__name__}:{error}")
         for task in pending:
             task.cancel()
+            task.add_done_callback(consume_late_completion)
         if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
             pending_ids = sorted(
                 session_id for session_id, task in tasks.items() if task in pending
             )
