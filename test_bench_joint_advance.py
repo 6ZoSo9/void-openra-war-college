@@ -176,15 +176,65 @@ class PhaseTerminalityTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 retired.set()
 
+        containment = bench.RuntimeTaskContainment()
         ledger = await bench.retire_phase_tasks(
             {"fast": fast(), "slow": slow()},
             deadline_s=0.01,
+            containment=containment,
         )
         terminals = {cell.key: cell.terminal for cell in ledger.values()}
         self.assertEqual(terminals, {"fast": "success", "slow": "timeout"})
         self.assertTrue(retired.is_set())
+        self.assertFalse(containment.required)
+        self.assertEqual(containment.pending(), set())
         with self.assertRaises(bench.ContractError):
             ledger.finalize("slow", "success", {})
+
+
+    async def test_cancellation_resistant_phase_task_transfers_to_containment(self):
+        release = asyncio.Event()
+        cancellation_observed = asyncio.Event()
+        late_completion = asyncio.Event()
+        containment = bench.RuntimeTaskContainment()
+
+        async def cancellation_resistant():
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                cancellation_observed.set()
+                while not release.is_set():
+                    try:
+                        await release.wait()
+                    except asyncio.CancelledError:
+                        cancellation_observed.set()
+            late_completion.set()
+
+        try:
+            with self.assertRaisesRegex(
+                bench.ContractError,
+                "phase cancellation retirement exceeded total deadline: rpc",
+            ):
+                await asyncio.wait_for(
+                    bench.retire_phase_tasks(
+                        {"rpc": cancellation_resistant()},
+                        deadline_s=0.01,
+                        retirement_timeout_s=0.01,
+                        containment=containment,
+                    ),
+                    timeout=1.0,
+                )
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=1.0)
+            self.assertTrue(containment.required)
+            self.assertEqual(len(containment.pending()), 1)
+            self.assertFalse(late_completion.is_set())
+        finally:
+            release.set()
+            remaining = await bench.retire_contained_tasks(
+                containment,
+                timeout_s=1.0,
+            )
+            self.assertEqual(remaining, 0)
+            await asyncio.wait_for(late_completion.wait(), timeout=1.0)
 
 
 class EvidenceContractTests(unittest.TestCase):
