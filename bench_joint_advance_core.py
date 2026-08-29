@@ -15,9 +15,11 @@ import ctypes.util
 import hashlib
 import json
 import math
+import multiprocessing
 import os
 import platform
 import re
+import signal
 import socket
 import stat
 import subprocess
@@ -3033,6 +3035,176 @@ async def execute_runtime(
     }
 
 
+def runtime_supervisor_deadline_s(parameters: dict[str, Any]) -> float:
+    """Return a finite outer deadline for the complete runtime process.
+
+    Each planned cell already owns a total cell deadline.  The supervisor adds
+    readiness plus one cell budget per planned cell and a fixed allowance for
+    startup and controller cleanup.  This is deliberately derived from the
+    reviewed operation parameters rather than a second operator-controlled
+    timeout that could drift from the evidence contract.
+    """
+    matrix = build_matrix(
+        tuple(parameters["concurrency"]),
+        tuple(parameters["tick_batches"]),
+    )
+    return float(
+        parameters["ready_timeout_s"]
+        + len(matrix) * parameters["cell_timeout_s"]
+        + parameters["teardown_timeout_s"]
+        + 20
+    )
+
+
+def _runtime_supervisor_child(
+    connection: Any,
+    args: argparse.Namespace,
+    parameters: dict[str, Any],
+    expected_provenance: dict[str, str],
+) -> None:
+    """Own the event loop and runtime daemon inside one killable process group."""
+    try:
+        os.setsid()
+        outcome = asyncio.run(execute_runtime(args, parameters, expected_provenance))
+        connection.send(("OUTCOME", outcome))
+    except BaseException as error:
+        try:
+            connection.send(("ERROR", type(error).__name__, str(error)))
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+    finally:
+        connection.close()
+
+
+def _terminate_runtime_process_group(
+    process: multiprocessing.Process,
+    *,
+    timeout_s: float,
+) -> bool:
+    """Bound TERM/KILL retirement of the supervisor and inherited daemon group."""
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ContractError("runtime supervisor retirement deadline must be finite and positive")
+
+    pgid = process.pid
+    if pgid is None:
+        raise ContractError("runtime supervisor process has no process-group identity")
+
+    def group_exists() -> bool:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError as error:
+            raise ContractError(
+                "runtime supervisor process-group retirement cannot be verified"
+            ) from error
+        return True
+
+    def await_group_retirement() -> bool:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            process.join(timeout=0)
+            if not group_exists():
+                return True
+            time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+        return not group_exists()
+
+    process.join(timeout=0)
+    if not group_exists():
+        return False
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return False
+    if not await_group_retirement():
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        if not await_group_retirement():
+            raise ContractError(
+                "runtime supervisor process group did not retire after SIGKILL"
+            )
+    process.join(timeout=0)
+    if process.is_alive():
+        raise ContractError("runtime supervisor process group did not retire after SIGKILL")
+    return True
+
+
+def execute_runtime_supervised(
+    args: argparse.Namespace,
+    parameters: dict[str, Any],
+    expected_provenance: dict[str, str],
+    *,
+    timeout_s: float | None = None,
+    retirement_timeout_s: float = 5.0,
+) -> dict[str, Any]:
+    """Run the controller behind a finite process-group containment boundary.
+
+    An asyncio task can legally suppress cancellation forever.  No in-loop
+    gather can make that task killable, so the CLI must not own designated-host
+    authority in its top-level event loop.  The outer process retains the only
+    terminal authority and retires the complete child/daemon process group when
+    the reviewed runtime budget expires.
+    """
+    if timeout_s is None:
+        timeout_s = runtime_supervisor_deadline_s(parameters)
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ContractError("runtime supervisor deadline must be finite and positive")
+    if "fork" not in multiprocessing.get_all_start_methods():
+        raise ContractError("runtime supervisor requires POSIX fork process containment")
+
+    context = multiprocessing.get_context("fork")
+    parent, child = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_runtime_supervisor_child,
+        args=(child, args, parameters, expected_provenance),
+    )
+    process.start()
+    child.close()
+    message: tuple[Any, ...] | None = None
+    try:
+        if parent.poll(timeout_s):
+            try:
+                message = parent.recv()
+            except EOFError:
+                message = (
+                    "ERROR",
+                    "ChildProcessError",
+                    "runtime supervisor child closed its terminal pipe without a message",
+                )
+            process.join(retirement_timeout_s)
+        process_group_containment_used = _terminate_runtime_process_group(
+            process,
+            timeout_s=retirement_timeout_s,
+        )
+        if message is None:
+            raise ContractError(
+                f"runtime supervisor exceeded total deadline: {timeout_s}s; "
+                "child and inherited daemon process group retired"
+            )
+        if process_group_containment_used:
+            raise ContractError(
+                "runtime supervisor child published a terminal but failed process-group "
+                "retirement; child and inherited daemon process group retired"
+            )
+        if len(message) == 2 and message[0] == "OUTCOME" and isinstance(message[1], dict):
+            return message[1]
+        if len(message) == 3 and message[0] == "ERROR":
+            raise ContractError(
+                f"runtime supervisor child failed with {message[1]}: {message[2]}"
+            )
+        raise ContractError("runtime supervisor child returned a malformed terminal")
+    finally:
+        if process.is_alive():
+            _terminate_runtime_process_group(
+                process,
+                timeout_s=retirement_timeout_s,
+            )
+        parent.close()
+        process.close()
+
+
 def utc_now() -> str:
     import datetime
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -3142,7 +3314,7 @@ def main(argv: list[str] | None = None) -> int:
             # it before runtime contact and preserve it for explicit review.
             reservation = reserve_evidence_namespace(Path(args.output))
             try:
-                outcome = asyncio.run(execute_runtime(args, parameters, provenance))
+                outcome = execute_runtime_supervised(args, parameters, provenance)
                 report = build_report(
                     provenance=provenance,
                     parameters=parameters,

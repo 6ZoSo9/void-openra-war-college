@@ -237,6 +237,136 @@ class PhaseTerminalityTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(late_completion.wait(), timeout=1.0)
 
 
+class RuntimeProcessContainmentTests(unittest.TestCase):
+    def test_supervisor_deadline_is_derived_from_reviewed_matrix_parameters(self):
+        parameters = {
+            "concurrency": [1, 2],
+            "tick_batches": [1, 8],
+            "ready_timeout_s": 30,
+            "cell_timeout_s": 900,
+            "teardown_timeout_s": 10,
+        }
+        self.assertEqual(bench.runtime_supervisor_deadline_s(parameters), 3660.0)
+
+    @unittest.skipUnless(
+        "fork" in bench.multiprocessing.get_all_start_methods(),
+        "runtime process containment requires POSIX fork",
+    )
+    def test_supervisor_retires_cancellation_resistant_event_loop_process(self):
+        async def cancellation_resistant_runtime(*_args):
+            gate = asyncio.Event()
+            while True:
+                try:
+                    await gate.wait()
+                except asyncio.CancelledError:
+                    continue
+
+        before = {process.pid for process in bench.multiprocessing.active_children()}
+        started = bench.time.monotonic()
+        with mock.patch.object(
+            bench,
+            "execute_runtime",
+            new=cancellation_resistant_runtime,
+        ), self.assertRaisesRegex(
+            bench.ContractError,
+            "runtime supervisor exceeded total deadline",
+        ):
+            bench.execute_runtime_supervised(
+                types.SimpleNamespace(),
+                {},
+                {},
+                timeout_s=0.05,
+                retirement_timeout_s=0.5,
+            )
+        self.assertLess(bench.time.monotonic() - started, 2.0)
+        after = {process.pid for process in bench.multiprocessing.active_children()}
+        self.assertEqual(after, before)
+
+    @unittest.skipUnless(
+        "fork" in bench.multiprocessing.get_all_start_methods(),
+        "runtime process containment requires POSIX fork",
+    )
+    def test_supervisor_escalates_for_sigterm_resistant_inherited_child(self):
+        async def runtime_with_stubborn_descendant(*_args):
+            descendant = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import signal,time;"
+                        "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+                        "print('READY',flush=True);time.sleep(60)"
+                    ),
+                ],
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(descendant.stdout.readline(), "READY\n")
+            await asyncio.Event().wait()
+
+        started = bench.time.monotonic()
+        with mock.patch.object(
+            bench,
+            "execute_runtime",
+            new=runtime_with_stubborn_descendant,
+        ), self.assertRaisesRegex(
+            bench.ContractError,
+            "runtime supervisor exceeded total deadline",
+        ):
+            bench.execute_runtime_supervised(
+                types.SimpleNamespace(),
+                {},
+                {},
+                timeout_s=0.1,
+                retirement_timeout_s=0.5,
+            )
+        self.assertLess(bench.time.monotonic() - started, 2.0)
+
+    @unittest.skipUnless(
+        "fork" in bench.multiprocessing.get_all_start_methods(),
+        "runtime process containment requires POSIX fork",
+    )
+    def test_supervisor_returns_only_child_process_terminal(self):
+        expected = {"cells": [], "run": {"terminal": "fixture"}, "host": {}}
+
+        async def successful_runtime(*_args):
+            return expected
+
+        with mock.patch.object(bench, "execute_runtime", new=successful_runtime):
+            observed = bench.execute_runtime_supervised(
+                types.SimpleNamespace(),
+                {},
+                {},
+                timeout_s=1.0,
+                retirement_timeout_s=0.5,
+            )
+        self.assertEqual(observed, expected)
+
+    @unittest.skipUnless(
+        "fork" in bench.multiprocessing.get_all_start_methods(),
+        "runtime process containment requires POSIX fork",
+    )
+    def test_supervisor_reports_child_exit_without_terminal(self):
+        async def abrupt_exit(*_args):
+            os._exit(7)
+
+        with mock.patch.object(
+            bench,
+            "execute_runtime",
+            new=abrupt_exit,
+        ), self.assertRaisesRegex(
+            bench.ContractError,
+            "closed its terminal pipe without a message",
+        ):
+            bench.execute_runtime_supervised(
+                types.SimpleNamespace(),
+                {},
+                {},
+                timeout_s=1.0,
+                retirement_timeout_s=0.5,
+            )
+
+
 class EvidenceContractTests(unittest.TestCase):
     def setUp(self):
         self.provenance = bench.validate_provenance(
@@ -2776,7 +2906,7 @@ class RetryRecoveryTests(unittest.TestCase):
             pending = Path(directory) / ".evidence.json.pending"
             argv, payload = self.invocation(directory, output)
 
-            async def execute_runtime(*_args, **_kwargs):
+            def execute_runtime_supervised(*_args, **_kwargs):
                 self.assertTrue(pending.exists())
                 self.assertEqual(pending.stat().st_mode & 0o777, 0o400)
                 self.assertEqual(pending.stat().st_size, 0)
@@ -2787,7 +2917,8 @@ class RetryRecoveryTests(unittest.TestCase):
             stdout = io.StringIO()
             stderr = io.StringIO()
             with mock.patch(
-                "bench_joint_advance.execute_runtime", side_effect=execute_runtime,
+                "bench_joint_advance.execute_runtime_supervised",
+                side_effect=execute_runtime_supervised,
             ) as runtime, mock.patch("sys.stdout", stdout), mock.patch("sys.stderr", stderr):
                 self.assertEqual(bench.main(argv), 0)
             runtime.assert_called_once()
@@ -2803,7 +2934,7 @@ class RetryRecoveryTests(unittest.TestCase):
             argv, payload = self.invocation(directory, output)
             foreign = b"foreign-final-generation"
 
-            async def execute_runtime(*_args, **_kwargs):
+            def execute_runtime_supervised(*_args, **_kwargs):
                 self.assertTrue(pending.exists())
                 output.write_bytes(foreign)
                 return self.completed_outcome(payload)
@@ -2811,7 +2942,8 @@ class RetryRecoveryTests(unittest.TestCase):
             stdout = io.StringIO()
             stderr = io.StringIO()
             with mock.patch(
-                "bench_joint_advance.execute_runtime", side_effect=execute_runtime,
+                "bench_joint_advance.execute_runtime_supervised",
+                side_effect=execute_runtime_supervised,
             ) as runtime, mock.patch("sys.stdout", stdout), mock.patch("sys.stderr", stderr):
                 self.assertEqual(bench.main(argv), 1)
             runtime.assert_called_once()
@@ -2834,7 +2966,7 @@ class RetryRecoveryTests(unittest.TestCase):
             argv, payload = self.invocation(str(parent), output)
             real_link = bench._link_open_inode_create_only
 
-            async def execute_runtime(*_args, **_kwargs):
+            def execute_runtime_supervised(*_args, **_kwargs):
                 return self.completed_outcome(payload)
 
             def replace_parent_then_link(descriptor, parent_descriptor, destination_name):
@@ -2845,7 +2977,8 @@ class RetryRecoveryTests(unittest.TestCase):
             stdout = io.StringIO()
             stderr = io.StringIO()
             with mock.patch(
-                "bench_joint_advance.execute_runtime", side_effect=execute_runtime,
+                "bench_joint_advance.execute_runtime_supervised",
+                side_effect=execute_runtime_supervised,
             ) as runtime, mock.patch(
                 "bench_joint_advance._link_open_inode_create_only",
                 side_effect=replace_parent_then_link,
@@ -2870,7 +3003,9 @@ class RetryRecoveryTests(unittest.TestCase):
             pending.chmod(0o400)
             stdout = io.StringIO()
             stderr = io.StringIO()
-            with mock.patch("bench_joint_advance.execute_runtime") as execute_runtime, mock.patch(
+            with mock.patch(
+                "bench_joint_advance.execute_runtime_supervised"
+            ) as execute_runtime, mock.patch(
                 "sys.stdout", stdout,
             ), mock.patch("sys.stderr", stderr):
                 self.assertEqual(bench.main(argv), 2)
@@ -2890,7 +3025,9 @@ class RetryRecoveryTests(unittest.TestCase):
             changed_argv, _ = self.invocation(directory, output, seed="2051")
             pending.write_bytes(old_payload)
             pending.chmod(0o400)
-            with mock.patch("bench_joint_advance.execute_runtime") as execute_runtime:
+            with mock.patch(
+                "bench_joint_advance.execute_runtime_supervised"
+            ) as execute_runtime:
                 self.assertEqual(bench.main(changed_argv), 2)
             execute_runtime.assert_not_called()
             self.assertTrue(pending.exists())
