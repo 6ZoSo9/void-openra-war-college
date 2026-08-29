@@ -37,7 +37,7 @@ def _shutdown_falsifier_child(connection: object) -> None:
                     f"TASK_CANCEL_IGNORED_{cancellation_count}"
                 )
                 # Model an RPC awaitable that does not retire merely because
-                # either its owning phase or asyncio.run shutdown cancelled it.
+                # its owning phase, finalizer, or asyncio.run shutdown cancelled it.
                 continue
 
     async def scenario() -> None:
@@ -84,7 +84,7 @@ class OwnedPhaseShutdownFalsifierTests(unittest.TestCase):
             self.assertTrue(parent.poll(PARENT_OBSERVATION_S), "child never started owned operation")
             self.assertEqual(parent.recv(), "TASK_STARTED")
 
-            # The phase deadline issues the first cancellation. The operation
+            # The phase deadline issues cancellation #1. The operation
             # deliberately survives it, so run_owned_phase must detach it and
             # reach its logical timeout terminal.
             self.assertTrue(parent.poll(PARENT_OBSERVATION_S), "phase cancellation was never observed")
@@ -100,25 +100,44 @@ class OwnedPhaseShutdownFalsifierTests(unittest.TestCase):
             self.assertTrue(parent.poll(PARENT_OBSERVATION_S), "owned phase never reached logical terminal")
             self.assertEqual(parent.recv(), "LOGICAL_TERMINAL")
 
-            # Returning from scenario() makes asyncio.run enter loop shutdown,
-            # where it cancels pending tasks again. Prove that this distinct
-            # shutdown cancellation is also ignored before checking the hang.
+            # run_owned_phase's finally block issues cancellation #2 to the same
+            # still-unfinished task after the timeout path has already detached it.
+            self.assertTrue(
+                parent.poll(PARENT_OBSERVATION_S),
+                "run_owned_phase finalizer cancellation was never observed",
+            )
+            self.assertEqual(parent.recv(), "TASK_CANCEL_IGNORED_2")
+
+            # Only after scenario() returns does asyncio.run enter loop shutdown
+            # and issue cancellation #3 to pending tasks.
             self.assertTrue(
                 parent.poll(PARENT_OBSERVATION_S),
                 "asyncio.run shutdown cancellation was never observed",
             )
-            self.assertEqual(parent.recv(), "TASK_CANCEL_IGNORED_2")
+            self.assertEqual(parent.recv(), "TASK_CANCEL_IGNORED_3")
 
-            # The logical phase terminal has already been published and the
-            # shutdown cancellation has already fired. The process must still
-            # remain alive because asyncio.run is waiting for the detached task
-            # to retire.
+            # The logical phase terminal has already been published and the real
+            # shutdown cancellation has fired. The process must still remain
+            # alive because asyncio.run is waiting for the detached task to retire.
             process.join(CHILD_RETIREMENT_S)
             self.assertTrue(
                 process.is_alive(),
                 "falsifier no longer reproduces: top-level loop shutdown retired boundedly",
             )
-            self.assertFalse(parent.poll(0.0), "process terminal was published despite live child")
+
+            # Drain by message identity. A queued cancellation diagnostic is not
+            # process termination evidence.
+            while parent.poll(0.0):
+                message = parent.recv()
+                self.assertNotEqual(
+                    message,
+                    "PROCESS_TERMINAL",
+                    "process terminal was published despite live child",
+                )
+                self.assertTrue(
+                    str(message).startswith("TASK_CANCEL_IGNORED_"),
+                    f"unexpected child message while process remains live: {message}",
+                )
         finally:
             if process.is_alive():
                 process.terminate()
