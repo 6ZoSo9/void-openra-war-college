@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 import bench_joint_advance as bench
 
 INSPECTION_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_INSPECTION_V1"
-INSPECTION_SCHEMA_VERSION = 1
+INSPECTION_SCHEMA_VERSION = 2
 
 
 class InspectionFailure(bench.ContractError):
@@ -46,6 +46,8 @@ def _inspection_error_report(path: Path, error: BaseException) -> dict[str, Any]
         "schema_version": INSPECTION_SCHEMA_VERSION,
         "output_path": str(Path(os.path.abspath(os.fspath(path)))),
         "classification": "INSPECTION_ERROR_HOLD",
+        "artifact_state": "INSPECTION_ERROR_HOLD",
+        "schema_state": "SCHEMA_NOT_INSPECTED",
         "reason_code": reason_code,
         "error_type": type(error).__name__,
         "artifacts_inspected": False,
@@ -252,7 +254,7 @@ def _pending_aliases_final(
     return bool(same_inode and same_payload)
 
 
-def _classify(
+def _artifact_state(
     *,
     final: dict[str, Any],
     pending: dict[str, Any],
@@ -260,20 +262,16 @@ def _classify(
     receipt_binds_final: bool,
     pending_aliases_final: bool,
 ) -> str:
+    """Classify retained namespace authority without collapsing schema status."""
     has_final = bool(final["present"])
     has_pending = bool(pending["present"])
     has_receipt = bool(receipt["present"])
 
-    primary_report = final if has_final else pending
-    if primary_report.get("report_schema_compatible") is False:
-        return "INCOMPATIBLE_SCHEMA_HOLD"
     if not has_final and not has_pending and not has_receipt:
         return "EMPTY"
     if has_receipt and not has_final:
         return "RECEIPT_WITHOUT_FINAL_HOLD"
     if has_final and has_receipt and receipt_binds_final:
-        if final.get("report_schema_valid") is not True:
-            return "CURRENT_SCHEMA_INVALID_HOLD"
         if not has_pending:
             return "COMMITTED_LOCAL_UNTRUSTED"
         if pending_aliases_final:
@@ -290,6 +288,22 @@ def _classify(
             return "PENDING_RESERVATION_ONLY"
         return "PENDING_REPORT_ONLY"
     return "UNCLASSIFIED_HOLD"
+
+
+def _schema_state(
+    *,
+    final: dict[str, Any],
+    pending: dict[str, Any],
+) -> str:
+    """Report payload compatibility independently from artifact authority."""
+    primary_report = final if final["present"] else pending
+    if not primary_report["present"] or primary_report.get("payload_bytes") in (None, 0):
+        return "SCHEMA_NOT_AVAILABLE"
+    if primary_report.get("report_schema_compatible") is False:
+        return "INCOMPATIBLE_SCHEMA_HOLD"
+    if primary_report.get("report_schema_valid") is True:
+        return "CURRENT_SCHEMA_VALID"
+    return "CURRENT_SCHEMA_INVALID_HOLD"
 
 
 def inspect_namespace(path: Path) -> dict[str, Any]:
@@ -362,18 +376,21 @@ def inspect_namespace(path: Path) -> dict[str, Any]:
         )
 
         pending_aliases_final = _pending_aliases_final(final, pending)
-        classification = _classify(
+        artifact_state = _artifact_state(
             final=final,
             pending=pending,
             receipt=receipt,
             receipt_binds_final=receipt_binds_final,
             pending_aliases_final=pending_aliases_final,
         )
+        schema_state = _schema_state(final=final, pending=pending)
         return {
             "marker": INSPECTION_MARKER,
             "schema_version": INSPECTION_SCHEMA_VERSION,
             "output_path": str(path),
-            "classification": classification,
+            "classification": artifact_state,
+            "artifact_state": artifact_state,
+            "schema_state": schema_state,
             "final": final,
             "pending": pending,
             "commit_receipt": receipt,
