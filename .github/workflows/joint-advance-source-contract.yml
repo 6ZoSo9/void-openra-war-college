@@ -188,6 +188,7 @@ jobs:
             --tick-batches 1,8 \
             --samples 2 \
             --repetitions 2 \
+            --workload-profile noop_control \
             --seed 2050 > joint-advance-plan.json
           python - <<'PY'
           import json
@@ -196,9 +197,26 @@ jobs:
           with open("joint-advance-plan.json", encoding="utf-8") as stream:
               report = json.load(stream)
           provenance = report["provenance"]
+          parameters = report["parameters"]
+          expected_parameters = {
+              "concurrency": [1, 2],
+              "tick_batches": [1, 8],
+              "samples": 2,
+              "repetitions": 2,
+              "workload_profile": "noop_control",
+              "seed": 2050,
+              "rpc_timeout_s": 60,
+              "cell_timeout_s": 900,
+              "teardown_timeout_s": 10,
+              "ready_timeout_s": 30,
+              "port": 9999,
+              "map_name": "singles.oramap",
+              "bots": "Multi1:rl-agent,Multi0:rl-agent",
+          }
           assert report["runtime_evidence"] == "PENDING_DESIGNATED_HOST"
           assert report["cells"] == []
           assert report["run"] is None
+          assert parameters == expected_parameters
           assert provenance["engine_sha"] == os.environ["REVIEWED_ENGINE_SHA"]
           assert provenance["war_college_sha"] == os.environ["REVIEWED_WAR_COLLEGE_SHA"]
           assert provenance["benchmark_source_sha"] == os.environ["SOURCE_HEAD_SHA"]
