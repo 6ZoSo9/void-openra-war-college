@@ -199,6 +199,16 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(
                 report["evidence_state"], "COMPLETED_RUNTIME_REVIEW_REQUIRED",
             )
+            self.assertEqual(
+                report["final"]["report_matrix_summary"],
+                {
+                    "cell_count": 1,
+                    "success_count": 1,
+                    "non_success_count": 0,
+                    "blocked_cell_count": 0,
+                    "first_non_success": None,
+                },
+            )
             self.assertTrue(report["final"]["report_schema_valid"])
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
@@ -265,6 +275,19 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(
                 report["final"]["report_cell_terminals"],
                 ["timeout", "not_executed"],
+            )
+            self.assertEqual(
+                report["final"]["report_matrix_summary"],
+                {
+                    "cell_count": 2,
+                    "success_count": 0,
+                    "non_success_count": 2,
+                    "blocked_cell_count": 1,
+                    "first_non_success": {
+                        "key": "c1-t1",
+                        "terminal": "timeout",
+                    },
+                },
             )
             self.assertEqual(
                 report["evidence_state"],
