@@ -61,9 +61,11 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "overall_status": "HOLD",
             "artifact_state": "INSPECTION_ERROR_HOLD",
             "schema_state": "SCHEMA_NOT_INSPECTED",
+            "evidence_state": "EVIDENCE_NOT_INSPECTED",
             "operator_guidance": {
                 "artifact_action": "RETRY_READ_ONLY_INSPECTION_AFTER_OPERATOR_FIX",
                 "schema_action": "RETRY_READ_ONLY_INSPECTION",
+                "evidence_action": "RETRY_READ_ONLY_INSPECTION",
                 "countability_action": "AUTHENTICATE_PRODUCER_AND_REVIEW_BEFORE_ADMISSION",
                 "automatic_action_allowed": False,
             },
@@ -137,6 +139,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(report["classification"], "EMPTY")
             self.assertEqual(report["classification_scope"], "ARTIFACT_ONLY")
             self.assertEqual(report["overall_status"], "NO_EVIDENCE")
+            self.assertEqual(report["evidence_state"], "EVIDENCE_NOT_AVAILABLE")
             self.assertTrue(report["inspection_read_only"])
             self.assertFalse(report["countable"])
             self.assertEqual(
@@ -144,6 +147,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 {
                     "artifact_action": "NONE",
                     "schema_action": "NONE",
+                    "evidence_action": "NONE",
                     "countability_action": "AUTHENTICATE_PRODUCER_AND_REVIEW_BEFORE_ADMISSION",
                     "automatic_action_allowed": False,
                 },
@@ -192,6 +196,9 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(before, after)
             self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
             self.assertEqual(report["overall_status"], "REVIEW_REQUIRED")
+            self.assertEqual(
+                report["evidence_state"], "COMPLETED_RUNTIME_REVIEW_REQUIRED",
+            )
             self.assertTrue(report["final"]["report_schema_valid"])
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
@@ -203,6 +210,38 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(
                 report["operator_guidance"]["schema_action"],
                 "PRESERVE_CURRENT_SCHEMA",
+            )
+            self.assertFalse(report["operator_guidance"]["automatic_action_allowed"])
+
+    def test_receipt_bound_failed_runtime_is_top_level_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            report_payload = json.loads(valid_report_payload())
+            report_payload["run"].update({
+                "terminal": "startup_error",
+                "stage": "runtime_supervisor",
+                "error_type": "ContractError",
+                "error": "runtime supervisor could not prove descendant retirement",
+            })
+            payload = bench.stable_json(report_payload).encode("utf-8")
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+            before = {str(path): generation(path) for path in (output, receipt)}
+
+            report = INSPECT.inspect_namespace(output)
+
+            self.assertEqual(
+                before, {str(path): generation(path) for path in (output, receipt)}
+            )
+            self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["schema_state"], "CURRENT_SCHEMA_VALID")
+            self.assertEqual(report["final"]["report_terminal"], "startup_error")
+            self.assertEqual(report["evidence_state"], "FAILED_RUNTIME_HOLD")
+            self.assertEqual(report["overall_status"], "HOLD")
+            self.assertEqual(
+                report["operator_guidance"]["evidence_action"],
+                "PRESERVE_AND_REVIEW_RUNTIME_FAILURE_BEFORE_RETRY",
             )
             self.assertFalse(report["operator_guidance"]["automatic_action_allowed"])
 
@@ -566,7 +605,11 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             bench.ContractError,
             "inspector state has no closed operator guidance",
         ):
-            INSPECT._operator_guidance("FOREIGN_STATE", "CURRENT_SCHEMA_VALID")
+            INSPECT._operator_guidance(
+                "FOREIGN_STATE",
+                "CURRENT_SCHEMA_VALID",
+                "COMPLETED_RUNTIME_REVIEW_REQUIRED",
+            )
 
 
 if __name__ == "__main__":
