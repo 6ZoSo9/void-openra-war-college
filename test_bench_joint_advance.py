@@ -285,7 +285,58 @@ class RuntimeProcessContainmentTests(unittest.TestCase):
                 mock.call(4242, bench.signal.SIGKILL),
             ],
         )
-        process.join.assert_called_once_with(0.5)
+        process.join.assert_called_once()
+        self.assertGreaterEqual(process.join.call_args.args[0], 0.0)
+        self.assertLessEqual(process.join.call_args.args[0], 0.5)
+
+    def test_process_group_retirement_uses_one_total_deadline(self):
+        process = mock.Mock()
+        process.pid = 4242
+        process.exitcode = None
+        retirement = bench.RuntimeProcessGroupRetirement(pgid=4242)
+        clock = [0.0]
+        join_timeouts = []
+
+        def monotonic():
+            return clock[0]
+
+        def sleep(duration):
+            clock[0] += duration
+
+        def join(timeout):
+            join_timeouts.append(timeout)
+            clock[0] += timeout
+            process.exitcode = 0
+
+        process.join.side_effect = join
+        with mock.patch.object(
+            bench,
+            "_runtime_process_leader_exited_unreaped",
+            return_value=False,
+        ), mock.patch.object(
+            bench.os,
+            "killpg",
+        ), mock.patch.object(
+            bench.time,
+            "monotonic",
+            side_effect=monotonic,
+        ), mock.patch.object(
+            bench.time,
+            "sleep",
+            side_effect=sleep,
+        ):
+            self.assertTrue(
+                bench._terminate_runtime_process_group(
+                    process,
+                    timeout_s=0.1,
+                    retirement=retirement,
+                )
+            )
+
+        self.assertTrue(retirement.retired)
+        self.assertEqual(len(join_timeouts), 1)
+        self.assertGreaterEqual(join_timeouts[0], 0.0)
+        self.assertLessEqual(clock[0], 0.1)
 
     @unittest.skipUnless(
         "fork" in bench.multiprocessing.get_all_start_methods(),
