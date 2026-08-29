@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import stat
@@ -134,6 +135,71 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
                 recovery.recover_existing_record(self.path, self.manifest)
 
         self.assertEqual(self.path.read_bytes(), foreign_bytes)
+
+    def test_record_success_terminal_reports_exact_published_generation_not_later_pathname(self) -> None:
+        manifest_path = self.root / "split.json"
+        manifest_path.write_text(
+            record_contract.canonical_json(self.manifest) + "\n",
+            encoding="utf-8",
+        )
+        foreign_record = record_contract.build_record(
+            "foreign-valid-001",
+            self.manifest,
+            self.plan,
+        )
+        expected_foreign_bytes = (
+            record_contract.canonical_json(foreign_record) + "\n"
+        ).encode("utf-8")
+
+        args = argparse.Namespace(
+            manifest=str(manifest_path),
+            record=str(self.path),
+            record_id="eval-recovery-001",
+            benchmark_source_sha="b" * 40,
+            calibration_base_seed="1000",
+            held_out_base_seed="2000",
+            concurrency="1,4",
+            tick_batches="1,8",
+            samples="2",
+            repetitions="2",
+            workload_profile="noop_control",
+        )
+
+        original_writer = recovery.write_record_create_only_with_terminal
+
+        def publish_then_substitute(path: Path, record: dict[str, object]) -> None:
+            original_writer(path, record)
+            held = self.root / "published-a.json"
+            os.replace(path, held)
+            original_writer(path, foreign_record)
+
+        with mock.patch.object(
+            recovery,
+            "write_record_create_only_with_terminal",
+            side_effect=publish_then_substitute,
+        ):
+            published = recovery._record_command(args)
+
+        terminal = json.loads(
+            recovery._summary(
+                "PRECOMMIT_RECORDED",
+                published,
+                "PARENT_DIRECTORY_FSYNC_CONFIRMED",
+                "CALIBRATION_MAY_START_FROM_THIS_TERMINAL",
+            )
+        )
+        visible = record_contract.load_and_validate_record(self.path, self.manifest)
+
+        self.assertEqual(published["record_id"], self.record["record_id"])
+        self.assertEqual(published["record_digest"], self.record["record_digest"])
+        self.assertEqual(terminal["record_id"], self.record["record_id"])
+        self.assertEqual(terminal["record_digest"], self.record["record_digest"])
+        self.assertEqual(visible["record_id"], foreign_record["record_id"])
+        self.assertEqual(visible["record_digest"], foreign_record["record_digest"])
+        self.assertEqual(self.path.read_bytes(), expected_foreign_bytes)
+        self.assertNotEqual(terminal["record_digest"], visible["record_digest"])
+        self.assertEqual(terminal["prior_calibration_evidence_authority"], "NONE")
+        self.assertEqual(terminal["runtime_execution_authority"], "NONE")
 
     def test_validate_terminal_is_content_only_not_durability_authority(self) -> None:
         recovery.write_record_create_only_with_terminal(self.path, self.record)
