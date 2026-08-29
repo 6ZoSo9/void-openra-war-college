@@ -248,6 +248,45 @@ class RuntimeProcessContainmentTests(unittest.TestCase):
         }
         self.assertEqual(bench.runtime_supervisor_deadline_s(parameters), 3660.0)
 
+    def test_process_group_retirement_terminal_forbids_numeric_pgid_reuse_signal(self):
+        process = mock.Mock()
+        process.pid = 4242
+        process.exitcode = 0
+        retirement = bench.RuntimeProcessGroupRetirement(pgid=4242)
+
+        with mock.patch.object(
+            bench,
+            "_runtime_process_leader_exited_unreaped",
+            return_value=True,
+        ) as leader_exited, mock.patch.object(bench.os, "killpg") as killpg:
+            self.assertFalse(
+                bench._terminate_runtime_process_group(
+                    process,
+                    timeout_s=0.5,
+                    retirement=retirement,
+                )
+            )
+            self.assertFalse(
+                bench._terminate_runtime_process_group(
+                    process,
+                    timeout_s=0.5,
+                    retirement=retirement,
+                )
+            )
+
+        self.assertTrue(retirement.retired)
+        leader_exited.assert_called_once_with(4242)
+        self.assertEqual(
+            killpg.call_args_list,
+            [
+                mock.call(4242, 0),
+                mock.call(4242, bench.signal.SIGTERM),
+                mock.call(4242, 0),
+                mock.call(4242, bench.signal.SIGKILL),
+            ],
+        )
+        process.join.assert_called_once_with(0.5)
+
     @unittest.skipUnless(
         "fork" in bench.multiprocessing.get_all_start_methods(),
         "runtime process containment requires POSIX fork",
@@ -454,8 +493,15 @@ class RuntimeProcessContainmentTests(unittest.TestCase):
                 os.read(read_fd, 128).decode("ascii").split(),
             )
             self.assertNotEqual(supervisor_pgid, descendant_pid)
-            with self.assertRaises(ProcessLookupError):
-                os.killpg(supervisor_pgid, 0)
+            deadline = bench.time.monotonic() + 1.0
+            while True:
+                try:
+                    os.kill(descendant_pid, 0)
+                except ProcessLookupError:
+                    break
+                if bench.time.monotonic() >= deadline:
+                    self.fail("inherited runtime descendant survived group retirement")
+                bench.time.sleep(0.01)
         finally:
             os.close(read_fd)
             os.close(write_fd)
