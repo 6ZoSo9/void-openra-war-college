@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 import bench_joint_advance as bench
 
 INSPECTION_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_INSPECTION_V1"
-INSPECTION_SCHEMA_VERSION = 3
+INSPECTION_SCHEMA_VERSION = 4
 
 ARTIFACT_RECOVERY_ACTIONS = {
     "INSPECTION_ERROR_HOLD": "RETRY_READ_ONLY_INSPECTION_AFTER_OPERATOR_FIX",
@@ -50,6 +50,23 @@ SCHEMA_RECOVERY_ACTIONS = {
         "PRESERVE_AND_USE_MATCHING_HISTORICAL_VALIDATOR",
 }
 
+ARTIFACT_HOLD_STATES = frozenset({
+    "INSPECTION_ERROR_HOLD",
+    "RECEIPT_WITHOUT_FINAL_HOLD",
+    "COMMITTED_LOCAL_UNTRUSTED_WITH_FOREIGN_PENDING_HOLD",
+    "FINAL_RECEIPT_BINDING_MISMATCH_HOLD",
+    "FINAL_AND_PENDING_WITHOUT_RECEIPT",
+    "FINAL_WITHOUT_RECEIPT",
+    "PENDING_RESERVATION_ONLY",
+    "PENDING_REPORT_ONLY",
+    "UNCLASSIFIED_HOLD",
+})
+
+SCHEMA_HOLD_STATES = frozenset({
+    "CURRENT_SCHEMA_INVALID_HOLD",
+    "INCOMPATIBLE_SCHEMA_HOLD",
+})
+
 
 class InspectionFailure(bench.ContractError):
     """A read-only inspection failure with a stable automation reason code."""
@@ -78,6 +95,23 @@ def _operator_guidance(
     }
 
 
+def _overall_status(artifact_state: str, schema_state: str) -> str:
+    """Return one closed top-level status without collapsing its two causes."""
+    if artifact_state not in ARTIFACT_RECOVERY_ACTIONS:
+        raise bench.ContractError(
+            f"inspector artifact state has no overall status: {artifact_state}"
+        )
+    if schema_state not in SCHEMA_RECOVERY_ACTIONS:
+        raise bench.ContractError(
+            f"inspector schema state has no overall status: {schema_state}"
+        )
+    if artifact_state in ARTIFACT_HOLD_STATES or schema_state in SCHEMA_HOLD_STATES:
+        return "HOLD"
+    if artifact_state == "EMPTY" and schema_state == "SCHEMA_NOT_AVAILABLE":
+        return "NO_EVIDENCE"
+    return "REVIEW_REQUIRED"
+
+
 def _inspection_error_report(path: Path, error: BaseException) -> dict[str, Any]:
     if isinstance(error, InspectionFailure):
         reason_code = error.reason_code
@@ -94,6 +128,8 @@ def _inspection_error_report(path: Path, error: BaseException) -> dict[str, Any]
         "schema_version": INSPECTION_SCHEMA_VERSION,
         "output_path": str(Path(os.path.abspath(os.fspath(path)))),
         "classification": "INSPECTION_ERROR_HOLD",
+        "classification_scope": "ARTIFACT_ONLY",
+        "overall_status": "HOLD",
         "artifact_state": "INSPECTION_ERROR_HOLD",
         "schema_state": "SCHEMA_NOT_INSPECTED",
         "operator_guidance": _operator_guidance(
@@ -441,6 +477,8 @@ def inspect_namespace(path: Path) -> dict[str, Any]:
             "schema_version": INSPECTION_SCHEMA_VERSION,
             "output_path": str(path),
             "classification": artifact_state,
+            "classification_scope": "ARTIFACT_ONLY",
+            "overall_status": _overall_status(artifact_state, schema_state),
             "artifact_state": artifact_state,
             "schema_state": schema_state,
             "operator_guidance": operator_guidance,

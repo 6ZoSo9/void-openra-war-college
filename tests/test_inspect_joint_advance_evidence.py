@@ -57,6 +57,8 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "schema_version": INSPECT.INSPECTION_SCHEMA_VERSION,
             "output_path": report["output_path"],
             "classification": "INSPECTION_ERROR_HOLD",
+            "classification_scope": "ARTIFACT_ONLY",
+            "overall_status": "HOLD",
             "artifact_state": "INSPECTION_ERROR_HOLD",
             "schema_state": "SCHEMA_NOT_INSPECTED",
             "operator_guidance": {
@@ -133,6 +135,8 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             output = Path(directory) / "evidence.json"
             report = INSPECT.inspect_namespace(output)
             self.assertEqual(report["classification"], "EMPTY")
+            self.assertEqual(report["classification_scope"], "ARTIFACT_ONLY")
+            self.assertEqual(report["overall_status"], "NO_EVIDENCE")
             self.assertTrue(report["inspection_read_only"])
             self.assertFalse(report["countable"])
             self.assertEqual(
@@ -187,6 +191,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             after = {str(p): generation(p) for p in (output, receipt)}
             self.assertEqual(before, after)
             self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["overall_status"], "REVIEW_REQUIRED")
             self.assertTrue(report["final"]["report_schema_valid"])
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
@@ -219,6 +224,8 @@ class ReadOnlyInspectionTests(unittest.TestCase):
 
             self.assertEqual(before, {str(p): generation(p) for p in (output, receipt)})
             self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["classification_scope"], "ARTIFACT_ONLY")
+            self.assertEqual(report["overall_status"], "HOLD")
             self.assertEqual(report["artifact_state"], "COMMITTED_LOCAL_UNTRUSTED")
             self.assertEqual(report["schema_state"], "CURRENT_SCHEMA_INVALID_HOLD")
             self.assertFalse(report["final"]["report_schema_valid"])
@@ -255,6 +262,8 @@ class ReadOnlyInspectionTests(unittest.TestCase):
 
             self.assertEqual(before, {str(p): generation(p) for p in (output, receipt)})
             self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["classification_scope"], "ARTIFACT_ONLY")
+            self.assertEqual(report["overall_status"], "HOLD")
             self.assertEqual(report["artifact_state"], "COMMITTED_LOCAL_UNTRUSTED")
             self.assertEqual(report["schema_state"], "INCOMPATIBLE_SCHEMA_HOLD")
             self.assertFalse(report["final"]["report_schema_valid"])
@@ -278,6 +287,63 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertFalse(report["automatic_delete"])
             self.assertFalse(report["automatic_link"])
             self.assertFalse(report["automatic_rewrite"])
+
+    def test_cli_current_schema_invalid_emits_top_level_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            report_payload = json.loads(
+                benchmark_tests.EvidencePublicationTests.completed_failure_payload()
+            )
+            report_payload["cells"][1]["blocked_by"] = "c1-t8"
+            payload = bench.stable_json(report_payload).encode("utf-8")
+            write_0400(output, payload)
+            write_0400(
+                bench._commit_receipt_path(output),
+                bench._commit_receipt_payload(output, payload),
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SOURCE), "--output", str(output)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["classification_scope"], "ARTIFACT_ONLY")
+            self.assertEqual(report["schema_state"], "CURRENT_SCHEMA_INVALID_HOLD")
+            self.assertEqual(report["overall_status"], "HOLD")
+
+    def test_cli_incompatible_schema_emits_top_level_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            report_payload = json.loads(
+                benchmark_tests.EvidencePublicationTests.completed_failure_payload()
+            )
+            report_payload["schema_version"] = 8
+            report_payload["cells"][1]["blocked_by"] = "c1-t8"
+            payload = bench.stable_json(report_payload).encode("utf-8")
+            write_0400(output, payload)
+            write_0400(
+                bench._commit_receipt_path(output),
+                bench._commit_receipt_payload(output, payload),
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SOURCE), "--output", str(output)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["classification_scope"], "ARTIFACT_ONLY")
+            self.assertEqual(report["schema_state"], "INCOMPATIBLE_SCHEMA_HOLD")
+            self.assertEqual(report["overall_status"], "HOLD")
 
     def test_prior_schema_preserves_artifact_authority_across_topologies(self):
         report_payload = json.loads(
