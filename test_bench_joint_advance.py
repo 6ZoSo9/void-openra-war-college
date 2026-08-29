@@ -2247,6 +2247,43 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
 
 
+    async def test_channel_close_total_deadline_bounds_cancellation_resistant_close(self):
+        release = asyncio.Event()
+        cancellation_observed = asyncio.Event()
+
+        class CancellationResistantChannel:
+            async def close(self):
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    cancellation_observed.set()
+                    while not release.is_set():
+                        try:
+                            await release.wait()
+                        except asyncio.CancelledError:
+                            cancellation_observed.set()
+
+        started = asyncio.get_running_loop().time()
+        try:
+            failure = await asyncio.wait_for(
+                bench.close_channel_with_total_deadline(
+                    CancellationResistantChannel(), timeout_s=0.02,
+                ),
+                timeout=0.2,
+            )
+            elapsed = asyncio.get_running_loop().time() - started
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=0.1)
+            self.assertLess(elapsed, 0.15)
+            self.assertEqual(
+                failure,
+                "TimeoutError:total channel-close deadline 0.02s",
+            )
+        finally:
+            release.set()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+
     async def test_destroy_sessions_total_deadline_survives_cancellation_resistant_rpc(self):
         release = asyncio.Event()
         cancellation_observed = asyncio.Event()
