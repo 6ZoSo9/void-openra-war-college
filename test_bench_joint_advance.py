@@ -2139,6 +2139,101 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("daemon_retirement_required", payload["cleanup_terminals"])
 
 
+    async def test_run_owned_phase_total_deadline_bounds_cancellation_retirement(self):
+        release = asyncio.Event()
+        cancellation_observed = asyncio.Event()
+
+        async def fail():
+            raise RuntimeError("fixture owned-phase failure")
+
+        async def resist_cancellation():
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                cancellation_observed.set()
+                await release.wait()
+            return "late-result-without-evidence-authority"
+
+        started = asyncio.get_running_loop().time()
+        try:
+            with self.assertRaisesRegex(
+                bench.ContractError,
+                "cancellation retirement exceeded total deadline",
+            ):
+                await asyncio.wait_for(
+                    bench.run_owned_phase(
+                        {"fail": fail(), "resistant": resist_cancellation()},
+                        deadline_s=0.02,
+                    ),
+                    timeout=0.2,
+                )
+            elapsed = asyncio.get_running_loop().time() - started
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=0.1)
+            self.assertLess(elapsed, 0.15)
+        finally:
+            release.set()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+    async def test_late_create_response_cannot_enter_ownership_evidence(self):
+        release = asyncio.Event()
+        cancellation_observed = asyncio.Event()
+        late_response_returned = asyncio.Event()
+
+        class CancellationResistantCreateStub(self.Stub):
+            async def CreateSession(self, request):
+                if request.seed == 2050:
+                    raise RuntimeError("fixture create failure")
+                try:
+                    await asyncio.sleep(60)
+                except asyncio.CancelledError:
+                    cancellation_observed.set()
+                    while not release.is_set():
+                        try:
+                            await release.wait()
+                        except asyncio.CancelledError:
+                            cancellation_observed.set()
+                late_response_returned.set()
+                return types.SimpleNamespace(session_id=f"session-{request.seed}")
+
+        teardown_records = []
+        try:
+            with self.assertRaisesRegex(
+                bench.ContractError,
+                "cancellation retirement exceeded total deadline",
+            ):
+                await asyncio.wait_for(
+                    bench.run_repetition(
+                        stub=CancellationResistantCreateStub(),
+                        pb2=self.Pb2,
+                        message_to_dict=self.as_dict,
+                        concurrency=2,
+                        ticks=8,
+                        samples=1,
+                        seed_base=2050,
+                        repetition=0,
+                        rpc_timeout_s=0.02,
+                        teardown_timeout_s=0.02,
+                        teardown_records=teardown_records,
+                    ),
+                    timeout=0.2,
+                )
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=0.1)
+            self.assertEqual(len(teardown_records), 1)
+            self.assertEqual(teardown_records[0]["attempted_session_ids"], [])
+            self.assertTrue(teardown_records[0]["create_commit_response_ambiguous"])
+            self.assertTrue(teardown_records[0]["containment_required"])
+            self.assertEqual(
+                teardown_records[0]["cleanup_terminal"],
+                "daemon_retirement_required",
+            )
+        finally:
+            release.set()
+            await asyncio.wait_for(late_response_returned.wait(), timeout=0.5)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+
     async def test_destroy_sessions_total_deadline_survives_cancellation_resistant_rpc(self):
         release = asyncio.Event()
         cancellation_observed = asyncio.Event()

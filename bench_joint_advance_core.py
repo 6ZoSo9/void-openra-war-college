@@ -266,26 +266,46 @@ async def retire_phase_tasks(
     return ledger
 
 
+def _consume_late_owned_phase_completion(task: asyncio.Task[Any]) -> None:
+    """Consume a detached phase task terminal without granting it evidence authority."""
+    try:
+        task.result()
+    except BaseException:
+        pass
+
+
 async def run_owned_phase(
     operations: dict[str, Awaitable[Any]],
     *,
     deadline_s: float,
 ) -> dict[str, Any]:
-    """Return keyed results only after every phase task is retired.
+    """Return keyed results within one total phase-and-retirement deadline.
 
-    On the first exception or the shared deadline, every unfinished sibling is
-    cancelled and awaited before the exception escapes.  Callers may therefore
-    begin teardown only after no create/advance operation can still mutate the
-    runtime or its ownership ledger.
+    A failed or expired phase cancels unfinished siblings and uses only the
+    remaining phase budget for cancellation retirement.  Work that suppresses
+    cancellation is detached from result/evidence consumption and transferred
+    to the caller's session teardown or disposable-daemon containment path.
     """
     if not operations:
         raise ContractError("owned phase requires at least one operation")
     if not math.isfinite(deadline_s) or deadline_s <= 0:
         raise ContractError("owned phase deadline must be finite and positive")
+    deadline = time.monotonic() + deadline_s
     tasks = {key: asyncio.create_task(operation) for key, operation in operations.items()}
+    reverse = {task: key for key, task in tasks.items()}
+    observed_late: set[asyncio.Task[Any]] = set()
+
+    def observe_late(tasks_to_observe: Iterable[asyncio.Task[Any]]) -> None:
+        for task in tasks_to_observe:
+            if task not in observed_late:
+                observed_late.add(task)
+                task.add_done_callback(_consume_late_owned_phase_completion)
+
     try:
         done, pending = await asyncio.wait(
-            tasks.values(), timeout=deadline_s, return_when=asyncio.FIRST_EXCEPTION,
+            tasks.values(),
+            timeout=max(0.0, deadline - time.monotonic()),
+            return_when=asyncio.FIRST_EXCEPTION,
         )
         failure: BaseException | None = None
         for key in sorted(tasks):
@@ -298,7 +318,27 @@ async def run_owned_phase(
         if failure is not None or pending:
             for task in pending:
                 task.cancel()
-            await asyncio.gather(*tasks.values(), return_exceptions=True)
+            retired: set[asyncio.Task[Any]] = set()
+            unretired = set(pending)
+            if pending:
+                retired, unretired = await asyncio.wait(
+                    pending,
+                    timeout=max(0.0, deadline - time.monotonic()),
+                )
+                for task in retired:
+                    _consume_late_owned_phase_completion(task)
+            if unretired:
+                observe_late(unretired)
+                keys = ",".join(sorted(reverse[task] for task in unretired))
+                if failure is not None:
+                    raise ContractError(
+                        f"owned phase failed with {type(failure).__name__}: {failure}; "
+                        "cancellation retirement exceeded total deadline for "
+                        f"operation keys: {keys}"
+                    ) from failure
+                raise asyncio.TimeoutError(
+                    f"owned phase exceeded {deadline_s}s with unretired operation keys: {keys}"
+                )
             if failure is not None:
                 raise failure
             raise asyncio.TimeoutError(f"owned phase exceeded {deadline_s}s")
@@ -307,8 +347,7 @@ async def run_owned_phase(
         unfinished = [task for task in tasks.values() if not task.done()]
         for task in unfinished:
             task.cancel()
-        if unfinished:
-            await asyncio.gather(*unfinished, return_exceptions=True)
+        observe_late(unfinished)
 
 
 def validate_provenance(
@@ -2245,6 +2284,7 @@ async def run_repetition(
     }
     create_phase_started = False
     create_phase_complete = False
+    create_phase_accepting_results = False
     end_to_end_started = monotonic_clock()
     measured_wall_s: float | None = None
     try:
@@ -2258,6 +2298,8 @@ async def run_repetition(
                 )),
                 timeout=rpc_timeout_s,
             )
+            if not create_phase_accepting_results:
+                raise ContractError("CreateSession response arrived after owned phase terminal")
             # Record ownership immediately: if a sibling create fails or the
             # phase is cancelled, this session still has to be destroyed.
             if not isinstance(response.session_id, str) or not response.session_id:
@@ -2267,11 +2309,15 @@ async def run_repetition(
             return slot, response.session_id, (time.monotonic() - t0) * 1000
 
         create_phase_started = True
-        created_by_task = await run_owned_phase(
-            {str(slot): create(slot) for slot in range(concurrency)},
-            deadline_s=rpc_timeout_s,
-        )
-        create_phase_complete = True
+        create_phase_accepting_results = True
+        try:
+            created_by_task = await run_owned_phase(
+                {str(slot): create(slot) for slot in range(concurrency)},
+                deadline_s=rpc_timeout_s,
+            )
+            create_phase_complete = True
+        finally:
+            create_phase_accepting_results = False
         created = list(created_by_task.values())
         created.sort(key=lambda item: item[0])
         if [item[0] for item in created] != list(range(concurrency)):
