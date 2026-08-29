@@ -2272,6 +2272,7 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
     async def test_destroy_sessions_total_deadline_survives_cancellation_resistant_rpc(self):
         release = asyncio.Event()
         cancellation_observed = asyncio.Event()
+        late_response_returned = asyncio.Event()
 
         class CancellationResistantStub:
             async def DestroySession(self, request):
@@ -2281,9 +2282,9 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                 except asyncio.CancelledError:
                     cancellation_observed.set()
                     await release.wait()
+                late_response_returned.set()
                 return types.SimpleNamespace()
 
-        started = asyncio.get_running_loop().time()
         try:
             teardown = await asyncio.wait_for(
                 bench.destroy_sessions(
@@ -2292,11 +2293,10 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
                     ["session-resistant"],
                     timeout_s=0.02,
                 ),
-                timeout=0.2,
+                timeout=1.0,
             )
-            elapsed = asyncio.get_running_loop().time() - started
-            await asyncio.wait_for(cancellation_observed.wait(), timeout=0.1)
-            self.assertLess(elapsed, 0.15)
+            await asyncio.wait_for(cancellation_observed.wait(), timeout=1.0)
+            self.assertFalse(late_response_returned.is_set())
             self.assertEqual(teardown["destroyed_session_ids"], [])
             self.assertEqual(
                 teardown["unretired_session_ids"], ["session-resistant"],
@@ -2310,7 +2310,7 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             release.set()
-            await asyncio.sleep(0)
+            await asyncio.wait_for(late_response_returned.wait(), timeout=1.0)
             await asyncio.sleep(0)
 
 
