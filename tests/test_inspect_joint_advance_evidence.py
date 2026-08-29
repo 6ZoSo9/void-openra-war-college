@@ -245,6 +245,38 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             )
             self.assertFalse(report["operator_guidance"]["automatic_action_allowed"])
 
+    def test_receipt_bound_completed_matrix_failure_is_top_level_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = benchmark_tests.EvidencePublicationTests.completed_failure_payload()
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+            before = {str(path): generation(path) for path in (output, receipt)}
+
+            report = INSPECT.inspect_namespace(output)
+
+            self.assertEqual(
+                before, {str(path): generation(path) for path in (output, receipt)}
+            )
+            self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(report["schema_state"], "CURRENT_SCHEMA_VALID")
+            self.assertEqual(report["final"]["report_terminal"], "completed")
+            self.assertEqual(
+                report["final"]["report_cell_terminals"],
+                ["timeout", "not_executed"],
+            )
+            self.assertEqual(
+                report["evidence_state"],
+                "COMPLETED_RUNTIME_WITH_CELL_FAILURE_HOLD",
+            )
+            self.assertEqual(report["overall_status"], "HOLD")
+            self.assertEqual(
+                report["operator_guidance"]["evidence_action"],
+                "PRESERVE_AND_REVIEW_FAILED_MATRIX_BEFORE_RETRY",
+            )
+            self.assertFalse(report["operator_guidance"]["automatic_action_allowed"])
+
     def test_receipt_bound_current_schema_invalid_report_is_explicit_hold(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
