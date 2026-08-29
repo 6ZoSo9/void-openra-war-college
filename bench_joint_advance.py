@@ -4,10 +4,11 @@
 The full reviewed source is retained byte-for-byte in
 ``bench_joint_advance_core.py``.  It is executed into this module namespace so
 existing imports, monkeypatch-based falsifiers, and function globals keep the
-same behavior.  This facade overrides only the local evidence commit primitive:
-a durable receipt is an irreversible commit boundary, so any later cleanup or
-verification failure may be reported but may never rewrite the committed report
-inode or downgrade its terminal.
+same behavior.  This facade overrides the local evidence commit and post-commit
+retirement primitives: a durable receipt is an irreversible commit boundary, so
+any later cleanup or verification failure may be reported but may never rewrite
+the committed report inode, downgrade its terminal, or delete a replacement
+pending generation.
 """
 
 import sys as _BootstrapSys
@@ -36,6 +37,21 @@ globals()["__file__"] = _BOOTSTRAP_FILE
 
 def _post_commit_error(error: BaseException, stage: str) -> str:
     return f"{stage}:{type(error).__name__}:{error}"
+
+
+def _retire_pending(
+    parent_descriptor: int,
+    staging_name: str,
+) -> tuple[bool, str | None]:
+    """Preserve post-commit pending state without compare-then-delete authority.
+
+    A successful exact-generation check cannot authorize a later pathname
+    ``unlink``: another actor can replace that child generation between the
+    check and deletion.  Until an atomic generation-conditional removal
+    primitive exists, leave the alias or replacement intact for explicit
+    reconciliation instead of risking deletion of foreign state.
+    """
+    return False, None
 
 
 def _publish_commit_receipt_create_only(
