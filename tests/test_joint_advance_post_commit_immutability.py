@@ -85,6 +85,32 @@ class PostCommitImmutabilityTests(unittest.TestCase):
             self.assertEqual(output.read_bytes(), payload)
             self.assertTrue(publication["commit_receipt"])
 
+    def test_successful_commit_retains_exact_owned_pending_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            pending = bench._pending_path(output)
+            payload = EvidencePublicationTests.payload()
+
+            publication = bench.publish_evidence_create_only(output, payload)
+
+            self.assertTrue(output.exists())
+            self.assertTrue(pending.exists())
+            output_stat = output.stat()
+            pending_stat = pending.stat()
+            self.assertEqual(
+                (pending_stat.st_dev, pending_stat.st_ino),
+                (output_stat.st_dev, output_stat.st_ino),
+            )
+            self.assertEqual(pending_stat.st_nlink, 2)
+            self.assertEqual(output_stat.st_nlink, 2)
+            self.assertEqual(pending_stat.st_mode & 0o777, 0o400)
+            self.assertEqual(output_stat.st_mode & 0o777, 0o400)
+            self.assertEqual(pending.read_bytes(), payload)
+            self.assertEqual(output.read_bytes(), payload)
+            self.assertTrue(publication["commit_receipt"])
+            self.assertFalse(publication["pending_retired"])
+            self.assertIsNone(publication["pending_retirement_error"])
+
     def test_commit_receipt_post_fsync_verification_failure_is_warning_not_rewrite(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
