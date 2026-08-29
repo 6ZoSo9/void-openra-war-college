@@ -3071,6 +3071,7 @@ def _runtime_supervisor_child(
             raise ContractError(
                 "runtime supervisor child did not establish process-group ownership"
             )
+        _enable_runtime_child_subreaper()
         connection.send(("READY", pid, pgid))
         start = connection.recv()
         if start != ("START", pid, pgid):
@@ -3078,6 +3079,10 @@ def _runtime_supervisor_child(
                 "runtime supervisor child received invalid start authority"
             )
         outcome = asyncio.run(execute_runtime(args, parameters, expected_provenance))
+        if _runtime_process_group_has_owned_children(pgid):
+            raise ContractError(
+                "runtime supervisor outcome retained an inherited process-group member"
+            )
         connection.send(("OUTCOME", outcome))
     except (BrokenPipeError, EOFError, OSError):
         pass
@@ -3118,6 +3123,52 @@ class RuntimeProcessGroupRetirement:
 
     pgid: int
     retired: bool = False
+
+
+def _enable_runtime_child_subreaper() -> None:
+    """Make orphaned runtime descendants remain owned by the supervisor child."""
+    if not sys.platform.startswith("linux"):
+        raise ContractError("runtime supervisor requires Linux child-subreaper containment")
+    library = ctypes.CDLL(ctypes.util.find_library("c") or None, use_errno=True)
+    prctl = library.prctl
+    prctl.argtypes = [
+        ctypes.c_int,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+    ]
+    prctl.restype = ctypes.c_int
+    # Linux prctl(2): PR_SET_CHILD_SUBREAPER = 36.
+    if prctl(36, 1, 0, 0, 0) != 0:
+        error_number = ctypes.get_errno()
+        raise ContractError(
+            "runtime supervisor could not establish child-subreaper ownership"
+        ) from OSError(error_number, os.strerror(error_number))
+
+
+def _runtime_process_group_has_owned_children(pgid: int) -> bool:
+    """Return whether the subreaper still owns any child in its process group.
+
+    ``waitid(..., WNOWAIT)`` observes exited children without reaping them and
+    returns ``None`` when matching children are live but have no waitable state.
+    It raises ``ChildProcessError`` only when no matching child exists.  Thus a
+    clean runtime outcome requires that exception; every other result is an
+    inherited-process HOLD that the parent will retire after the terminal.
+    """
+    try:
+        os.waitid(
+            os.P_PGID,
+            pgid,
+            os.WEXITED | os.WNOHANG | os.WNOWAIT,
+        )
+    except ChildProcessError:
+        return False
+    except OSError as error:
+        raise ContractError(
+            "runtime supervisor cannot verify owned process-group children"
+        ) from error
+    return True
 
 
 def _runtime_process_leader_exited_unreaped(pgid: int) -> bool:
