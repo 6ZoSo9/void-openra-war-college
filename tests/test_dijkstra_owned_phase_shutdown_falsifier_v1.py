@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Source-only falsifier for detached owned-phase event-loop shutdown.
 
-This test deliberately proves the current HOLD rather than claiming closure.  A
+This test deliberately proves the current HOLD rather than claiming closure. A
 cancellation-resistant operation can outlive ``run_owned_phase``'s logical
-terminal, then keep ``asyncio.run`` in its pending-task shutdown gather forever.
-The parent process owns the destructive containment boundary so the test itself
-always retires the child without contacting the OpenRA runtime.
+terminal while remaining an owned live task, then keep ``asyncio.run`` in its
+pending-task shutdown gather forever. The parent process owns the destructive
+containment boundary so the test itself always retires the child without
+contacting the OpenRA runtime.
 """
 
 from __future__ import annotations
@@ -46,6 +47,22 @@ def _shutdown_falsifier_child(connection: object) -> None:
                 deadline_s=PHASE_DEADLINE_S,
             )
         except asyncio.TimeoutError:
+            current = asyncio.current_task()
+            pending_owned = tuple(
+                task
+                for task in asyncio.all_tasks()
+                if task is not current and not task.done()
+            )
+            connection.send(  # type: ignore[attr-defined]
+                f"PENDING_OWNED_TASKS_AT_LOGICAL_TERMINAL={len(pending_owned)}"
+            )
+            # The falsifier is only meaningful if run_owned_phase has already
+            # returned authority to its caller while the stubborn operation is
+            # still live and owned by this event loop.
+            if len(pending_owned) != 1:
+                raise AssertionError(
+                    "expected exactly one live detached owned task at logical terminal"
+                )
             connection.send("LOGICAL_TERMINAL")  # type: ignore[attr-defined]
             return
         raise AssertionError("owned phase unexpectedly succeeded")
@@ -67,22 +84,33 @@ class OwnedPhaseShutdownFalsifierTests(unittest.TestCase):
             self.assertTrue(parent.poll(PARENT_OBSERVATION_S), "child never started owned operation")
             self.assertEqual(parent.recv(), "TASK_STARTED")
 
-            # The phase deadline issues the first cancellation.  The operation
+            # The phase deadline issues the first cancellation. The operation
             # deliberately survives it, so run_owned_phase must detach it and
             # reach its logical timeout terminal.
             self.assertTrue(parent.poll(PARENT_OBSERVATION_S), "phase cancellation was never observed")
             self.assertEqual(parent.recv(), "TASK_CANCEL_IGNORED_1")
+            self.assertTrue(
+                parent.poll(PARENT_OBSERVATION_S),
+                "live-task ownership at logical terminal was never observed",
+            )
+            self.assertEqual(
+                parent.recv(),
+                "PENDING_OWNED_TASKS_AT_LOGICAL_TERMINAL=1",
+            )
             self.assertTrue(parent.poll(PARENT_OBSERVATION_S), "owned phase never reached logical terminal")
             self.assertEqual(parent.recv(), "LOGICAL_TERMINAL")
 
             # Returning from scenario() makes asyncio.run enter loop shutdown,
-            # where it cancels pending tasks again.  Prove that this distinct
+            # where it cancels pending tasks again. Prove that this distinct
             # shutdown cancellation is also ignored before checking the hang.
-            self.assertTrue(parent.poll(PARENT_OBSERVATION_S), "asyncio.run shutdown cancellation was never observed")
+            self.assertTrue(
+                parent.poll(PARENT_OBSERVATION_S),
+                "asyncio.run shutdown cancellation was never observed",
+            )
             self.assertEqual(parent.recv(), "TASK_CANCEL_IGNORED_2")
 
             # The logical phase terminal has already been published and the
-            # shutdown cancellation has already fired.  The process must still
+            # shutdown cancellation has already fired. The process must still
             # remain alive because asyncio.run is waiting for the detached task
             # to retire.
             process.join(CHILD_RETIREMENT_S)
