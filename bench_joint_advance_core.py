@@ -3205,6 +3205,7 @@ def execute_runtime_supervised(
     child.close()
     message: tuple[Any, ...] | None = None
     process_group_ready = False
+    terminal_pipe_closed = False
     try:
         if not parent.poll(startup_timeout_s):
             _terminate_runtime_process(
@@ -3246,6 +3247,7 @@ def execute_runtime_supervised(
             try:
                 message = parent.recv()
             except EOFError:
+                terminal_pipe_closed = True
                 message = (
                     "ERROR",
                     "ChildProcessError",
@@ -3261,6 +3263,16 @@ def execute_runtime_supervised(
                 f"runtime supervisor exceeded total deadline: {timeout_s}s; "
                 "child and inherited daemon process group retired"
             )
+        if terminal_pipe_closed:
+            containment = (
+                "child and inherited daemon process group retired"
+                if process_group_containment_used
+                else "owned process group was already retired"
+            )
+            raise ContractError(
+                "runtime supervisor child closed its terminal pipe without a message; "
+                f"{containment}"
+            )
         if process_group_containment_used:
             raise ContractError(
                 "runtime supervisor child published a terminal but failed process-group "
@@ -3274,17 +3286,19 @@ def execute_runtime_supervised(
             )
         raise ContractError("runtime supervisor child returned a malformed terminal")
     finally:
-        if process.is_alive():
-            if process_group_ready:
-                _terminate_runtime_process_group(
-                    process,
-                    timeout_s=retirement_timeout_s,
-                )
-            else:
-                _terminate_runtime_process(
-                    process,
-                    timeout_s=retirement_timeout_s,
-                )
+        if process_group_ready:
+            # READY authenticates the child's PID as the owned process-group ID.
+            # The group can outlive its leader, so leader liveness must never gate
+            # post-READY containment on terminal, error, EOF, or exception paths.
+            _terminate_runtime_process_group(
+                process,
+                timeout_s=retirement_timeout_s,
+            )
+        elif process.is_alive():
+            _terminate_runtime_process(
+                process,
+                timeout_s=retirement_timeout_s,
+            )
         parent.close()
         process.close()
 

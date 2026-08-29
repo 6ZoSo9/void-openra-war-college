@@ -407,6 +407,64 @@ class RuntimeProcessContainmentTests(unittest.TestCase):
                 retirement_timeout_s=0.5,
             )
 
+    @unittest.skipUnless(
+        "fork" in bench.multiprocessing.get_all_start_methods(),
+        "runtime process containment requires POSIX fork",
+    )
+    def test_supervisor_retires_process_group_after_leader_exits(self):
+        read_fd, write_fd = os.pipe()
+
+        async def runtime_with_orphaned_descendant(*_args):
+            descendant = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    "import time;print('READY',flush=True);time.sleep(60)",
+                ],
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(descendant.stdout.readline(), "READY\n")
+            os.write(
+                write_fd,
+                f"{os.getpid()} {descendant.pid}\n".encode("ascii"),
+            )
+            os._exit(7)
+
+        supervisor_pgid = None
+        descendant_pid = None
+        try:
+            with mock.patch.object(
+                bench,
+                "execute_runtime",
+                new=runtime_with_orphaned_descendant,
+            ), self.assertRaisesRegex(
+                bench.ContractError,
+                "closed its terminal pipe without a message",
+            ):
+                bench.execute_runtime_supervised(
+                    types.SimpleNamespace(),
+                    {},
+                    {},
+                    timeout_s=1.0,
+                    retirement_timeout_s=0.5,
+                )
+            supervisor_pgid, descendant_pid = map(
+                int,
+                os.read(read_fd, 128).decode("ascii").split(),
+            )
+            self.assertNotEqual(supervisor_pgid, descendant_pid)
+            with self.assertRaises(ProcessLookupError):
+                os.killpg(supervisor_pgid, 0)
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+            if supervisor_pgid is not None:
+                try:
+                    os.killpg(supervisor_pgid, bench.signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
 
 class EvidenceContractTests(unittest.TestCase):
     def setUp(self):
