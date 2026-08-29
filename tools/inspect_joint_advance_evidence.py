@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 import bench_joint_advance as bench
 
 INSPECTION_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_INSPECTION_V1"
-INSPECTION_SCHEMA_VERSION = 6
+INSPECTION_SCHEMA_VERSION = 7
 
 ARTIFACT_RECOVERY_ACTIONS = {
     "INSPECTION_ERROR_HOLD": "RETRY_READ_ONLY_INSPECTION_AFTER_OPERATOR_FIX",
@@ -263,6 +263,7 @@ def _artifact(
         "report_schema_version": None,
         "report_terminal": None,
         "report_cell_terminals": None,
+        "report_matrix_summary": None,
         "validation_error": None,
     }
     if not generation["regular_file"] or generation["symlink"]:
@@ -303,6 +304,30 @@ def _artifact(
                 row["report_cell_terminals"] = [
                     cell["terminal"] for cell in report["cells"]
                 ]
+                first_non_success = next(
+                    (
+                        {
+                            "key": cell["key"],
+                            "terminal": cell["terminal"],
+                        }
+                        for cell in report["cells"]
+                        if cell["terminal"] != "success"
+                    ),
+                    None,
+                )
+                row["report_matrix_summary"] = {
+                    "cell_count": len(report["cells"]),
+                    "success_count": sum(
+                        cell["terminal"] == "success" for cell in report["cells"]
+                    ),
+                    "non_success_count": sum(
+                        cell["terminal"] != "success" for cell in report["cells"]
+                    ),
+                    "blocked_cell_count": sum(
+                        cell["terminal"] == "not_executed" for cell in report["cells"]
+                    ),
+                    "first_non_success": first_non_success,
+                }
     return row, payload, descriptor
 
 
@@ -442,12 +467,12 @@ def _evidence_state(
     if primary_report.get("report_schema_valid") is not True:
         return "EVIDENCE_NOT_INSPECTED"
     if primary_report.get("report_terminal") == "completed":
-        cell_terminals = primary_report.get("report_cell_terminals")
-        if not isinstance(cell_terminals, list):
+        matrix_summary = primary_report.get("report_matrix_summary")
+        if not isinstance(matrix_summary, dict):
             raise bench.ContractError(
-                "inspector valid completed report has no cell terminal summary"
+                "inspector valid completed report has no matrix summary"
             )
-        if any(terminal != "success" for terminal in cell_terminals):
+        if matrix_summary.get("non_success_count", 0) > 0:
             return "COMPLETED_RUNTIME_WITH_CELL_FAILURE_HOLD"
         return "COMPLETED_RUNTIME_REVIEW_REQUIRED"
     return "FAILED_RUNTIME_HOLD"
