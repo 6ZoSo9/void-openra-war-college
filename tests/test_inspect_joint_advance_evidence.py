@@ -173,7 +173,10 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertTrue(report["final"]["report_schema_valid"])
             self.assertEqual(report["final"]["report_cell_terminals"], ["success"])
             self.assertEqual(report["final"]["report_matrix_summary"], {
+                "planned_cell_count": 1,
                 "cell_count": 1,
+                "missing_cell_count": 0,
+                "first_missing": None,
                 "success_count": 1,
                 "non_success_count": 0,
                 "blocked_cell_count": 0,
@@ -202,7 +205,10 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 ["timeout", "not_executed"],
             )
             self.assertEqual(report["final"]["report_matrix_summary"], {
+                "planned_cell_count": 2,
                 "cell_count": 2,
+                "missing_cell_count": 0,
+                "first_missing": None,
                 "success_count": 0,
                 "non_success_count": 2,
                 "blocked_cell_count": 1,
@@ -234,14 +240,17 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             ["timeout", "not_executed", "not_executed", "not_executed"],
         )
         self.assertEqual(summary, {
+            "planned_cell_count": 4,
             "cell_count": 4,
+            "missing_cell_count": 0,
+            "first_missing": None,
             "success_count": 0,
             "non_success_count": 4,
             "blocked_cell_count": 3,
             "first_non_success": {"key": "c8-t8", "terminal": "timeout"},
         })
 
-    def test_matrix_summary_preserves_partial_and_empty_valid_attempts(self):
+    def test_matrix_summary_exposes_partial_and_empty_missing_cells(self):
         parameters = {
             "concurrency": [8, 1],
             "tick_batches": [8, 1],
@@ -257,7 +266,10 @@ class ReadOnlyInspectionTests(unittest.TestCase):
 
         self.assertEqual(terminals, ["timeout"])
         self.assertEqual(summary, {
+            "planned_cell_count": 4,
             "cell_count": 1,
+            "missing_cell_count": 3,
+            "first_missing": "c8-t1",
             "success_count": 0,
             "non_success_count": 1,
             "blocked_cell_count": 0,
@@ -271,7 +283,10 @@ class ReadOnlyInspectionTests(unittest.TestCase):
 
         self.assertEqual(terminals, [])
         self.assertEqual(summary, {
+            "planned_cell_count": 4,
             "cell_count": 0,
+            "missing_cell_count": 4,
+            "first_missing": "c8-t8",
             "success_count": 0,
             "non_success_count": 0,
             "blocked_cell_count": 0,
