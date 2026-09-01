@@ -314,8 +314,6 @@ def _retire_runtime_process_group(
     signal_grace_s: float = _RUNTIME_CHILD_SIGNAL_GRACE_S,
 ) -> None:
     """Retire one process group without multiplying phase-local wait budgets."""
-    if pgid != process.pid:
-        raise ContractError("runtime process-group identity is not bound to child PID")
     for label, value in (
         ("natural_grace_s", natural_grace_s),
         ("signal_grace_s", signal_grace_s),
@@ -329,6 +327,13 @@ def _retire_runtime_process_group(
     natural_deadline = started_at + natural_grace_s
     term_deadline = natural_deadline + signal_grace_s
     kill_deadline = term_deadline + signal_grace_s
+    if not all(
+        math.isfinite(value)
+        for value in (started_at, natural_deadline, term_deadline, kill_deadline)
+    ):
+        raise ContractError("derived runtime retirement deadlines must be finite")
+    if pgid != process.pid:
+        raise ContractError("runtime process-group identity is not bound to child PID")
 
     process.join(_runtime_retirement_remaining(natural_deadline))
     if not process.is_alive() and not _process_group_exists(pgid):
