@@ -136,10 +136,12 @@ def _validate_partition_rows(
             f"{partition} row cardinality {len(rows)} does not equal precommit {expected_count}"
         )
 
-    normalized: list[dict[str, object]] = []
-    seen = bytearray(expected_count)
-    for row in rows:
-        if not isinstance(row, Mapping) or set(row) != ROW_KEYS:
+    # The precommit already defines one exact total row order.  Requiring the
+    # producer to emit that order lets coverage be proved in one pass with
+    # constant auxiliary state: no 2.4-million-byte bitmap, duplicate row
+    # copies, or O(n log n) normalization sort at the maximum valid plan.
+    for row_index, row in enumerate(rows):
+        if type(row) is not dict or set(row) != ROW_KEYS:
             raise ResultAuditError(f"{partition} row keys are not schema-exact")
         if row["partition"] != partition:
             raise ResultAuditError(f"{partition} container includes a cross-partition row")
@@ -168,9 +170,10 @@ def _validate_partition_rows(
             + (sample_index * repetitions + repetition_index) * concurrency
             + slot
         )
-        if seen[ordinal]:
-            raise ResultAuditError(f"{partition} contains a duplicate result row")
-        seen[ordinal] = 1
+        if ordinal != row_index:
+            raise ResultAuditError(
+                f"{partition} contains a duplicate, missing, or noncanonical result row order"
+            )
 
         outcome_digest = row["outcome_digest"]
         binding = row["result_binding_sha256"]
@@ -194,20 +197,7 @@ def _validate_partition_rows(
             raise ResultAuditError(
                 f"{partition} outcome is not bound to its exact row identity"
             )
-        normalized.append(dict(row))
-
-    if not all(seen):
-        raise ResultAuditError(f"{partition} result coverage differs from the precommit")
-    return sorted(
-        normalized,
-        key=lambda row: (
-            row["concurrency"],
-            row["tick_batches"],
-            row["sample_index"],
-            row["repetition_index"],
-            row["slot"],
-        ),
-    )
+    return rows
 
 
 def _bundle_core(

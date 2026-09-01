@@ -104,6 +104,21 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
         rows[-1] = copy.deepcopy(rows[0])
         self.assert_hold(bundle, record, manifest, "duplicate")
 
+    def test_reordered_valid_rows_fail_closed_without_normalization(self) -> None:
+        manifest, record, bundle = fixture()
+        rows = bundle["runs"]["held_out"]
+        rows[0], rows[1] = rows[1], rows[0]
+        self.assert_hold(bundle, record, manifest, "noncanonical")
+
+    def test_canonical_partition_validation_reuses_the_admitted_row_list(self) -> None:
+        manifest, record, bundle = fixture()
+        rows = bundle["runs"]["calibration"]
+        verified_record = record_contract.validate_record(record, manifest)
+        validated = audit._validate_partition_rows(
+            verified_record, "calibration", rows
+        )
+        self.assertIs(validated, rows)
+
     def test_cross_partition_relabel_fails_closed(self) -> None:
         manifest, record, bundle = fixture()
         row = bundle["runs"]["held_out"][0]
