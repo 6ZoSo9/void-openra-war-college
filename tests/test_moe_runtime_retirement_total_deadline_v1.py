@@ -78,6 +78,21 @@ class RuntimeRetirementTotalDeadlineTests(unittest.TestCase):
         self.assertTrue(all(timeout >= 0 for timeout in process.join_timeouts))
         self.assertLessEqual(clock.now, 0.300001)
 
+    def test_group_poll_sleep_never_exceeds_remaining_budget(self):
+        clock = _Clock()
+
+        with mock.patch.object(
+            bench.time, "monotonic", side_effect=clock.monotonic
+        ), mock.patch.object(
+            bench.time, "sleep", side_effect=clock.sleep
+        ), mock.patch.object(
+            bench, "_process_group_exists", return_value=True
+        ):
+            retired = bench._wait_process_group_absent(4242, 0.005)
+
+        self.assertFalse(retired)
+        self.assertLessEqual(clock.now, 0.005001)
+
     def test_nonfinite_or_invalid_grace_fails_before_process_contact(self):
         for value in (-0.1, float("nan"), float("inf"), float("-inf"), True, "0.1"):
             process = mock.Mock()
