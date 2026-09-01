@@ -299,6 +299,11 @@ def _signal_process_group(pgid: int, signal_number: int) -> None:
         return
 
 
+def _runtime_retirement_remaining(deadline_s: float) -> float:
+    """Return the nonnegative remainder of one monotonic retirement budget."""
+    return max(0.0, deadline_s - time.monotonic())
+
+
 def _retire_runtime_process_group(
     process: Any,
     pgid: int,
@@ -306,22 +311,36 @@ def _retire_runtime_process_group(
     natural_grace_s: float = _RUNTIME_CHILD_NATURAL_RETIREMENT_S,
     signal_grace_s: float = _RUNTIME_CHILD_SIGNAL_GRACE_S,
 ) -> None:
-    """Retire the child and every inherited runtime descendant within finite bounds."""
+    """Retire one process group without multiplying phase-local wait budgets."""
     if pgid != process.pid:
         raise ContractError("runtime process-group identity is not bound to child PID")
+    if natural_grace_s < 0 or signal_grace_s < 0:
+        raise ContractError("runtime process-group retirement grace must be nonnegative")
 
-    process.join(natural_grace_s)
+    started_at = time.monotonic()
+    natural_deadline = started_at + natural_grace_s
+    term_deadline = natural_deadline + signal_grace_s
+    kill_deadline = term_deadline + signal_grace_s
+
+    process.join(_runtime_retirement_remaining(natural_deadline))
     if not process.is_alive() and not _process_group_exists(pgid):
         return
 
     _signal_process_group(pgid, _BootstrapSignal.SIGTERM)
-    process.join(signal_grace_s)
-    if not process.is_alive() and _wait_process_group_absent(pgid, signal_grace_s):
+    process.join(_runtime_retirement_remaining(term_deadline))
+    if (
+        not process.is_alive()
+        and _wait_process_group_absent(
+            pgid, _runtime_retirement_remaining(term_deadline)
+        )
+    ):
         return
 
     _signal_process_group(pgid, _BootstrapSignal.SIGKILL)
-    process.join(signal_grace_s)
-    if process.is_alive() or not _wait_process_group_absent(pgid, signal_grace_s):
+    process.join(_runtime_retirement_remaining(kill_deadline))
+    if process.is_alive() or not _wait_process_group_absent(
+        pgid, _runtime_retirement_remaining(kill_deadline)
+    ):
         raise ContractError(
             f"runtime process-group containment failed to retire pgid={pgid}"
         )
