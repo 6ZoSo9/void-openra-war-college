@@ -6,7 +6,9 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import stat
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -16,6 +18,19 @@ DOCUMENT = Path(__file__).parents[1] / "VOID_LAB_REPRODUCIBLE_SETUP_V1.md"
 KNOWN_BYTES = b"preserved-prior-receipt\n"
 ATTEMPT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 RUNTIME_PATH_EXECUTED = False
+REQUIRED_HOST_COMMANDS = (
+    "uname",
+    "python3",
+    "git",
+    "awk",
+    "dirname",
+    "ln",
+    "mktemp",
+    "rm",
+    "sha256sum",
+    "stat",
+    "sync",
+)
 
 
 def receipt_destination(root: Path, attempt_id: str) -> Path:
@@ -76,6 +91,16 @@ def classify_published_receipt(destination: Path, witness: os.stat_result) -> st
 def prove_document_contract() -> None:
     text = DOCUMENT.read_text(encoding="utf-8")
     required = (
+        '# VOID_LAB_HOST_PREFLIGHT_V1_BEGIN',
+        'void_require_lab_setup_host() (',
+        'for command in uname python3 git awk dirname ln mktemp rm sha256sum stat sync; do',
+        "test \"$(uname -s)\" = 'Linux'",
+        'mktemp -d "${TMPDIR:-/tmp}/void-lab-prereq.XXXXXX"',
+        'ln -- "$VOID_LAB_PREFLIGHT_DIR/source" "$VOID_LAB_PREFLIGHT_DIR/link"',
+        "stat -c '%d:%i' \"$VOID_LAB_PREFLIGHT_DIR/source\"",
+        'sync -f "$VOID_LAB_PREFLIGHT_DIR"',
+        'HOLD_VOID_LAB_SETUP_HOST_PREREQUISITES',
+        '# VOID_LAB_HOST_PREFLIGHT_V1_END',
         'void_publish_lab_receipt() (',
         'VOID_LAB_RECEIPT_ID="$1"',
         '[a-z0-9][a-z0-9_-]{0,63}',
@@ -98,6 +123,85 @@ def prove_document_contract() -> None:
             raise RuntimeError(f"documentation omits receipt guard: {fragment}")
     if '> "$VOID_LAB_RECEIPT"' in text:
         raise RuntimeError("documentation directly redirects over final receipt")
+
+
+def documented_host_preflight() -> str:
+    text = DOCUMENT.read_text(encoding="utf-8")
+    begin = "# VOID_LAB_HOST_PREFLIGHT_V1_BEGIN"
+    end = "# VOID_LAB_HOST_PREFLIGHT_V1_END"
+    start = text.index(begin)
+    finish = text.index(end, start) + len(end)
+    return text[start:finish] + "\n"
+
+
+def host_command_paths() -> dict[str, str]:
+    paths: dict[str, str] = {}
+    for command in REQUIRED_HOST_COMMANDS:
+        resolved = shutil.which(command)
+        if resolved is None:
+            raise RuntimeError(f"proof host lacks required control command: {command}")
+        paths[command] = resolved
+    return paths
+
+
+def run_host_preflight(
+    root: Path,
+    command_paths: dict[str, str],
+    *,
+    missing: str | None = None,
+    substituted: str | None = None,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    bin_dir = root / "bin"
+    bin_dir.mkdir(parents=True)
+    for command, resolved in command_paths.items():
+        target = bin_dir / command
+        if command == missing:
+            continue
+        if command == substituted:
+            target.write_text("#!/bin/sh\nexit 88\n", encoding="utf-8")
+            target.chmod(0o700)
+        else:
+            target.symlink_to(resolved)
+    marker = root / "downstream-mutation"
+    environment = dict(os.environ)
+    environment["PATH"] = str(bin_dir)
+    environment["TMPDIR"] = str(root)
+    environment["VOID_LAB_MUTATION_MARKER"] = str(marker)
+    script = documented_host_preflight()
+    script += "printf 'mutated\\n' > \"$VOID_LAB_MUTATION_MARKER\"\n"
+    result = subprocess.run(
+        ["/bin/dash"],
+        input=script,
+        text=True,
+        capture_output=True,
+        env=environment,
+        check=False,
+    )
+    return result, marker
+
+
+def prove_host_preflight_fails_before_downstream_mutation() -> None:
+    command_paths = host_command_paths()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        control, marker = run_host_preflight(root / "control", command_paths)
+        if control.returncode != 0 or not marker.is_file():
+            raise RuntimeError(
+                f"supported host control failed: {control.returncode}: {control.stderr}"
+            )
+    for command in REQUIRED_HOST_COMMANDS:
+        for mode in ("missing", "substituted"):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                root.mkdir(exist_ok=True)
+                kwargs = {mode: command}
+                result, marker = run_host_preflight(root, command_paths, **kwargs)
+                if result.returncode == 0:
+                    raise RuntimeError(f"{mode} {command} did not fail prerequisite wall")
+                if marker.exists():
+                    raise RuntimeError(
+                        f"{mode} {command} reached downstream mutation marker"
+                    )
 
 
 def prove_existing_receipt_is_unchanged() -> None:
@@ -243,11 +347,16 @@ def prove_postpublication_cleanup_is_terminal_monotone() -> None:
 
 def main() -> int:
     prove_document_contract()
+    prove_host_preflight_fails_before_downstream_mutation()
     prove_existing_receipt_is_unchanged()
     prove_absent_path_publishes_mode_0600()
     prove_repeat_verification_preserves_both_receipts()
     prove_postpublication_cleanup_is_terminal_monotone()
     print(f"{MARKER} PASS")
+    print("host_preflight_supported_control=true")
+    print(f"host_preflight_missing_command_cases={len(REQUIRED_HOST_COMMANDS)}")
+    print(f"host_preflight_substituted_command_cases={len(REQUIRED_HOST_COMMANDS)}")
+    print("host_preflight_downstream_mutations=0")
     print("preexisting_receipt_unchanged=true")
     print("absent_path_mode_0600=true")
     print("repeat_verification_distinct_receipts=true")
