@@ -119,14 +119,15 @@ def _matrix_summary(
     report: dict[str, Any],
 ) -> tuple[list[str], dict[str, Any]]:
     cells_by_key = {cell["key"]: cell for cell in report["cells"]}
-    ordered_cells = [
-        cells_by_key[
-            f"c{planned['concurrency']}-t{planned['ticks_per_joint_advance']}"
-        ]
+    planned_keys = [
+        f"c{planned['concurrency']}-t{planned['ticks_per_joint_advance']}"
         for planned in bench.build_matrix(
             tuple(report["parameters"]["concurrency"]),
             tuple(report["parameters"]["tick_batches"]),
         )
+    ]
+    ordered_cells = [
+        cells_by_key[key] for key in planned_keys if key in cells_by_key
     ]
     first_non_success = next(
         (
