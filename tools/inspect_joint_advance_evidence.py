@@ -140,6 +140,8 @@ def _artifact(
         "report_schema_compatible": None,
         "report_schema_version": None,
         "report_terminal": None,
+        "report_cell_terminals": None,
+        "report_matrix_summary": None,
         "validation_error": None,
     }
     if not generation["regular_file"] or generation["symlink"]:
@@ -177,6 +179,31 @@ def _artifact(
                 row["report_schema_compatible"] = True
                 row["report_schema_version"] = report["schema_version"]
                 row["report_terminal"] = report["run"]["terminal"]
+                cells = report["cells"]
+                row["report_cell_terminals"] = [
+                    cell["terminal"] for cell in cells
+                ]
+                first_non_success = next(
+                    (
+                        {"key": cell["key"], "terminal": cell["terminal"]}
+                        for cell in cells
+                        if cell["terminal"] != "success"
+                    ),
+                    None,
+                )
+                row["report_matrix_summary"] = {
+                    "cell_count": len(cells),
+                    "success_count": sum(
+                        cell["terminal"] == "success" for cell in cells
+                    ),
+                    "non_success_count": sum(
+                        cell["terminal"] != "success" for cell in cells
+                    ),
+                    "blocked_cell_count": sum(
+                        cell["terminal"] == "not_executed" for cell in cells
+                    ),
+                    "first_non_success": first_non_success,
+                }
     return row, payload, descriptor
 
 
