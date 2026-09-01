@@ -6,10 +6,13 @@ import re
 import pytest
 
 
-WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+PYPROJECT = ROOT / "pyproject.toml"
 
 CHECKOUT_PIN = "actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8"
 SETUP_PYTHON_PIN = "actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c"
+MCP_V1_CONTRACT = '"mcp>=1.2.0,<2.0.0",'
 
 
 def validate_ci_topology(source: str) -> None:
@@ -54,8 +57,15 @@ def validate_ci_topology(source: str) -> None:
     assert positions == sorted(positions), "identity, isolation, tests, and lint must remain ordered"
 
 
+def validate_dependency_contract(source: str) -> None:
+    """Keep the installed MCP major coupled to the repository's FastMCP v1 imports."""
+    mcp_requirements = re.findall(r'^\s*"mcp[^"]*",\s*$', source, flags=re.MULTILINE)
+    assert mcp_requirements == [f"    {MCP_V1_CONTRACT}"]
+
+
 def test_default_ci_topology_is_exactly_bound() -> None:
     validate_ci_topology(WORKFLOW.read_text(encoding="utf-8"))
+    validate_dependency_contract(PYPROJECT.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize(
@@ -79,6 +89,20 @@ def test_topology_mutations_fail_closed(old: str, new: str) -> None:
     assert source.count(old) == 1
     with pytest.raises(AssertionError):
         validate_ci_topology(source.replace(old, new))
+
+
+@pytest.mark.parametrize(
+    "new",
+    (
+        '"mcp>=1.2.0",',
+        '"mcp>=2.0.0",',
+    ),
+)
+def test_mcp_major_drift_mutations_fail_closed(new: str) -> None:
+    source = PYPROJECT.read_text(encoding="utf-8")
+    assert source.count(MCP_V1_CONTRACT) == 1
+    with pytest.raises(AssertionError):
+        validate_dependency_contract(source.replace(MCP_V1_CONTRACT, new))
 
 
 def test_terminal_step_reordering_fails_closed() -> None:
