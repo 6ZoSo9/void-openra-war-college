@@ -78,19 +78,22 @@ class RuntimeRetirementTotalDeadlineTests(unittest.TestCase):
         self.assertTrue(all(timeout >= 0 for timeout in process.join_timeouts))
         self.assertLessEqual(clock.now, 0.300001)
 
-    def test_negative_grace_fails_before_process_contact(self):
-        process = mock.Mock()
-        process.pid = 4242
+    def test_nonfinite_or_invalid_grace_fails_before_process_contact(self):
+        for value in (-0.1, float("nan"), float("inf"), float("-inf"), True, "0.1"):
+            process = mock.Mock()
+            process.pid = 4242
 
-        with self.assertRaisesRegex(bench.ContractError, "must be nonnegative"):
-            bench._retire_runtime_process_group(
-                process,
-                process.pid,
-                natural_grace_s=-0.1,
-                signal_grace_s=0.1,
-            )
+            with self.subTest(value=value), self.assertRaisesRegex(
+                bench.ContractError, "must be finite nonnegative seconds"
+            ):
+                bench._retire_runtime_process_group(
+                    process,
+                    process.pid,
+                    natural_grace_s=value,
+                    signal_grace_s=0.1,
+                )
 
-        process.join.assert_not_called()
+            process.join.assert_not_called()
 
 
 if __name__ == "__main__":
