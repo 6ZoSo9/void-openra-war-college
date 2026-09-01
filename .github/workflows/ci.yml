@@ -30,3 +30,47 @@ jobs:
 
       - name: Lint
         run: ruff check openra_env/
+
+  darwin-source-contracts:
+    name: Darwin source contracts (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout exact source without private runtime submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Compile exact Darwin source and test contracts
+        run: |
+          python -m py_compile \
+            darwin_benchmark_evaluation_partition_binding_v1.py \
+            darwin_evaluation_precommit_record_recovery_v1.py \
+            darwin_evaluation_precommit_record_v1.py \
+            darwin_evaluation_result_partition_audit_v1.py \
+            darwin_heldout_evaluation_split_v1.py \
+            darwin_precommitted_evaluation_plan_v1.py \
+            test_darwin_benchmark_evaluation_partition_binding_v1.py \
+            test_darwin_evaluation_precommit_record_recovery_v1.py \
+            test_darwin_evaluation_precommit_record_v1.py \
+            test_darwin_evaluation_result_partition_audit_v1.py \
+            test_darwin_heldout_evaluation_split_v1.py \
+            test_darwin_precommitted_evaluation_plan_v1.py
+
+      - name: Run exact Darwin source contract wall
+        run: |
+          python -m unittest -v \
+            test_darwin_benchmark_evaluation_partition_binding_v1.py \
+            test_darwin_evaluation_precommit_record_recovery_v1.py \
+            test_darwin_evaluation_precommit_record_v1.py \
+            test_darwin_evaluation_result_partition_audit_v1.py \
+            test_darwin_heldout_evaluation_split_v1.py \
+            test_darwin_precommitted_evaluation_plan_v1.py
