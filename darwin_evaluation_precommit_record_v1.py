@@ -53,6 +53,25 @@ class StableArgumentParser(argparse.ArgumentParser):
         raise ArgumentContractError(message)
 
 
+def _parse_unique_args(
+    parser: StableArgumentParser,
+    argv: Iterable[str] | None,
+) -> argparse.Namespace:
+    """Reject ambiguous repeated long options before any file-system access."""
+    tokens = list(argv) if argv is not None else sys.argv[1:]
+    seen: set[str] = set()
+    for token in tokens:
+        if token == "--":
+            break
+        if not token.startswith("--"):
+            continue
+        option = token.split("=", 1)[0]
+        if option in seen:
+            parser.error(f"argument {option}: may not be repeated")
+        seen.add(option)
+    return parser.parse_args(tokens)
+
+
 def canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
@@ -412,7 +431,7 @@ def _validate_command(args: argparse.Namespace) -> dict[str, object]:
 def main(argv: Iterable[str] | None = None) -> int:
     parser = _build_parser()
     try:
-        args = parser.parse_args(list(argv) if argv is not None else None)
+        args = _parse_unique_args(parser, argv)
         if args.command == "record":
             record = _record_command(args)
             print(_summary("PRECOMMIT_RECORDED", record))
