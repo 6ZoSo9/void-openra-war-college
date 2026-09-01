@@ -362,7 +362,7 @@ def _recover_command(args: argparse.Namespace) -> dict[str, object]:
 def main(argv: Iterable[str] | None = None) -> int:
     parser = _build_parser()
     try:
-        args = parser.parse_args(list(argv) if argv is not None else None)
+        args = record_contract.parse_unique_args(parser, argv)
         if args.command == "record":
             record = _record_command(args)
             print(

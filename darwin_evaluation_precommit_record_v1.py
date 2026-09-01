@@ -58,6 +58,30 @@ class StableArgumentParser(argparse.ArgumentParser):
         raise ArgumentContractError(message)
 
 
+def parse_unique_args(
+    parser: StableArgumentParser,
+    argv: Iterable[str] | None,
+) -> argparse.Namespace:
+    """Reject ambiguous repeated long options before any file-system access."""
+    tokens = list(argv) if argv is not None else sys.argv[1:]
+    seen: set[str] = set()
+    for token in tokens:
+        if token == "--":
+            break
+        if not token.startswith("--"):
+            continue
+        option = token.split("=", 1)[0]
+        if option in seen:
+            parser.error(f"argument {option}: may not be repeated")
+        seen.add(option)
+    return parser.parse_args(tokens)
+
+
+# Retain the historical internal name for imported draft callers while making
+# duplicate-option admission one explicit shared public contract.
+_parse_unique_args = parse_unique_args
+
+
 def canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
@@ -75,12 +99,14 @@ def _validate_record_id(value: object) -> str:
 
 
 def _parse_positive_decimal(value: str, label: str, maximum: int) -> int:
-    if not isinstance(value, str) or not POSITIVE_DECIMAL_RE.fullmatch(value):
+    if not isinstance(value, str):
         raise NumericArgumentError(f"{label} must be a canonical positive decimal")
     maximum_text = str(maximum)
-    if len(value) > len(maximum_text) or (
-        len(value) == len(maximum_text) and value > maximum_text
-    ):
+    if len(value) > len(maximum_text):
+        raise NumericArgumentError(f"{label} must be in 1..{maximum}")
+    if not POSITIVE_DECIMAL_RE.fullmatch(value):
+        raise NumericArgumentError(f"{label} must be a canonical positive decimal")
+    if len(value) == len(maximum_text) and value > maximum_text:
         raise NumericArgumentError(f"{label} must be in 1..{maximum}")
     return int(value, 10)
 
@@ -90,13 +116,22 @@ def _parse_csv_positive_decimals(
     label: str,
     maximum: int,
 ) -> tuple[int, ...]:
-    if not value or " " in value or "\t" in value or "\n" in value:
+    if not isinstance(value, str):
         raise NumericArgumentError(
             f"{label} must be a comma-separated canonical decimal list"
         )
     max_items = CSV_MAX_ITEMS_BY_LABEL.get(label)
     if max_items is None:
         raise NumericArgumentError(f"{label} has no bounded CSV cardinality contract")
+    max_chars = max_items * len(str(maximum)) + (max_items - 1)
+    if len(value) > max_chars:
+        raise NumericArgumentError(
+            f"{label} must contain at most {max_chars} characters"
+        )
+    if not value or " " in value or "\t" in value or "\n" in value:
+        raise NumericArgumentError(
+            f"{label} must be a comma-separated canonical decimal list"
+        )
     if value.count(",") + 1 > max_items:
         raise NumericArgumentError(
             f"{label} must contain at most {max_items} values"
@@ -424,7 +459,7 @@ def _validate_command(args: argparse.Namespace) -> dict[str, object]:
 def main(argv: Iterable[str] | None = None) -> int:
     parser = _build_parser()
     try:
-        args = parser.parse_args(list(argv) if argv is not None else None)
+        args = parse_unique_args(parser, argv)
         if args.command == "record":
             record = _record_command(args)
             print(_summary("PRECOMMIT_RECORDED", record))
