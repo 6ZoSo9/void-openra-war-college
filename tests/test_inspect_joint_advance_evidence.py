@@ -213,6 +213,34 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertFalse(report["automatic_recovery"])
             self.assertFalse(report["automatic_rewrite"])
 
+    def test_matrix_summary_uses_planned_order_not_lexicographic_storage_order(self):
+        report = {
+            "parameters": {
+                "concurrency": [8, 1],
+                "tick_batches": [8, 1],
+            },
+            "cells": [
+                {"key": "c1-t1", "terminal": "not_executed"},
+                {"key": "c1-t8", "terminal": "not_executed"},
+                {"key": "c8-t1", "terminal": "not_executed"},
+                {"key": "c8-t8", "terminal": "timeout"},
+            ],
+        }
+
+        terminals, summary = INSPECT._matrix_summary(report)
+
+        self.assertEqual(
+            terminals,
+            ["timeout", "not_executed", "not_executed", "not_executed"],
+        )
+        self.assertEqual(summary, {
+            "cell_count": 4,
+            "success_count": 0,
+            "non_success_count": 4,
+            "blocked_cell_count": 3,
+            "first_non_success": {"key": "c8-t8", "terminal": "timeout"},
+        })
+
     def test_receipt_bound_current_schema_invalid_report_is_explicit_hold(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
