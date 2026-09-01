@@ -19,14 +19,33 @@ SPEC.loader.exec_module(contract)
 
 
 def make_record(player_id: str, controller_id: str, world_tick: int) -> dict[str, object]:
-    payload = {
+    observation_payload = {
         "player_id": player_id,
         "visible_actor_ids": [f"{player_id}-actor"],
         "world_tick": world_tick,
     }
-    observation_sha = contract.sha256_hex(payload)
+    observation_sha = contract.sha256_hex(observation_payload)
+    action_request_id = f"decision-{world_tick}-{player_id}"
+    action_payload = {
+        "commands": [{"actor_id": f"{player_id}-actor", "command": "hold"}],
+        "controller_id": controller_id,
+        "player_id": player_id,
+        "request_id": action_request_id,
+        "world_tick": world_tick,
+    }
+    action_sha = contract.sha256_hex(action_payload)
     return {
         "action_actor_player_id": player_id,
+        "action_binding_sha256": contract.action_binding(
+            player_id=player_id,
+            controller_id=controller_id,
+            world_tick=world_tick,
+            action_request_id=action_request_id,
+            action_sha256=action_sha,
+        ),
+        "action_payload": action_payload,
+        "action_request_id": action_request_id,
+        "action_sha256": action_sha,
         "controller_id": controller_id,
         "observation_binding_sha256": contract.observation_binding(
             player_id=player_id,
@@ -34,7 +53,7 @@ def make_record(player_id: str, controller_id: str, world_tick: int) -> dict[str
             world_tick=world_tick,
             observation_sha256=observation_sha,
         ),
-        "observation_payload": payload,
+        "observation_payload": observation_payload,
         "observation_sha256": observation_sha,
         "observation_subject_player_id": player_id,
         "player_id": player_id,
@@ -47,6 +66,7 @@ def finalize(evidence: dict[str, object]) -> dict[str, object]:
     assert isinstance(controllers, list)
     bindings = [
         {
+            "action_binding_sha256": str(record["action_binding_sha256"]),
             "controller_id": str(record["controller_id"]),
             "observation_binding_sha256": str(record["observation_binding_sha256"]),
             "player_id": str(record["player_id"]),
@@ -125,6 +145,69 @@ class ControllerEvidenceIsolationTests(unittest.TestCase):
         evidence = make_evidence()
         evidence["controllers"][1]["observation_payload"]["world_tick"] = 421
         self.assert_hold(evidence, "HOLD_PAYLOAD_TICK_BINDING")
+
+    def test_rejects_swapped_action_payload_and_digest(self) -> None:
+        evidence = make_evidence()
+        first = evidence["controllers"][0]
+        second = evidence["controllers"][1]
+        second["action_payload"] = first["action_payload"]
+        second["action_sha256"] = first["action_sha256"]
+        self.assert_hold(evidence, "HOLD_ACTION_PAYLOAD_PLAYER_BINDING")
+        self.assert_hold(evidence, "HOLD_ACTION_PAYLOAD_CONTROLLER_BINDING")
+        self.assert_hold(evidence, "HOLD_ACTION_BINDING_MISMATCH")
+
+    def test_rejects_action_byte_mutation(self) -> None:
+        evidence = make_evidence()
+        evidence["controllers"][0]["action_payload"]["commands"][0]["command"] = "attack"
+        self.assert_hold(evidence, "HOLD_ACTION_DIGEST_MISMATCH")
+
+    def test_rejects_action_replay_across_controller(self) -> None:
+        evidence = make_evidence()
+        first = evidence["controllers"][0]
+        second = evidence["controllers"][1]
+        second["action_request_id"] = first["action_request_id"]
+        second["action_payload"]["request_id"] = first["action_request_id"]
+        second["action_sha256"] = contract.sha256_hex(second["action_payload"])
+        second["action_binding_sha256"] = contract.action_binding(
+            player_id=second["player_id"],
+            controller_id=second["controller_id"],
+            world_tick=evidence["world_tick"],
+            action_request_id=second["action_request_id"],
+            action_sha256=second["action_sha256"],
+        )
+        finalize(evidence)
+        self.assert_hold(evidence, "HOLD_DUPLICATE_ACTION_REQUEST_ID")
+
+    def test_rejects_action_replay_across_tick(self) -> None:
+        evidence = make_evidence()
+        record = evidence["controllers"][0]
+        record["action_payload"]["world_tick"] = 419
+        record["action_sha256"] = contract.sha256_hex(record["action_payload"])
+        record["action_binding_sha256"] = contract.action_binding(
+            player_id=record["player_id"],
+            controller_id=record["controller_id"],
+            world_tick=evidence["world_tick"],
+            action_request_id=record["action_request_id"],
+            action_sha256=record["action_sha256"],
+        )
+        finalize(evidence)
+        self.assert_hold(evidence, "HOLD_ACTION_PAYLOAD_TICK_BINDING")
+
+    def test_rejects_joint_digest_omitting_action_binding(self) -> None:
+        evidence = make_evidence()
+        bindings = [
+            {
+                "controller_id": record["controller_id"],
+                "observation_binding_sha256": record["observation_binding_sha256"],
+                "player_id": record["player_id"],
+            }
+            for record in evidence["controllers"]
+        ]
+        evidence["joint_evidence_sha256"] = contract.joint_evidence_binding(
+            world_tick=evidence["world_tick"],
+            bindings=bindings,
+        )
+        self.assert_hold(evidence, "HOLD_JOINT_EVIDENCE_DIGEST_MISMATCH")
 
     def test_rejects_frozen_baseline_drift(self) -> None:
         evidence = make_evidence()
