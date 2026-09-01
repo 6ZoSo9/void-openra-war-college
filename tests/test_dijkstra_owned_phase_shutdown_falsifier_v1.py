@@ -4,7 +4,9 @@
 The reviewed core still permits a cancellation-resistant operation to outlive
 ``run_owned_phase``'s logical terminal. The canonical facade now owns that
 residual lifetime in a private process group and may force-retire it after the
-closed runtime outcome has been transferred to the parent.
+closed runtime outcome has been transferred to the parent. This proof uses the
+same ``spawn`` process-start contract as production, so import, pickle, and
+fresh-interpreter startup are inside the tested state machine.
 """
 
 from __future__ import annotations
@@ -79,7 +81,8 @@ def _shutdown_falsifier_child(connection: object) -> None:
 
 class OwnedPhaseShutdownContainmentTests(unittest.TestCase):
     def test_detached_task_shutdown_hang_is_force_retired_by_outer_process_owner(self) -> None:
-        context = multiprocessing.get_context("fork")
+        context = multiprocessing.get_context("spawn")
+        self.assertEqual(context.get_start_method(), "spawn")
         parent, child = context.Pipe(duplex=False)
         process = context.Process(target=_shutdown_falsifier_child, args=(child,))
         process.start()
