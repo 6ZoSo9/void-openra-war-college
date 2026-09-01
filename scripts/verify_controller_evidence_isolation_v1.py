@@ -16,42 +16,27 @@ from typing import Any
 
 
 MARKER = "VOID_WAR_COLLEGE_CONTROLLER_EVIDENCE_ISOLATION_V1"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 GENERATION = "ad1926569b12466c"
 WAR_COLLEGE_FROZEN_COMMIT = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 ENGINE_FROZEN_COMMIT = "1607a7a6501d42a47638393ecef8b22831064932"
 RUNTIME_EVIDENCE = "PENDING_DESIGNATED_HOST"
 
 TOP_LEVEL_KEYS = {
-    "marker",
-    "schema_version",
-    "generation",
-    "war_college_frozen_commit",
-    "engine_frozen_commit",
-    "world_tick",
-    "controllers",
+    "marker", "schema_version", "generation", "war_college_frozen_commit",
+    "engine_frozen_commit", "world_tick", "controllers",
     "joint_evidence_sha256",
 }
 CONTROLLER_KEYS = {
-    "player_id",
-    "controller_id",
-    "observation_subject_player_id",
-    "visibility_owner_player_id",
-    "action_actor_player_id",
-    "observation_payload",
-    "observation_sha256",
-    "observation_binding_sha256",
-    "action_request_id",
-    "action_payload",
-    "action_sha256",
-    "action_binding_sha256",
+    "player_id", "controller_id", "observation_subject_player_id",
+    "visibility_owner_player_id", "action_actor_player_id",
+    "observation_payload", "observation_sha256",
+    "observation_binding_sha256", "action_request_id", "action_payload",
+    "action_sha256", "action_binding_sha256",
 }
 ACTION_PAYLOAD_KEYS = {
-    "request_id",
-    "player_id",
-    "controller_id",
-    "world_tick",
-    "commands",
+    "request_id", "player_id", "controller_id", "world_tick",
+    "decision_observation_binding_sha256", "commands",
 }
 
 
@@ -94,12 +79,14 @@ def action_binding(
     world_tick: int,
     action_request_id: str,
     action_sha256: str,
+    decision_observation_binding_sha256: str,
 ) -> str:
     return sha256_hex(
         {
             "action_request_id": action_request_id,
             "action_sha256": action_sha256,
             "controller_id": controller_id,
+            "decision_observation_binding_sha256": decision_observation_binding_sha256,
             "generation": GENERATION,
             "player_id": player_id,
             "world_tick": world_tick,
@@ -239,6 +226,7 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
         if not isinstance(action_payload, dict):
             holds.add("HOLD_ACTION_PAYLOAD_NOT_OBJECT")
             action_payload_valid = False
+            decision_observation_binding = None
         else:
             action_payload_valid = True
             if set(action_payload) != ACTION_PAYLOAD_KEYS:
@@ -251,6 +239,11 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
                 holds.add("HOLD_ACTION_PAYLOAD_CONTROLLER_BINDING")
             if action_payload.get("world_tick") != world_tick:
                 holds.add("HOLD_ACTION_PAYLOAD_TICK_BINDING")
+            decision_observation_binding = action_payload.get(
+                "decision_observation_binding_sha256"
+            )
+            if decision_observation_binding != claimed_observation_binding:
+                holds.add("HOLD_ACTION_DECISION_OBSERVATION_BINDING")
             if not isinstance(action_payload.get("commands"), list):
                 holds.add("HOLD_ACTION_COMMANDS_NOT_LIST")
 
@@ -267,6 +260,7 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
             and world_tick_valid
             and _nonempty_string(action_request_id)
             and _nonempty_string(claimed_action_sha)
+            and _nonempty_string(decision_observation_binding)
         )
         if not _nonempty_string(claimed_action_binding):
             holds.add("HOLD_ACTION_BINDING_INVALID")
@@ -277,6 +271,7 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
                 world_tick=world_tick,
                 action_request_id=action_request_id,
                 action_sha256=claimed_action_sha,
+                decision_observation_binding_sha256=decision_observation_binding,
             )
             if claimed_action_binding != expected_action_binding:
                 holds.add("HOLD_ACTION_BINDING_MISMATCH")
