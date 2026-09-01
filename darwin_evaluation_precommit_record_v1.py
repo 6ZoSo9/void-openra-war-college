@@ -126,7 +126,8 @@ def _parse_csv_positive_decimals(
     max_chars = max_items * len(str(maximum)) + (max_items - 1)
     if len(value) > max_chars:
         raise NumericArgumentError(
-            f"{label} must contain at most {max_chars} characters"
+            f"{label} must be in 1..{maximum}, contain at most {max_items} values, "
+            f"and contain at most {max_chars} characters"
         )
     if not value or " " in value or "\t" in value or "\n" in value:
         raise NumericArgumentError(

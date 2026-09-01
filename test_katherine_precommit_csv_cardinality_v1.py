@@ -29,7 +29,8 @@ class PrecommitCsvCardinalityTests(unittest.TestCase):
         value = "1,2,4,8,1"
         with self.assertRaisesRegex(
             record_contract.NumericArgumentError,
-            r"concurrency must contain at most 7 characters",
+            r"concurrency must be in 1..8, contain at most 4 values, "
+            r"and contain at most 7 characters",
         ):
             record_contract._parse_csv_positive_decimals(value, "concurrency", 8)
 
@@ -45,7 +46,8 @@ class PrecommitCsvCardinalityTests(unittest.TestCase):
         value = SplitTrap("1" * 8)
         with self.assertRaisesRegex(
             record_contract.NumericArgumentError,
-            r"concurrency must contain at most 7 characters",
+            r"concurrency must be in 1..8, contain at most 4 values, "
+            r"and contain at most 7 characters",
         ):
             record_contract._parse_csv_positive_decimals(value, "concurrency", 8)
 
@@ -53,7 +55,8 @@ class PrecommitCsvCardinalityTests(unittest.TestCase):
         value = SplitTrap("1" * 384)
         with self.assertRaisesRegex(
             record_contract.NumericArgumentError,
-            r"tick_batches must contain at most 383 characters",
+            r"tick_batches must be in 1..10000, contain at most 64 values, "
+            r"and contain at most 383 characters",
         ):
             record_contract._parse_csv_positive_decimals(value, "tick_batches", 10_000)
 
