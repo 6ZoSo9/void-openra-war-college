@@ -103,26 +103,29 @@ void_publish_lab_receipt() (
   test ! -e "$VOID_LAB_RECEIPT"
   test ! -L "$VOID_LAB_RECEIPT"
   VOID_LAB_RECEIPT_TEMP="$(mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout.XXXXXX")"
-  cleanup() {
-    if [ -n "${VOID_LAB_RECEIPT_TEMP:-}" ]; then
-      rm -f -- "$VOID_LAB_RECEIPT_TEMP"
+  VOID_LAB_RECEIPT_TEMP_ID="$(stat -c '%d:%i' "$VOID_LAB_RECEIPT_TEMP")"
+  cleanup_owned_temp() {
+    if [ -n "${VOID_LAB_RECEIPT_TEMP:-}" ] &&
+       [ -f "$VOID_LAB_RECEIPT_TEMP" ] &&
+       [ ! -L "$VOID_LAB_RECEIPT_TEMP" ] &&
+       [ "$(stat -c '%d:%i' "$VOID_LAB_RECEIPT_TEMP" 2>/dev/null || true)" = "$VOID_LAB_RECEIPT_TEMP_ID" ]; then
+      rm -f -- "$VOID_LAB_RECEIPT_TEMP" || true
     fi
   }
-  trap cleanup EXIT HUP INT TERM
+  trap cleanup_owned_temp EXIT HUP INT TERM
   python "$VOID_WAR_COLLEGE_DIR/scripts/verify_void_lab_checkout_v1.py" \
     --repo-root "$VOID_WAR_COLLEGE_DIR" > "$VOID_LAB_RECEIPT_TEMP"
   test -f "$VOID_LAB_RECEIPT_TEMP"
   test ! -L "$VOID_LAB_RECEIPT_TEMP"
   test "$(stat -c '%a' "$VOID_LAB_RECEIPT_TEMP")" = '600'
   python -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert d["schema_version"] == 6; assert d["generation"] == "ad1926569b12466c"; assert d["source_contract"] == "GREEN"; assert d["checkout_contract"] == "GREEN"; assert d["exact_checkout_evidence"] is True; assert d["runtime_evidence"] == "PENDING_DESIGNATED_HOST"' "$VOID_LAB_RECEIPT_TEMP"
-  VOID_LAB_RECEIPT_TEMP_ID="$(stat -c '%d:%i' "$VOID_LAB_RECEIPT_TEMP")"
   ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"
   test -f "$VOID_LAB_RECEIPT"
   test ! -L "$VOID_LAB_RECEIPT"
   test "$(stat -c '%a' "$VOID_LAB_RECEIPT")" = '600'
   test "$(stat -c '%d:%i' "$VOID_LAB_RECEIPT")" = "$VOID_LAB_RECEIPT_TEMP_ID"
+  cleanup_owned_temp
   sync -f "$VOID_LAB_RECEIPT_DIR"
-  rm -- "$VOID_LAB_RECEIPT_TEMP"
   VOID_LAB_RECEIPT_TEMP=''
   trap - EXIT HUP INT TERM
   printf 'receipt_id=%s\nreceipt_path=%s\n' "$VOID_LAB_RECEIPT_ID" "$VOID_LAB_RECEIPT"
@@ -133,9 +136,13 @@ void_publish_lab_receipt setup-001
 
 Keep the receipt outside the repository so it does not make the exact worktree
 dirty. The hard-link publication is create-only even if another process creates
-the destination after the initial preflight. A verifier or validation failure
-removes only the private temporary file and cannot truncate an earlier receipt.
-Record its identifier, exact path, and SHA-256 with any later designated-host
+the destination after the initial preflight. Cleanup retains the temporary
+file's exact device/inode witness and removes only that witnessed generation;
+a missing or replaced pathname is left untouched. Cleanup failure cannot reverse
+a validated final receipt: directory sync remains the durable commit point and
+the function reports the receipt after it. A verifier or validation failure
+cannot truncate an earlier receipt. Record its identifier, exact path, and
+SHA-256 with any later designated-host
 evidence. Retain earlier receipts; never delete, rename, chmod, or replace one to
 reuse its identifier. Do not treat
 `--source-only` GREEN, unit tests, or hosted CI as exact designated-host checkout
@@ -158,3 +165,4 @@ either worktree changes, repeat the entire identity wall and verifier with
 another new identifier; never reuse or remove an earlier GREEN receipt.
 
 `runtime_evidence=PENDING_DESIGNATED_HOST`
+
