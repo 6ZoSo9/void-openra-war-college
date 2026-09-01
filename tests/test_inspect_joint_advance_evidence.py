@@ -177,6 +177,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 "cell_count": 1,
                 "missing_cell_count": 0,
                 "first_missing": None,
+                "first_incomplete": None,
                 "success_count": 1,
                 "non_success_count": 0,
                 "blocked_cell_count": 0,
@@ -209,6 +210,11 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 "cell_count": 2,
                 "missing_cell_count": 0,
                 "first_missing": None,
+                "first_incomplete": {
+                    "key": "c1-t1",
+                    "state": "present",
+                    "terminal": "timeout",
+                },
                 "success_count": 0,
                 "non_success_count": 2,
                 "blocked_cell_count": 1,
@@ -244,6 +250,11 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "cell_count": 4,
             "missing_cell_count": 0,
             "first_missing": None,
+            "first_incomplete": {
+                "key": "c8-t8",
+                "state": "present",
+                "terminal": "timeout",
+            },
             "success_count": 0,
             "non_success_count": 4,
             "blocked_cell_count": 3,
@@ -270,6 +281,11 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "cell_count": 1,
             "missing_cell_count": 3,
             "first_missing": "c8-t1",
+            "first_incomplete": {
+                "key": "c8-t8",
+                "state": "present",
+                "terminal": "timeout",
+            },
             "success_count": 0,
             "non_success_count": 1,
             "blocked_cell_count": 0,
@@ -287,11 +303,36 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "cell_count": 0,
             "missing_cell_count": 4,
             "first_missing": "c8-t8",
+            "first_incomplete": {"key": "c8-t8", "state": "missing"},
             "success_count": 0,
             "non_success_count": 0,
             "blocked_cell_count": 0,
             "first_non_success": None,
         })
+
+    def test_matrix_summary_missing_cell_precedes_later_present_failure(self):
+        report = {
+            "parameters": {
+                "concurrency": [8, 1],
+                "tick_batches": [8, 1],
+            },
+            "cells": [
+                {"key": "c8-t1", "terminal": "timeout"},
+            ],
+        }
+
+        terminals, summary = INSPECT._matrix_summary(report)
+
+        self.assertEqual(terminals, ["timeout"])
+        self.assertEqual(summary["first_missing"], "c8-t8")
+        self.assertEqual(
+            summary["first_non_success"],
+            {"key": "c8-t1", "terminal": "timeout"},
+        )
+        self.assertEqual(
+            summary["first_incomplete"],
+            {"key": "c8-t8", "state": "missing"},
+        )
 
     def test_receipt_bound_current_schema_invalid_report_is_explicit_hold(self):
         with tempfile.TemporaryDirectory() as directory:
