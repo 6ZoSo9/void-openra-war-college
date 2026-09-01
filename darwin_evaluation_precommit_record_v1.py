@@ -20,7 +20,7 @@ import re
 import stat
 import sys
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
 
 import darwin_heldout_evaluation_split_v1 as split
 import darwin_precommitted_evaluation_plan_v1 as plan_contract
@@ -48,6 +48,12 @@ class NumericArgumentError(RecordError):
 
 class StableArgumentParser(argparse.ArgumentParser):
     """Argument parser whose expected invocation errors remain inside the JSON contract."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # Long-option prefixes are ambiguous authority inputs.  Keep the root
+        # parser and every subparser exact-spelling-only by default.
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
 
     def error(self, message: str) -> None:
         raise ArgumentContractError(message)

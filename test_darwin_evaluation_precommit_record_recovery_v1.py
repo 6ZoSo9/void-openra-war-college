@@ -22,6 +22,7 @@ import darwin_precommitted_evaluation_plan_v1 as plan_contract
 CLI = Path(__file__).with_name(
     "darwin_evaluation_precommit_record_recovery_v1.py"
 )
+BASE_CLI = Path(__file__).with_name("darwin_evaluation_precommit_record_v1.py")
 
 
 class EvaluationPrecommitRecoveryTests(unittest.TestCase):
@@ -169,6 +170,136 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
             terminal["reason"],
         )
         self.assertFalse(self.path.exists())
+
+    def test_long_option_abbreviations_fail_before_manifest_open_or_fsync(self) -> None:
+        shadow_manifest = self.root / "shadow-split.json"
+        cases = (
+            [
+                "recover",
+                "--mani",
+                str(shadow_manifest),
+                "--manifest",
+                str(self.root / "split.json"),
+                "--record",
+                str(self.path),
+            ],
+            [
+                "recover",
+                "--manifest",
+                str(self.root / "split.json"),
+                "--mani",
+                str(shadow_manifest),
+                "--record",
+                str(self.path),
+            ],
+            [
+                "recover",
+                f"--man={shadow_manifest}",
+                f"--manifest={self.root / 'split.json'}",
+                f"--record={self.path}",
+            ],
+        )
+        for argv in cases:
+            with self.subTest(argv=argv):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with mock.patch.object(recovery, "_load_manifest") as load_manifest:
+                    with mock.patch.object(recovery.os, "open") as open_file:
+                        with mock.patch.object(recovery.os, "fsync") as fsync_file:
+                            with mock.patch.object(
+                                record_contract,
+                                "_fsync_parent",
+                            ) as fsync_parent:
+                                with contextlib.redirect_stdout(stdout):
+                                    with contextlib.redirect_stderr(stderr):
+                                        return_code = recovery.main(argv)
+
+                self.assertEqual(return_code, 2)
+                self.assertEqual(stdout.getvalue(), "")
+                lines = stderr.getvalue().splitlines()
+                self.assertEqual(len(lines), 1)
+                terminal = json.loads(lines[0])
+                self.assertEqual(terminal["marker"], recovery.HANDOFF_MARKER)
+                self.assertEqual(terminal["status"], "HOLD")
+                self.assertEqual(terminal["reason_code"], "ARGUMENT_ERROR")
+                self.assertIn("unrecognized arguments:", terminal["reason"])
+                load_manifest.assert_not_called()
+                open_file.assert_not_called()
+                fsync_file.assert_not_called()
+                fsync_parent.assert_not_called()
+                self.assertFalse(self.path.exists())
+                self.assertFalse(shadow_manifest.exists())
+
+        subprocess_cases = (
+            cases[0],
+            cases[1],
+            cases[2],
+        )
+        for argv in subprocess_cases:
+            with self.subTest(subprocess_argv=argv):
+                attempt = subprocess.run(
+                    [sys.executable, str(CLI), *argv],
+                    cwd=Path(__file__).parent,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                self.assertEqual(attempt.returncode, 2)
+                self.assertEqual(attempt.stdout, "")
+                self.assertNotIn("usage:", attempt.stderr.lower())
+                self.assertNotIn("traceback", attempt.stderr.lower())
+                lines = attempt.stderr.splitlines()
+                self.assertEqual(len(lines), 1)
+                terminal = json.loads(lines[0])
+                self.assertEqual(terminal["marker"], recovery.HANDOFF_MARKER)
+                self.assertEqual(terminal["status"], "HOLD")
+                self.assertEqual(terminal["reason_code"], "ARGUMENT_ERROR")
+                self.assertIn("unrecognized arguments:", terminal["reason"])
+                self.assertFalse(self.path.exists())
+                self.assertFalse(shadow_manifest.exists())
+
+        base_cases = (
+            [
+                "record",
+                "--mani",
+                str(shadow_manifest),
+                *self.record_args()[1:],
+            ],
+            [
+                *self.record_args(),
+                "--mani",
+                str(shadow_manifest),
+            ],
+            [
+                "record",
+                f"--man={shadow_manifest}",
+                *self.record_args()[1:],
+            ],
+        )
+        for argv in base_cases:
+            with self.subTest(base_subprocess_argv=argv):
+                attempt = subprocess.run(
+                    [sys.executable, str(BASE_CLI), *argv],
+                    cwd=Path(__file__).parent,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                self.assertEqual(attempt.returncode, 2)
+                self.assertEqual(attempt.stdout, "")
+                self.assertNotIn("usage:", attempt.stderr.lower())
+                self.assertNotIn("traceback", attempt.stderr.lower())
+                lines = attempt.stderr.splitlines()
+                self.assertEqual(len(lines), 1)
+                terminal = json.loads(lines[0])
+                self.assertEqual(terminal["marker"], record_contract.HANDOFF_MARKER)
+                self.assertEqual(terminal["status"], "HOLD")
+                self.assertEqual(terminal["reason_code"], "ARGUMENT_ERROR")
+                self.assertIn("unrecognized arguments:", terminal["reason"])
+                self.assertFalse(self.path.exists())
+                self.assertFalse(shadow_manifest.exists())
 
     def test_parent_fsync_failure_is_machine_recoverable_without_replacement(self) -> None:
         with mock.patch.object(
