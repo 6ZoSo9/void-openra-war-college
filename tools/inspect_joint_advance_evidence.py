@@ -138,6 +138,21 @@ def _matrix_summary(
         ),
         None,
     )
+    first_incomplete = next(
+        (
+            {"key": key, "state": "missing"}
+            if key not in cells_by_key
+            else {
+                "key": key,
+                "state": "present",
+                "terminal": cells_by_key[key]["terminal"],
+            }
+            for key in planned_keys
+            if key not in cells_by_key
+            or cells_by_key[key]["terminal"] != "success"
+        ),
+        None,
+    )
     return (
         [cell["terminal"] for cell in ordered_cells],
         {
@@ -145,6 +160,7 @@ def _matrix_summary(
             "cell_count": len(ordered_cells),
             "missing_cell_count": len(missing_keys),
             "first_missing": missing_keys[0] if missing_keys else None,
+            "first_incomplete": first_incomplete,
             "success_count": sum(
                 cell["terminal"] == "success" for cell in ordered_cells
             ),
