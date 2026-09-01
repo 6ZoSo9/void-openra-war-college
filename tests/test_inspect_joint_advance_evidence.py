@@ -241,6 +241,43 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "first_non_success": {"key": "c8-t8", "terminal": "timeout"},
         })
 
+    def test_matrix_summary_preserves_partial_and_empty_valid_attempts(self):
+        parameters = {
+            "concurrency": [8, 1],
+            "tick_batches": [8, 1],
+        }
+        partial = {
+            "parameters": parameters,
+            "cells": [
+                {"key": "c8-t8", "terminal": "timeout"},
+            ],
+        }
+
+        terminals, summary = INSPECT._matrix_summary(partial)
+
+        self.assertEqual(terminals, ["timeout"])
+        self.assertEqual(summary, {
+            "cell_count": 1,
+            "success_count": 0,
+            "non_success_count": 1,
+            "blocked_cell_count": 0,
+            "first_non_success": {"key": "c8-t8", "terminal": "timeout"},
+        })
+
+        terminals, summary = INSPECT._matrix_summary({
+            "parameters": parameters,
+            "cells": [],
+        })
+
+        self.assertEqual(terminals, [])
+        self.assertEqual(summary, {
+            "cell_count": 0,
+            "success_count": 0,
+            "non_success_count": 0,
+            "blocked_cell_count": 0,
+            "first_non_success": None,
+        })
+
     def test_receipt_bound_current_schema_invalid_report_is_explicit_hold(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
