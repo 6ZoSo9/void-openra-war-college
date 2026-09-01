@@ -285,11 +285,13 @@ def _process_group_exists(pgid: int) -> bool:
 
 def _wait_process_group_absent(pgid: int, timeout_s: float) -> bool:
     deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+    while True:
         if not _process_group_exists(pgid):
             return True
-        time.sleep(0.01)
-    return not _process_group_exists(pgid)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.01, remaining))
 
 
 def _signal_process_group(pgid: int, signal_number: int) -> None:
