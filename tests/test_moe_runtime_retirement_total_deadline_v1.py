@@ -37,7 +37,91 @@ class _Process:
         return self._alive
 
 
+class _UnboundProcess:
+    def __init__(self, clock):
+        self.pid = 4343
+        self._clock = clock
+        self._alive = True
+        self.join_timeouts = []
+        self.terminated = False
+        self.killed = False
+
+    def join(self, timeout):
+        self.join_timeouts.append(timeout)
+        if len(self.join_timeouts) == 2:
+            self._clock.now += timeout + 0.04
+        elif len(self.join_timeouts) == 3:
+            self._clock.now += timeout
+            self._alive = False
+
+    def is_alive(self):
+        return self._alive
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+
 class RuntimeRetirementTotalDeadlineTests(unittest.TestCase):
+    def test_unbound_child_term_overrun_is_charged_to_kill_budget(self):
+        clock = _Clock()
+        process = _UnboundProcess(clock)
+
+        with mock.patch.object(
+            bench.time, "monotonic", side_effect=clock.monotonic
+        ):
+            bench._retire_unbound_runtime_child(
+                process,
+                signal_grace_s=0.1,
+            )
+
+        self.assertTrue(process.terminated)
+        self.assertTrue(process.killed)
+        self.assertEqual(len(process.join_timeouts), 3)
+        self.assertEqual(process.join_timeouts[0], 0)
+        self.assertAlmostEqual(process.join_timeouts[1], 0.1)
+        self.assertAlmostEqual(process.join_timeouts[2], 0.06)
+        self.assertLessEqual(clock.now, 0.200001)
+
+    def test_unbound_child_invalid_grace_fails_before_process_contact(self):
+        for value in (-0.1, float("nan"), float("inf"), float("-inf"), True, "0.1"):
+            process = mock.Mock()
+
+            with self.subTest(value=value), self.assertRaisesRegex(
+                bench.ContractError,
+                "unbound runtime child signal grace must be finite nonnegative seconds",
+            ):
+                bench._retire_unbound_runtime_child(
+                    process,
+                    signal_grace_s=value,
+                )
+
+            process.join.assert_not_called()
+            process.is_alive.assert_not_called()
+            process.terminate.assert_not_called()
+            process.kill.assert_not_called()
+
+    def test_unbound_child_deadline_overflow_fails_before_process_contact(self):
+        process = mock.Mock()
+
+        with mock.patch.object(
+            bench.time, "monotonic", return_value=0.0
+        ), self.assertRaisesRegex(
+            bench.ContractError,
+            "derived unbound runtime child retirement deadlines must be finite",
+        ):
+            bench._retire_unbound_runtime_child(
+                process,
+                signal_grace_s=1e308,
+            )
+
+        process.join.assert_not_called()
+        process.is_alive.assert_not_called()
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
+
     def test_join_and_group_polling_share_one_total_deadline(self):
         clock = _Clock()
         process = _Process(clock)
