@@ -63,7 +63,8 @@ jobs:
             test_darwin_evaluation_precommit_record_v1.py \
             test_darwin_evaluation_result_partition_audit_v1.py \
             test_darwin_heldout_evaluation_split_v1.py \
-            test_darwin_precommitted_evaluation_plan_v1.py
+            test_darwin_precommitted_evaluation_plan_v1.py \
+            test_katherine_precommit_csv_cardinality_v1.py
 
       - name: Run exact Darwin source contract wall
         run: |
@@ -73,4 +74,5 @@ jobs:
             test_darwin_evaluation_precommit_record_v1.py \
             test_darwin_evaluation_result_partition_audit_v1.py \
             test_darwin_heldout_evaluation_split_v1.py \
-            test_darwin_precommitted_evaluation_plan_v1.py
+            test_darwin_precommitted_evaluation_plan_v1.py \
+            test_katherine_precommit_csv_cardinality_v1.py

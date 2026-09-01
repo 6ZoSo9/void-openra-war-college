@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+import darwin_benchmark_evaluation_partition_binding_v1 as window_binding
 import darwin_heldout_evaluation_split_v1 as split
 import darwin_precommitted_evaluation_plan_v1 as plan_contract
 
@@ -32,6 +33,10 @@ MAX_JSON_BYTES = 1_048_576
 RECORD_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}\Z")
 SHA64_RE = re.compile(r"[0-9a-f]{64}\Z")
 POSITIVE_DECIMAL_RE = re.compile(r"[1-9][0-9]*\Z")
+CSV_MAX_ITEMS_BY_LABEL = {
+    "concurrency": len(window_binding.ALLOWED_JOINT_ADVANCE_CONCURRENCY),
+    "tick_batches": plan_contract.MAX_MATRIX_CELLS,
+}
 
 
 class RecordError(ValueError):
@@ -100,12 +105,14 @@ def _validate_record_id(value: object) -> str:
 
 
 def _parse_positive_decimal(value: str, label: str, maximum: int) -> int:
-    if not isinstance(value, str) or not POSITIVE_DECIMAL_RE.fullmatch(value):
+    if not isinstance(value, str):
         raise NumericArgumentError(f"{label} must be a canonical positive decimal")
     maximum_text = str(maximum)
-    if len(value) > len(maximum_text) or (
-        len(value) == len(maximum_text) and value > maximum_text
-    ):
+    if len(value) > len(maximum_text):
+        raise NumericArgumentError(f"{label} must be in 1..{maximum}")
+    if not POSITIVE_DECIMAL_RE.fullmatch(value):
+        raise NumericArgumentError(f"{label} must be a canonical positive decimal")
+    if len(value) == len(maximum_text) and value > maximum_text:
         raise NumericArgumentError(f"{label} must be in 1..{maximum}")
     return int(value, 10)
 
@@ -115,9 +122,26 @@ def _parse_csv_positive_decimals(
     label: str,
     maximum: int,
 ) -> tuple[int, ...]:
+    if not isinstance(value, str):
+        raise NumericArgumentError(
+            f"{label} must be a comma-separated canonical decimal list"
+        )
+    max_items = CSV_MAX_ITEMS_BY_LABEL.get(label)
+    if max_items is None:
+        raise NumericArgumentError(f"{label} has no bounded CSV cardinality contract")
+    max_chars = max_items * len(str(maximum)) + (max_items - 1)
+    if len(value) > max_chars:
+        raise NumericArgumentError(
+            f"{label} must be in 1..{maximum}, contain at most {max_items} values, "
+            f"and contain at most {max_chars} characters"
+        )
     if not value or " " in value or "\t" in value or "\n" in value:
         raise NumericArgumentError(
             f"{label} must be a comma-separated canonical decimal list"
+        )
+    if value.count(",") + 1 > max_items:
+        raise NumericArgumentError(
+            f"{label} must contain at most {max_items} values"
         )
     parts = value.split(",")
     if not all(parts):
