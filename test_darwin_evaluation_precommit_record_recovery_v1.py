@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +18,10 @@ import darwin_evaluation_precommit_record_recovery_v1 as recovery
 import darwin_evaluation_precommit_record_v1 as record_contract
 import darwin_heldout_evaluation_split_v1 as split
 import darwin_precommitted_evaluation_plan_v1 as plan_contract
+
+CLI = Path(__file__).with_name(
+    "darwin_evaluation_precommit_record_recovery_v1.py"
+)
 
 
 class EvaluationPrecommitRecoveryTests(unittest.TestCase):
@@ -41,6 +49,126 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp.cleanup()
+
+    def record_args(self) -> list[str]:
+        return [
+            "record",
+            "--manifest",
+            str(self.root / "split.json"),
+            "--record",
+            str(self.path),
+            "--record-id",
+            "eval-recovery-001",
+            "--benchmark-source-sha",
+            "b" * 40,
+            "--calibration-base-seed",
+            "1000",
+            "--held-out-base-seed",
+            "2000",
+            "--concurrency",
+            "1,4",
+            "--tick-batches",
+            "1,8",
+            "--samples",
+            "2",
+            "--repetitions",
+            "2",
+            "--workload-profile",
+            "noop_control",
+        ]
+
+    def assert_duplicate_rejected_before_io(self, argv: list[str], option: str) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with mock.patch.object(recovery, "_load_manifest") as load_manifest:
+            with mock.patch.object(recovery.os, "open") as open_file:
+                with mock.patch.object(recovery.os, "fsync") as fsync_file:
+                    with mock.patch.object(record_contract, "_fsync_parent") as fsync_parent:
+                        with contextlib.redirect_stdout(stdout):
+                            with contextlib.redirect_stderr(stderr):
+                                return_code = recovery.main(argv)
+
+        self.assertEqual(return_code, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        lines = stderr.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        terminal = json.loads(lines[0])
+        self.assertEqual(terminal["marker"], recovery.HANDOFF_MARKER)
+        self.assertEqual(terminal["status"], "HOLD")
+        self.assertEqual(terminal["reason_code"], "ARGUMENT_ERROR")
+        self.assertIn(
+            f"argument {option}: may not be repeated",
+            terminal["reason"],
+        )
+        load_manifest.assert_not_called()
+        open_file.assert_not_called()
+        fsync_file.assert_not_called()
+        fsync_parent.assert_not_called()
+        self.assertFalse(self.path.exists())
+
+    def test_duplicate_options_fail_before_manifest_open_or_fsync(self) -> None:
+        record_cases = (
+            ("--manifest", str(self.root / "other-split.json")),
+            ("--record", str(self.root / "other-record.json")),
+            ("--record-id", "eval-recovery-002"),
+            ("--benchmark-source-sha", "c" * 40),
+            ("--samples", "3"),
+        )
+        for option, value in record_cases:
+            with self.subTest(command="record", option=option):
+                self.assert_duplicate_rejected_before_io(
+                    [*self.record_args(), option, value],
+                    option,
+                )
+
+        for command in ("validate", "recover"):
+            for option, value in (
+                ("--manifest", str(self.root / "other-split.json")),
+                ("--record", str(self.root / "other-record.json")),
+            ):
+                with self.subTest(command=command, option=option):
+                    self.assert_duplicate_rejected_before_io(
+                        [
+                            command,
+                            "--manifest",
+                            str(self.root / "split.json"),
+                            "--record",
+                            str(self.path),
+                            option,
+                            value,
+                        ],
+                        option,
+                    )
+
+    def test_duplicate_equals_form_is_one_machine_hold_terminal(self) -> None:
+        attempt = subprocess.run(
+            [
+                sys.executable,
+                str(CLI),
+                *self.record_args(),
+                "--record-id=eval-recovery-002",
+            ],
+            cwd=Path(__file__).parent,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        self.assertEqual(attempt.returncode, 2)
+        self.assertEqual(attempt.stdout, "")
+        self.assertNotIn("usage:", attempt.stderr.lower())
+        self.assertNotIn("traceback", attempt.stderr.lower())
+        lines = attempt.stderr.splitlines()
+        self.assertEqual(len(lines), 1)
+        terminal = json.loads(lines[0])
+        self.assertEqual(terminal["marker"], recovery.HANDOFF_MARKER)
+        self.assertEqual(terminal["status"], "HOLD")
+        self.assertEqual(terminal["reason_code"], "ARGUMENT_ERROR")
+        self.assertIn(
+            "argument --record-id: may not be repeated",
+            terminal["reason"],
+        )
+        self.assertFalse(self.path.exists())
 
     def test_parent_fsync_failure_is_machine_recoverable_without_replacement(self) -> None:
         with mock.patch.object(
