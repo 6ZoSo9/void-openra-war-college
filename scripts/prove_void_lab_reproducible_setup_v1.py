@@ -39,6 +39,40 @@ def publish_create_only(temp: Path, destination: Path) -> None:
         raise RuntimeError("published receipt identity or mode changed")
 
 
+def cleanup_owned_generation(
+    path: Path,
+    witness: os.stat_result,
+    *,
+    unlink=os.unlink,
+) -> bool:
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return False
+    if (
+        stat.S_ISLNK(current.st_mode)
+        or (current.st_dev, current.st_ino) != (witness.st_dev, witness.st_ino)
+    ):
+        return False
+    try:
+        unlink(path)
+    except OSError:
+        return False
+    return True
+
+
+def classify_published_receipt(destination: Path, witness: os.stat_result) -> str:
+    published = destination.lstat()
+    if (
+        stat.S_ISREG(published.st_mode)
+        and stat.S_IMODE(published.st_mode) == 0o600
+        and (published.st_dev, published.st_ino)
+        == (witness.st_dev, witness.st_ino)
+    ):
+        return "COMMITTED"
+    return "HOLD"
+
+
 def prove_document_contract() -> None:
     text = DOCUMENT.read_text(encoding="utf-8")
     required = (
@@ -49,9 +83,13 @@ def prove_document_contract() -> None:
         'test ! -e "$VOID_LAB_RECEIPT"',
         'test ! -L "$VOID_LAB_RECEIPT"',
         'mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout.XXXXXX"',
+        'VOID_LAB_RECEIPT_TEMP_ID="$(stat -c \'%d:%i\' "$VOID_LAB_RECEIPT_TEMP")"',
+        'cleanup_owned_temp() {',
         'stat -c \'%a\' "$VOID_LAB_RECEIPT_TEMP"',
         'ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"',
         'stat -c \'%d:%i\' "$VOID_LAB_RECEIPT"',
+        'cleanup_owned_temp',
+        'sync -f "$VOID_LAB_RECEIPT_DIR"',
         'void_publish_lab_receipt setup-001',
         'void_publish_lab_receipt prebuild-001',
     )
@@ -156,16 +194,66 @@ def prove_repeat_verification_preserves_both_receipts() -> None:
             raise RuntimeError("source-only proof reached a runtime path")
 
 
+def prove_postpublication_cleanup_is_terminal_monotone() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        destination = root / "receipt.json"
+        temp = root / ".candidate"
+        temp.write_bytes(b"validated\n")
+        temp.chmod(0o600)
+        witness = temp.lstat()
+        publish_create_only(temp, destination)
+
+        temp.unlink()
+        temp.write_bytes(b"foreign-generation\n")
+        temp.chmod(0o600)
+        foreign_before = temp.lstat()
+        if cleanup_owned_generation(temp, witness):
+            raise RuntimeError("replacement generation was reported as cleaned")
+        foreign_after = temp.lstat()
+        if temp.read_bytes() != b"foreign-generation\n":
+            raise RuntimeError("replacement generation bytes changed")
+        if (foreign_after.st_dev, foreign_after.st_ino) != (
+            foreign_before.st_dev,
+            foreign_before.st_ino,
+        ):
+            raise RuntimeError("replacement generation identity changed")
+        if classify_published_receipt(destination, witness) != "COMMITTED":
+            raise RuntimeError("replacement cleanup changed committed terminal")
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        destination = root / "receipt.json"
+        temp = root / ".candidate"
+        temp.write_bytes(b"validated\n")
+        temp.chmod(0o600)
+        witness = temp.lstat()
+        publish_create_only(temp, destination)
+
+        def fail_unlink(_: os.PathLike[str] | str) -> None:
+            raise PermissionError("injected cleanup failure")
+
+        if cleanup_owned_generation(temp, witness, unlink=fail_unlink):
+            raise RuntimeError("injected cleanup failure was reported as cleaned")
+        if classify_published_receipt(destination, witness) != "COMMITTED":
+            raise RuntimeError("cleanup failure reversed committed terminal")
+        if destination.read_bytes() != b"validated\n":
+            raise RuntimeError("cleanup failure changed committed receipt bytes")
+
+
 def main() -> int:
     prove_document_contract()
     prove_existing_receipt_is_unchanged()
     prove_absent_path_publishes_mode_0600()
     prove_repeat_verification_preserves_both_receipts()
+    prove_postpublication_cleanup_is_terminal_monotone()
     print(f"{MARKER} PASS")
     print("preexisting_receipt_unchanged=true")
     print("absent_path_mode_0600=true")
     print("repeat_verification_distinct_receipts=true")
     print("prior_receipt_preserved=true")
+    print("replacement_generation_preserved=true")
+    print("cleanup_failure_terminal=COMMITTED")
     print("runtime_path_executed=false")
     print("runtime_evidence=PENDING_DESIGNATED_HOST")
     return 0
