@@ -41,6 +41,17 @@ CONTROLLER_KEYS = {
     "observation_payload",
     "observation_sha256",
     "observation_binding_sha256",
+    "action_request_id",
+    "action_payload",
+    "action_sha256",
+    "action_binding_sha256",
+}
+ACTION_PAYLOAD_KEYS = {
+    "request_id",
+    "player_id",
+    "controller_id",
+    "world_tick",
+    "commands",
 }
 
 
@@ -70,6 +81,26 @@ def observation_binding(
             "controller_id": controller_id,
             "generation": GENERATION,
             "observation_sha256": observation_sha256,
+            "player_id": player_id,
+            "world_tick": world_tick,
+        }
+    )
+
+
+def action_binding(
+    *,
+    player_id: str,
+    controller_id: str,
+    world_tick: int,
+    action_request_id: str,
+    action_sha256: str,
+) -> str:
+    return sha256_hex(
+        {
+            "action_request_id": action_request_id,
+            "action_sha256": action_sha256,
+            "controller_id": controller_id,
+            "generation": GENERATION,
             "player_id": player_id,
             "world_tick": world_tick,
         }
@@ -131,6 +162,7 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
 
     player_ids: list[str] = []
     controller_ids: list[str] = []
+    action_request_ids: list[str] = []
     bindings: list[dict[str, str]] = []
 
     for record in controllers:
@@ -161,44 +193,105 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
                 if record.get(field) != player_id:
                     holds.add(hold)
 
-        payload = record.get("observation_payload")
-        if not isinstance(payload, dict):
+        observation_payload = record.get("observation_payload")
+        if not isinstance(observation_payload, dict):
             holds.add("HOLD_OBSERVATION_PAYLOAD_NOT_OBJECT")
-            payload_valid = False
+            observation_payload_valid = False
         else:
-            payload_valid = True
-            if payload.get("player_id") != player_id:
+            observation_payload_valid = True
+            if observation_payload.get("player_id") != player_id:
                 holds.add("HOLD_PAYLOAD_PLAYER_BINDING")
-            if payload.get("world_tick") != world_tick:
+            if observation_payload.get("world_tick") != world_tick:
                 holds.add("HOLD_PAYLOAD_TICK_BINDING")
 
         claimed_observation_sha = record.get("observation_sha256")
         if not _nonempty_string(claimed_observation_sha):
             holds.add("HOLD_OBSERVATION_DIGEST_INVALID")
-        elif payload_valid and sha256_hex(payload) != claimed_observation_sha:
+        elif observation_payload_valid and sha256_hex(observation_payload) != claimed_observation_sha:
             holds.add("HOLD_OBSERVATION_DIGEST_MISMATCH")
 
-        claimed_binding = record.get("observation_binding_sha256")
-        if not _nonempty_string(claimed_binding):
-            holds.add("HOLD_OBSERVATION_BINDING_INVALID")
-        elif (
+        claimed_observation_binding = record.get("observation_binding_sha256")
+        observation_binding_inputs_valid = (
             _nonempty_string(player_id)
             and _nonempty_string(controller_id)
             and world_tick_valid
             and _nonempty_string(claimed_observation_sha)
-        ):
-            expected_binding = observation_binding(
+        )
+        if not _nonempty_string(claimed_observation_binding):
+            holds.add("HOLD_OBSERVATION_BINDING_INVALID")
+        elif observation_binding_inputs_valid:
+            expected_observation_binding = observation_binding(
                 player_id=player_id,
                 controller_id=controller_id,
                 world_tick=world_tick,
                 observation_sha256=claimed_observation_sha,
             )
-            if claimed_binding != expected_binding:
+            if claimed_observation_binding != expected_observation_binding:
                 holds.add("HOLD_OBSERVATION_BINDING_MISMATCH")
+
+        action_request_id = record.get("action_request_id")
+        if not _nonempty_string(action_request_id):
+            holds.add("HOLD_ACTION_REQUEST_ID_INVALID")
+        else:
+            action_request_ids.append(action_request_id)
+
+        action_payload = record.get("action_payload")
+        if not isinstance(action_payload, dict):
+            holds.add("HOLD_ACTION_PAYLOAD_NOT_OBJECT")
+            action_payload_valid = False
+        else:
+            action_payload_valid = True
+            if set(action_payload) != ACTION_PAYLOAD_KEYS:
+                holds.add("HOLD_ACTION_PAYLOAD_SCHEMA_DRIFT")
+            if action_payload.get("request_id") != action_request_id:
+                holds.add("HOLD_ACTION_PAYLOAD_REQUEST_BINDING")
+            if action_payload.get("player_id") != player_id:
+                holds.add("HOLD_ACTION_PAYLOAD_PLAYER_BINDING")
+            if action_payload.get("controller_id") != controller_id:
+                holds.add("HOLD_ACTION_PAYLOAD_CONTROLLER_BINDING")
+            if action_payload.get("world_tick") != world_tick:
+                holds.add("HOLD_ACTION_PAYLOAD_TICK_BINDING")
+            if not isinstance(action_payload.get("commands"), list):
+                holds.add("HOLD_ACTION_COMMANDS_NOT_LIST")
+
+        claimed_action_sha = record.get("action_sha256")
+        if not _nonempty_string(claimed_action_sha):
+            holds.add("HOLD_ACTION_DIGEST_INVALID")
+        elif action_payload_valid and sha256_hex(action_payload) != claimed_action_sha:
+            holds.add("HOLD_ACTION_DIGEST_MISMATCH")
+
+        claimed_action_binding = record.get("action_binding_sha256")
+        action_binding_inputs_valid = (
+            _nonempty_string(player_id)
+            and _nonempty_string(controller_id)
+            and world_tick_valid
+            and _nonempty_string(action_request_id)
+            and _nonempty_string(claimed_action_sha)
+        )
+        if not _nonempty_string(claimed_action_binding):
+            holds.add("HOLD_ACTION_BINDING_INVALID")
+        elif action_binding_inputs_valid:
+            expected_action_binding = action_binding(
+                player_id=player_id,
+                controller_id=controller_id,
+                world_tick=world_tick,
+                action_request_id=action_request_id,
+                action_sha256=claimed_action_sha,
+            )
+            if claimed_action_binding != expected_action_binding:
+                holds.add("HOLD_ACTION_BINDING_MISMATCH")
+
+        if (
+            observation_binding_inputs_valid
+            and action_binding_inputs_valid
+            and _nonempty_string(claimed_observation_binding)
+            and _nonempty_string(claimed_action_binding)
+        ):
             bindings.append(
                 {
+                    "action_binding_sha256": claimed_action_binding,
                     "controller_id": controller_id,
-                    "observation_binding_sha256": claimed_binding,
+                    "observation_binding_sha256": claimed_observation_binding,
                     "player_id": player_id,
                 }
             )
@@ -207,6 +300,8 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
         holds.add("HOLD_DUPLICATE_PLAYER_ID")
     if len(controller_ids) != len(set(controller_ids)):
         holds.add("HOLD_DUPLICATE_CONTROLLER_ID")
+    if len(action_request_ids) != len(set(action_request_ids)):
+        holds.add("HOLD_DUPLICATE_ACTION_REQUEST_ID")
 
     claimed_joint = evidence.get("joint_evidence_sha256")
     if not _nonempty_string(claimed_joint):
