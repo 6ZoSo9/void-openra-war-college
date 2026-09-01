@@ -60,17 +60,53 @@ class PrecommitCsvCardinalityTests(unittest.TestCase):
         ):
             record_contract._parse_csv_positive_decimals(value, "tick_batches", 10_000)
 
-    def test_overlength_scalar_rejects_before_regex(self) -> None:
-        with mock.patch.object(record_contract, "POSITIVE_DECIMAL_RE", RegexTrap()):
-            with self.assertRaisesRegex(
-                record_contract.NumericArgumentError,
-                r"seed must be in 1..4294967295",
-            ):
-                record_contract._parse_positive_decimal(
-                    "9" * 11,
-                    "seed",
-                    4_294_967_295,
+    def test_every_scalar_field_binds_its_exact_numeric_boundary(self) -> None:
+        cases = (
+            ("calibration_base_seed", record_contract.split.MAX_RUNTIME_SEED),
+            ("held_out_base_seed", record_contract.split.MAX_RUNTIME_SEED),
+            ("samples", record_contract.plan_contract.MAX_SAMPLES),
+            ("repetitions", record_contract.plan_contract.MAX_REPETITIONS),
+        )
+        for label, maximum in cases:
+            with self.subTest(label=label, boundary="maximum"):
+                self.assertEqual(
+                    record_contract._parse_positive_decimal(
+                        str(maximum),
+                        label,
+                        maximum,
+                    ),
+                    maximum,
                 )
+            with self.subTest(label=label, boundary="maximum_plus_one"):
+                with self.assertRaisesRegex(
+                    record_contract.NumericArgumentError,
+                    rf"{label} must be in 1\.\.{maximum}",
+                ):
+                    record_contract._parse_positive_decimal(
+                        str(maximum + 1),
+                        label,
+                        maximum,
+                    )
+
+    def test_every_overlength_scalar_rejects_before_regex(self) -> None:
+        cases = (
+            ("calibration_base_seed", record_contract.split.MAX_RUNTIME_SEED),
+            ("held_out_base_seed", record_contract.split.MAX_RUNTIME_SEED),
+            ("samples", record_contract.plan_contract.MAX_SAMPLES),
+            ("repetitions", record_contract.plan_contract.MAX_REPETITIONS),
+        )
+        with mock.patch.object(record_contract, "POSITIVE_DECIMAL_RE", RegexTrap()):
+            for label, maximum in cases:
+                with self.subTest(label=label):
+                    with self.assertRaisesRegex(
+                        record_contract.NumericArgumentError,
+                        rf"{label} must be in 1\.\.{maximum}",
+                    ):
+                        record_contract._parse_positive_decimal(
+                            "9" * (len(str(maximum)) + 1),
+                            label,
+                            maximum,
+                        )
 
     def test_exact_cardinality_and_character_boundaries_remain_parseable(self) -> None:
         self.assertEqual(
