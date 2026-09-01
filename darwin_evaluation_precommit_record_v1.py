@@ -53,7 +53,7 @@ class StableArgumentParser(argparse.ArgumentParser):
         raise ArgumentContractError(message)
 
 
-def _parse_unique_args(
+def parse_unique_args(
     parser: StableArgumentParser,
     argv: Iterable[str] | None,
 ) -> argparse.Namespace:
@@ -70,6 +70,11 @@ def _parse_unique_args(
             parser.error(f"argument {option}: may not be repeated")
         seen.add(option)
     return parser.parse_args(tokens)
+
+
+# Retain the historical internal name for imported draft callers while making
+# duplicate-option admission one explicit shared public contract.
+_parse_unique_args = parse_unique_args
 
 
 def canonical_json(value: object) -> str:
@@ -431,7 +436,7 @@ def _validate_command(args: argparse.Namespace) -> dict[str, object]:
 def main(argv: Iterable[str] | None = None) -> int:
     parser = _build_parser()
     try:
-        args = _parse_unique_args(parser, argv)
+        args = parse_unique_args(parser, argv)
         if args.command == "record":
             record = _record_command(args)
             print(_summary("PRECOMMIT_RECORDED", record))
