@@ -257,6 +257,55 @@ class EvaluationPrecommitRecordTests(unittest.TestCase):
         self.assertIn("record", help_result.stdout)
         self.assertIn("validate", help_result.stdout)
 
+    def test_duplicate_single_value_options_fail_before_any_publication(self) -> None:
+        duplicate_cases = (
+            ("--record-id", "eval-002"),
+            ("--benchmark-source-sha", "b" * 40),
+            ("--manifest", str(self.manifest_path)),
+            ("--record", str(self.root / "shadow.json")),
+            ("--samples", "3"),
+        )
+        for option, value in duplicate_cases:
+            with self.subTest(option=option):
+                attempt = self.run_cli(*self.record_args(), option, value)
+                terminal = self.assert_json_hold(attempt, "ARGUMENT_ERROR")
+                self.assertIn(
+                    f"argument {option}: may not be repeated",
+                    terminal["reason"],
+                )
+                self.assertFalse(self.record_path.exists())
+                self.assertFalse((self.root / "shadow.json").exists())
+
+        equals_form = self.run_cli(
+            *self.record_args(),
+            "--record-id=eval-002",
+        )
+        equals_terminal = self.assert_json_hold(equals_form, "ARGUMENT_ERROR")
+        self.assertIn(
+            "argument --record-id: may not be repeated",
+            equals_terminal["reason"],
+        )
+        self.assertFalse(self.record_path.exists())
+
+        validate_duplicate = self.run_cli(
+            "validate",
+            "--manifest",
+            str(self.manifest_path),
+            "--record",
+            str(self.record_path),
+            "--manifest",
+            str(self.manifest_path),
+        )
+        validate_terminal = self.assert_json_hold(
+            validate_duplicate,
+            "ARGUMENT_ERROR",
+        )
+        self.assertIn(
+            "argument --manifest: may not be repeated",
+            validate_terminal["reason"],
+        )
+        self.assertFalse(self.record_path.exists())
+
     def test_hardlink_or_symlink_record_authority_fails_closed(self) -> None:
         created = self.run_cli(*self.record_args())
         self.assertEqual(created.returncode, 0, created.stderr)
