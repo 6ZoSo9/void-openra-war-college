@@ -18,13 +18,54 @@ baseline. The preserved comparison point, engine commit, generation, and any
 
 ## Preconditions
 
-- Python 3.10 or newer and Git are already installed.
+- Use a GNU/Linux host with POSIX `sh` semantics. This generation is tested on
+  Ubuntu 24.04 and requires `uname`, Python 3.10 or newer, Git, `awk`,
+  `dirname`, `ln`, `mktemp`, `rm`, `sha256sum`, `stat`, and `sync`
+  with the option semantics proved by the preflight below.
 - The operator already has authorized read access to both private repositories.
 - The repository URL is supplied through existing Git configuration or a local
   environment variable. Do not place credentials in commands, files, receipts,
   shell history, or logs.
 - Choose a new empty destination. Do not reuse a working tree that contains
   build products, runtime files, benchmark results, or local source changes.
+
+Run this prerequisite wall before choosing or creating the checkout destination. It
+uses only a disposable temporary directory and must complete before clone,
+submodule, receipt, build, or benchmark mutation:
+
+```bash
+# VOID_LAB_HOST_PREFLIGHT_V1_BEGIN
+void_require_lab_setup_host() (
+  set -eu
+  for command in uname python3 git awk dirname ln mktemp rm sha256sum stat sync; do
+    command -v "$command" >/dev/null 2>&1 || exit 70
+  done
+  test "$(uname -s)" = 'Linux' || exit 70
+  python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 70)' || exit 70
+  git --version >/dev/null || exit 70
+  VOID_LAB_PREFLIGHT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/void-lab-prereq.XXXXXX")" || exit 70
+  cleanup_preflight() {
+    rm -rf -- "$VOID_LAB_PREFLIGHT_DIR"
+  }
+  trap cleanup_preflight EXIT HUP INT TERM
+  printf 'probe\n' > "$VOID_LAB_PREFLIGHT_DIR/source" || exit 70
+  ln -- "$VOID_LAB_PREFLIGHT_DIR/source" "$VOID_LAB_PREFLIGHT_DIR/link" || exit 70
+  VOID_LAB_PREFLIGHT_SOURCE_ID="$(stat -c '%d:%i' "$VOID_LAB_PREFLIGHT_DIR/source")" || exit 70
+  VOID_LAB_PREFLIGHT_LINK_ID="$(stat -c '%d:%i' "$VOID_LAB_PREFLIGHT_DIR/link")" || exit 70
+  test "$VOID_LAB_PREFLIGHT_SOURCE_ID" = "$VOID_LAB_PREFLIGHT_LINK_ID" || exit 70
+  test "$(dirname -- "$VOID_LAB_PREFLIGHT_DIR/source")" = "$VOID_LAB_PREFLIGHT_DIR" || exit 70
+  test "$(printf 'left right\n' | awk '{print $2}')" = 'right' || exit 70
+  sha256sum "$VOID_LAB_PREFLIGHT_DIR/source" | awk 'NF == 2 && $2 ~ /source$/ { ok=1 } END { exit ok ? 0 : 1 }' || exit 70
+  sync -f "$VOID_LAB_PREFLIGHT_DIR" || exit 70
+  rm -- "$VOID_LAB_PREFLIGHT_DIR/link" || exit 70
+  test ! -e "$VOID_LAB_PREFLIGHT_DIR/link" || exit 70
+)
+void_require_lab_setup_host || {
+  printf '%s\n' 'HOLD_VOID_LAB_SETUP_HOST_PREREQUISITES' >&2
+  exit 70
+}
+# VOID_LAB_HOST_PREFLIGHT_V1_END
+```
 
 Set only non-secret local variables:
 
@@ -165,4 +206,3 @@ either worktree changes, repeat the entire identity wall and verifier with
 another new identifier; never reuse or remove an earlier GREEN receipt.
 
 `runtime_evidence=PENDING_DESIGNATED_HOST`
-
