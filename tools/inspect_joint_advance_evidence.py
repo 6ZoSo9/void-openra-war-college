@@ -115,6 +115,45 @@ def _open_artifact_descriptor(parent_descriptor: int, name: str) -> int:
         )
 
 
+def _matrix_summary(
+    report: dict[str, Any],
+) -> tuple[list[str], dict[str, Any]]:
+    cells_by_key = {cell["key"]: cell for cell in report["cells"]}
+    ordered_cells = [
+        cells_by_key[
+            f"c{planned['concurrency']}-t{planned['ticks_per_joint_advance']}"
+        ]
+        for planned in bench.build_matrix(
+            tuple(report["parameters"]["concurrency"]),
+            tuple(report["parameters"]["tick_batches"]),
+        )
+    ]
+    first_non_success = next(
+        (
+            {"key": cell["key"], "terminal": cell["terminal"]}
+            for cell in ordered_cells
+            if cell["terminal"] != "success"
+        ),
+        None,
+    )
+    return (
+        [cell["terminal"] for cell in ordered_cells],
+        {
+            "cell_count": len(ordered_cells),
+            "success_count": sum(
+                cell["terminal"] == "success" for cell in ordered_cells
+            ),
+            "non_success_count": sum(
+                cell["terminal"] != "success" for cell in ordered_cells
+            ),
+            "blocked_cell_count": sum(
+                cell["terminal"] == "not_executed" for cell in ordered_cells
+            ),
+            "first_non_success": first_non_success,
+        },
+    )
+
+
 def _artifact(
     parent_descriptor: int,
     name: str,
@@ -179,31 +218,10 @@ def _artifact(
                 row["report_schema_compatible"] = True
                 row["report_schema_version"] = report["schema_version"]
                 row["report_terminal"] = report["run"]["terminal"]
-                cells = report["cells"]
-                row["report_cell_terminals"] = [
-                    cell["terminal"] for cell in cells
-                ]
-                first_non_success = next(
-                    (
-                        {"key": cell["key"], "terminal": cell["terminal"]}
-                        for cell in cells
-                        if cell["terminal"] != "success"
-                    ),
-                    None,
-                )
-                row["report_matrix_summary"] = {
-                    "cell_count": len(cells),
-                    "success_count": sum(
-                        cell["terminal"] == "success" for cell in cells
-                    ),
-                    "non_success_count": sum(
-                        cell["terminal"] != "success" for cell in cells
-                    ),
-                    "blocked_cell_count": sum(
-                        cell["terminal"] == "not_executed" for cell in cells
-                    ),
-                    "first_non_success": first_non_success,
-                }
+                (
+                    row["report_cell_terminals"],
+                    row["report_matrix_summary"],
+                ) = _matrix_summary(report)
     return row, payload, descriptor
 
 
