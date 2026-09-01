@@ -314,8 +314,14 @@ def _retire_runtime_process_group(
     """Retire one process group without multiplying phase-local wait budgets."""
     if pgid != process.pid:
         raise ContractError("runtime process-group identity is not bound to child PID")
-    if natural_grace_s < 0 or signal_grace_s < 0:
-        raise ContractError("runtime process-group retirement grace must be nonnegative")
+    for label, value in (
+        ("natural_grace_s", natural_grace_s),
+        ("signal_grace_s", signal_grace_s),
+    ):
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise ContractError(
+                f"{label} must be finite nonnegative seconds"
+            )
 
     started_at = time.monotonic()
     natural_deadline = started_at + natural_grace_s
