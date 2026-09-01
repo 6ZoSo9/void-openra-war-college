@@ -359,16 +359,40 @@ def _retire_runtime_process_group(
         )
 
 
-def _retire_unbound_runtime_child(process: Any) -> None:
-    """Retire a child that failed before establishing its private process group."""
+def _retire_unbound_runtime_child(
+    process: Any,
+    *,
+    signal_grace_s: float = _RUNTIME_CHILD_SIGNAL_GRACE_S,
+) -> None:
+    """Retire an unbound child within one monotonic TERM/KILL budget."""
+    if (
+        type(signal_grace_s) not in (int, float)
+        or not math.isfinite(signal_grace_s)
+        or signal_grace_s < 0
+    ):
+        raise ContractError(
+            "unbound runtime child signal grace must be finite nonnegative seconds"
+        )
+
+    started_at = time.monotonic()
+    term_deadline = started_at + signal_grace_s
+    kill_deadline = term_deadline + signal_grace_s
+    if not all(
+        math.isfinite(value)
+        for value in (started_at, term_deadline, kill_deadline)
+    ):
+        raise ContractError(
+            "derived unbound runtime child retirement deadlines must be finite"
+        )
+
     process.join(0)
     if not process.is_alive():
         return
     process.terminate()
-    process.join(_RUNTIME_CHILD_SIGNAL_GRACE_S)
+    process.join(_runtime_retirement_remaining(term_deadline))
     if process.is_alive():
         process.kill()
-        process.join(_RUNTIME_CHILD_SIGNAL_GRACE_S)
+        process.join(_runtime_retirement_remaining(kill_deadline))
     if process.is_alive():
         raise ContractError("unbound runtime child could not be retired")
 
