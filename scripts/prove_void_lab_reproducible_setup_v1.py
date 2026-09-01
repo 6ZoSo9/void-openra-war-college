@@ -134,6 +134,48 @@ def documented_host_preflight() -> str:
     return text[start:finish] + "\n"
 
 
+def documented_receipt_shell() -> str:
+    text = DOCUMENT.read_text(encoding="utf-8")
+    begin = "void_publish_lab_receipt() ("
+    end = "void_publish_lab_receipt setup-001"
+    start = text.index(begin)
+    finish = text.index(end, start) + len(end)
+    return text[start:finish] + "\n"
+
+
+def prove_documented_receipt_shell_syntax() -> None:
+    source = documented_receipt_shell()
+    control = subprocess.run(
+        ["/bin/dash", "-n"],
+        input=source,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if control.returncode != 0:
+        raise RuntimeError(
+            f"documented receipt shell has invalid dash syntax: {control.stderr}"
+        )
+
+    closing = "\n)\nvoid_publish_lab_receipt setup-001"
+    if closing not in source:
+        raise RuntimeError("receipt shell extraction omitted its exact function close")
+    mutant = source.replace(
+        closing,
+        "\nvoid_publish_lab_receipt setup-001",
+        1,
+    )
+    rejected = subprocess.run(
+        ["/bin/dash", "-n"],
+        input=mutant,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if rejected.returncode == 0:
+        raise RuntimeError("receipt shell syntax-deletion mutant was accepted")
+
+
 def host_command_paths() -> dict[str, str]:
     paths: dict[str, str] = {}
     for command in REQUIRED_HOST_COMMANDS:
@@ -347,12 +389,15 @@ def prove_postpublication_cleanup_is_terminal_monotone() -> None:
 
 def main() -> int:
     prove_document_contract()
+    prove_documented_receipt_shell_syntax()
     prove_host_preflight_fails_before_downstream_mutation()
     prove_existing_receipt_is_unchanged()
     prove_absent_path_publishes_mode_0600()
     prove_repeat_verification_preserves_both_receipts()
     prove_postpublication_cleanup_is_terminal_monotone()
     print(f"{MARKER} PASS")
+    print("receipt_shell_dash_syntax=true")
+    print("receipt_shell_syntax_mutant_rejected=true")
     print("host_preflight_supported_control=true")
     print(f"host_preflight_missing_command_cases={len(REQUIRED_HOST_COMMANDS)}")
     print(f"host_preflight_substituted_command_cases={len(REQUIRED_HOST_COMMANDS)}")
