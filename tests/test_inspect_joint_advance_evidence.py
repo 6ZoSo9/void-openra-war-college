@@ -171,9 +171,47 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(before, after)
             self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
             self.assertTrue(report["final"]["report_schema_valid"])
+            self.assertEqual(report["final"]["report_cell_terminals"], ["success"])
+            self.assertEqual(report["final"]["report_matrix_summary"], {
+                "cell_count": 1,
+                "success_count": 1,
+                "non_success_count": 0,
+                "blocked_cell_count": 0,
+                "first_non_success": None,
+            })
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
             self.assertEqual(report["producer_authentication"], "ABSENT")
+
+    def test_receipt_bound_completed_failure_reports_matrix_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = benchmark_tests.EvidencePublicationTests.completed_failure_payload()
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+            before = {str(p): generation(p) for p in (output, receipt)}
+
+            report = INSPECT.inspect_namespace(output)
+
+            self.assertEqual(before, {str(p): generation(p) for p in (output, receipt)})
+            self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertTrue(report["final"]["report_schema_valid"])
+            self.assertEqual(
+                report["final"]["report_cell_terminals"],
+                ["timeout", "not_executed"],
+            )
+            self.assertEqual(report["final"]["report_matrix_summary"], {
+                "cell_count": 2,
+                "success_count": 0,
+                "non_success_count": 2,
+                "blocked_cell_count": 1,
+                "first_non_success": {"key": "c1-t1", "terminal": "timeout"},
+            })
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_rewrite"])
 
     def test_receipt_bound_current_schema_invalid_report_is_explicit_hold(self):
         with tempfile.TemporaryDirectory() as directory:
