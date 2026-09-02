@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import unittest
+from unittest import mock
 
 import darwin_evaluation_precommit_record_v1 as record_contract
 import darwin_evaluation_result_partition_audit_v1 as audit
@@ -118,6 +119,28 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
             verified_record, "calibration", rows
         )
         self.assertIs(validated, rows)
+
+    def test_streaming_digest_matches_the_canonical_json_contract(self) -> None:
+        value = {
+            "ascii": ["z", "a", 7],
+            "nested": {"unicode": "\u03bb", "flag": True},
+        }
+        expected = hashlib.sha256(
+            record_contract.canonical_json(value).encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(audit._sha256_json(value), expected)
+
+    def test_full_bundle_audit_never_allocates_a_canonical_bundle_string(self) -> None:
+        manifest, record, bundle = fixture()
+        with mock.patch.object(
+            audit,
+            "canonical_json",
+            side_effect=AssertionError("full canonical string allocation"),
+        ):
+            result = audit.audit_result_bundle(bundle, record, manifest)
+        self.assertEqual(result["status"], "GREEN")
+        self.assertEqual(result["calibration_rows"], 24)
+        self.assertEqual(result["held_out_rows"], 24)
 
     def test_cross_partition_relabel_fails_closed(self) -> None:
         manifest, record, bundle = fixture()
