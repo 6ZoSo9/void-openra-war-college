@@ -138,6 +138,14 @@ def _matrix_summary(
         ),
         None,
     )
+    first_failure = next(
+        (
+            {"key": cell["key"], "terminal": cell["terminal"]}
+            for cell in ordered_cells
+            if cell["terminal"] not in {"success", "not_executed"}
+        ),
+        None,
+    )
     first_incomplete = next(
         (
             {"key": key, "state": "missing"}
@@ -171,6 +179,7 @@ def _matrix_summary(
                 cell["terminal"] == "not_executed" for cell in ordered_cells
             ),
             "first_non_success": first_non_success,
+            "first_failure": first_failure,
         },
     )
 
