@@ -162,6 +162,16 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
         self.assertEqual(len(whole_bundle_inputs), 1)
         self.assertNotIn("result_digest", whole_bundle_inputs[0])
 
+    def test_scalar_provenance_fails_before_result_row_traversal(self) -> None:
+        manifest, record, bundle = fixture()
+        bundle["engine_frozen_commit"] = "f" * 40
+        with mock.patch.object(
+            audit,
+            "_validate_partition_rows",
+            side_effect=AssertionError("invalid provenance reached result rows"),
+        ):
+            self.assert_hold(bundle, record, manifest, "differs from precommit")
+
     def test_scalar_provenance_requires_exact_value_and_type(self) -> None:
         manifest, record, bundle = fixture()
         mutations: tuple[tuple[str, object], ...] = (
