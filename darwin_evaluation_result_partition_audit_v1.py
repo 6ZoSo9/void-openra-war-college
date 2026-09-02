@@ -210,18 +210,9 @@ def _validate_partition_rows(
     return rows
 
 
-def _bundle_core(
-    precommit_record: Mapping[str, object],
-    manifest: Mapping[str, object],
-    runs: Mapping[str, object],
+def _bundle_provenance(
+    verified_record: Mapping[str, object],
 ) -> dict[str, object]:
-    verified_record = record_contract.validate_record(precommit_record, manifest)
-    if not isinstance(runs, Mapping) or set(runs) != set(split.PARTITIONS):
-        raise ResultAuditError("result runs must contain exact calibration and held_out keys")
-    normalized_runs = {
-        partition: _validate_partition_rows(verified_record, partition, runs[partition])
-        for partition in split.PARTITIONS
-    }
     return {
         "marker": BUNDLE_MARKER,
         "schema_version": SCHEMA_VERSION,
@@ -232,8 +223,32 @@ def _bundle_core(
         "engine_frozen_commit": verified_record["engine_frozen_commit"],
         "war_college_comparison_point": verified_record["war_college_comparison_point"],
         "generation": verified_record["generation"],
+    }
+
+
+def _bundle_core_from_verified(
+    verified_record: Mapping[str, object],
+    runs: Mapping[str, object],
+) -> dict[str, object]:
+    if not isinstance(runs, Mapping) or set(runs) != set(split.PARTITIONS):
+        raise ResultAuditError("result runs must contain exact calibration and held_out keys")
+    normalized_runs = {
+        partition: _validate_partition_rows(verified_record, partition, runs[partition])
+        for partition in split.PARTITIONS
+    }
+    return {
+        **_bundle_provenance(verified_record),
         "runs": normalized_runs,
     }
+
+
+def _bundle_core(
+    precommit_record: Mapping[str, object],
+    manifest: Mapping[str, object],
+    runs: Mapping[str, object],
+) -> dict[str, object]:
+    verified_record = record_contract.validate_record(precommit_record, manifest)
+    return _bundle_core_from_verified(verified_record, runs)
 
 
 def build_result_bundle(
@@ -273,27 +288,22 @@ def audit_result_bundle(
         bundle["result_digest"]
     ):
         raise ResultAuditError("result_digest must be exactly 64 lowercase hex characters")
-    core = _bundle_core(precommit_record, manifest, bundle["runs"])
-    # Row validation already proves exact schema, order, cardinality, identity,
-    # and per-outcome binding in place. Compare the remaining scalar provenance
-    # fields with exact Python types before the one canonical core-digest pass.
-    # This preserves canonical byte identity without two redundant full-bundle
-    # traversals at the maximum 2.4-million-row-per-partition plan.
-    for field in (
-        "marker",
-        "schema_version",
-        "record_digest",
-        "plan_digest",
-        "split_digest",
-        "benchmark_source_sha",
-        "engine_frozen_commit",
-        "war_college_comparison_point",
-        "generation",
-    ):
-        if type(bundle[field]) is not type(core[field]) or bundle[field] != core[field]:
+    verified_record = record_contract.validate_record(precommit_record, manifest)
+    expected_provenance = _bundle_provenance(verified_record)
+    # Reject immutable provenance before traversing up to 4.8 million supplied
+    # rows. Exact types preserve canonical JSON identity (for example, Python's
+    # True == 1 must not admit a boolean schema version).
+    for field, expected_value in expected_provenance.items():
+        if (
+            type(bundle[field]) is not type(expected_value)
+            or bundle[field] != expected_value
+        ):
             raise ResultAuditError(
                 "result bundle identity, provenance, coverage, or digest differs from precommit"
             )
+    core = _bundle_core_from_verified(verified_record, bundle["runs"])
+    # Row validation proves exact schema, order, cardinality, identity, and
+    # per-outcome binding in place before the one canonical core-digest pass.
     expected_result_digest = _sha256_json(core)
     if bundle["result_digest"] != expected_result_digest:
         raise ResultAuditError(
