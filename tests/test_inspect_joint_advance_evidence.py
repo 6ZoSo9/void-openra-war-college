@@ -182,6 +182,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 "non_success_count": 0,
                 "blocked_cell_count": 0,
                 "first_non_success": None,
+                "first_failure": None,
             })
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
@@ -219,6 +220,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 "non_success_count": 2,
                 "blocked_cell_count": 1,
                 "first_non_success": {"key": "c1-t1", "terminal": "timeout"},
+                "first_failure": {"key": "c1-t1", "terminal": "timeout"},
             })
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
@@ -259,6 +261,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "non_success_count": 4,
             "blocked_cell_count": 3,
             "first_non_success": {"key": "c8-t8", "terminal": "timeout"},
+            "first_failure": {"key": "c8-t8", "terminal": "timeout"},
         })
 
     def test_matrix_summary_exposes_partial_and_empty_missing_cells(self):
@@ -290,6 +293,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "non_success_count": 1,
             "blocked_cell_count": 0,
             "first_non_success": {"key": "c8-t8", "terminal": "timeout"},
+            "first_failure": {"key": "c8-t8", "terminal": "timeout"},
         })
 
         terminals, summary = INSPECT._matrix_summary({
@@ -308,6 +312,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             "non_success_count": 0,
             "blocked_cell_count": 0,
             "first_non_success": None,
+            "first_failure": None,
         })
 
     def test_matrix_summary_missing_cell_precedes_later_present_failure(self):
@@ -330,8 +335,44 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             {"key": "c8-t1", "terminal": "timeout"},
         )
         self.assertEqual(
+            summary["first_failure"],
+            {"key": "c8-t1", "terminal": "timeout"},
+        )
+        self.assertEqual(
             summary["first_incomplete"],
             {"key": "c8-t8", "state": "missing"},
+        )
+
+    def test_matrix_summary_separates_blocked_cell_from_actual_failure(self):
+        report = {
+            "parameters": {
+                "concurrency": [8, 1],
+                "tick_batches": [8, 1],
+            },
+            "cells": [
+                {"key": "c8-t8", "terminal": "not_executed"},
+                {"key": "c8-t1", "terminal": "timeout"},
+            ],
+        }
+
+        terminals, summary = INSPECT._matrix_summary(report)
+
+        self.assertEqual(terminals, ["not_executed", "timeout"])
+        self.assertEqual(
+            summary["first_non_success"],
+            {"key": "c8-t8", "terminal": "not_executed"},
+        )
+        self.assertEqual(
+            summary["first_failure"],
+            {"key": "c8-t1", "terminal": "timeout"},
+        )
+        self.assertEqual(
+            summary["first_incomplete"],
+            {
+                "key": "c8-t8",
+                "state": "present",
+                "terminal": "not_executed",
+            },
         )
 
     def test_receipt_bound_current_schema_invalid_report_is_explicit_hold(self):
