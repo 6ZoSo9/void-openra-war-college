@@ -175,11 +175,13 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(report["final"]["report_matrix_summary"], {
                 "planned_cell_count": 1,
                 "cell_count": 1,
+                "executed_cell_count": 1,
                 "missing_cell_count": 0,
                 "first_missing": None,
                 "first_incomplete": None,
                 "success_count": 1,
                 "non_success_count": 0,
+                "failure_count": 0,
                 "blocked_cell_count": 0,
                 "first_non_success": None,
                 "first_failure": None,
@@ -209,6 +211,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(report["final"]["report_matrix_summary"], {
                 "planned_cell_count": 2,
                 "cell_count": 2,
+                "executed_cell_count": 1,
                 "missing_cell_count": 0,
                 "first_missing": None,
                 "first_incomplete": {
@@ -218,6 +221,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 },
                 "success_count": 0,
                 "non_success_count": 2,
+                "failure_count": 1,
                 "blocked_cell_count": 1,
                 "first_non_success": {"key": "c1-t1", "terminal": "timeout"},
                 "first_failure": {"key": "c1-t1", "terminal": "timeout"},
@@ -250,6 +254,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
         self.assertEqual(summary, {
             "planned_cell_count": 4,
             "cell_count": 4,
+            "executed_cell_count": 1,
             "missing_cell_count": 0,
             "first_missing": None,
             "first_incomplete": {
@@ -259,6 +264,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             },
             "success_count": 0,
             "non_success_count": 4,
+            "failure_count": 1,
             "blocked_cell_count": 3,
             "first_non_success": {"key": "c8-t8", "terminal": "timeout"},
             "first_failure": {"key": "c8-t8", "terminal": "timeout"},
@@ -282,6 +288,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
         self.assertEqual(summary, {
             "planned_cell_count": 4,
             "cell_count": 1,
+            "executed_cell_count": 1,
             "missing_cell_count": 3,
             "first_missing": "c8-t1",
             "first_incomplete": {
@@ -291,6 +298,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             },
             "success_count": 0,
             "non_success_count": 1,
+            "failure_count": 1,
             "blocked_cell_count": 0,
             "first_non_success": {"key": "c8-t8", "terminal": "timeout"},
             "first_failure": {"key": "c8-t8", "terminal": "timeout"},
@@ -305,11 +313,13 @@ class ReadOnlyInspectionTests(unittest.TestCase):
         self.assertEqual(summary, {
             "planned_cell_count": 4,
             "cell_count": 0,
+            "executed_cell_count": 0,
             "missing_cell_count": 4,
             "first_missing": "c8-t8",
             "first_incomplete": {"key": "c8-t8", "state": "missing"},
             "success_count": 0,
             "non_success_count": 0,
+            "failure_count": 0,
             "blocked_cell_count": 0,
             "first_non_success": None,
             "first_failure": None,
@@ -373,6 +383,34 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 "state": "present",
                 "terminal": "not_executed",
             },
+        )
+
+    def test_matrix_summary_counts_execution_and_failure_separately_from_blocking(self):
+        report = {
+            "parameters": {
+                "concurrency": [8, 1],
+                "tick_batches": [8, 1],
+            },
+            "cells": [
+                {"key": "c8-t8", "terminal": "success"},
+                {"key": "c8-t1", "terminal": "timeout"},
+                {"key": "c1-t8", "terminal": "not_executed"},
+            ],
+        }
+
+        terminals, summary = INSPECT._matrix_summary(report)
+
+        self.assertEqual(terminals, ["success", "timeout", "not_executed"])
+        self.assertEqual(summary["planned_cell_count"], 4)
+        self.assertEqual(summary["cell_count"], 3)
+        self.assertEqual(summary["executed_cell_count"], 2)
+        self.assertEqual(summary["missing_cell_count"], 1)
+        self.assertEqual(summary["non_success_count"], 2)
+        self.assertEqual(summary["failure_count"], 1)
+        self.assertEqual(summary["blocked_cell_count"], 1)
+        self.assertEqual(
+            summary["first_failure"],
+            {"key": "c8-t1", "terminal": "timeout"},
         )
 
     def test_receipt_bound_current_schema_invalid_report_is_explicit_hold(self):
