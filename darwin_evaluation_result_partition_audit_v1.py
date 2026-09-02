@@ -10,6 +10,7 @@ runtime, model-weight, corpus, or automatic-promotion authority.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from typing import Mapping
 
@@ -43,7 +44,16 @@ def canonical_json(value: object) -> str:
 
 
 def _sha256_json(value: object) -> str:
-    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+    """Hash canonical JSON incrementally without allocating one full bundle string."""
+    digest = hashlib.sha256()
+    encoder = json.JSONEncoder(
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    for chunk in encoder.iterencode(value):
+        digest.update(chunk.encode("utf-8"))
+    return digest.hexdigest()
 
 
 def _exact_int(value: object, label: str) -> int:
@@ -264,7 +274,10 @@ def audit_result_bundle(
     ):
         raise ResultAuditError("result_digest must be exactly 64 lowercase hex characters")
     rebuilt = build_result_bundle(precommit_record, manifest, bundle["runs"])
-    if canonical_json(rebuilt) != canonical_json(dict(bundle)):
+    # Compare the same canonical byte identity through incremental SHA-256.
+    # At the maximum admitted plan this avoids materializing two multi-gigabyte
+    # canonical JSON strings after the already-linear row validation pass.
+    if _sha256_json(rebuilt) != _sha256_json(dict(bundle)):
         raise ResultAuditError(
             "result bundle identity, provenance, coverage, or digest differs from precommit"
         )
