@@ -166,6 +166,9 @@ def _matrix_summary(
         {
             "planned_cell_count": len(planned_keys),
             "cell_count": len(ordered_cells),
+            "executed_cell_count": sum(
+                cell["terminal"] != "not_executed" for cell in ordered_cells
+            ),
             "missing_cell_count": len(missing_keys),
             "first_missing": missing_keys[0] if missing_keys else None,
             "first_incomplete": first_incomplete,
@@ -174,6 +177,10 @@ def _matrix_summary(
             ),
             "non_success_count": sum(
                 cell["terminal"] != "success" for cell in ordered_cells
+            ),
+            "failure_count": sum(
+                cell["terminal"] not in {"success", "not_executed"}
+                for cell in ordered_cells
             ),
             "blocked_cell_count": sum(
                 cell["terminal"] == "not_executed" for cell in ordered_cells
