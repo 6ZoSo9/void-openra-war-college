@@ -130,21 +130,32 @@ def expected_result_row_count(
     )
 
 
-def _validate_partition_rows(
+def _preflight_partition_rows(
     verified_record: Mapping[str, object],
     partition: str,
     rows: object,
-) -> list[dict[str, object]]:
-    if not isinstance(rows, list):
-        raise ResultAuditError(f"{partition} rows must be a list")
-    base_seed, samples, repetitions, offsets = _run_layout(
-        verified_record, partition
-    )
+) -> None:
+    """Reject impossible partition containers before any result-row traversal."""
+    if type(rows) is not list:
+        raise ResultAuditError(f"{partition} rows must be an exact list")
+    _, samples, repetitions, offsets = _run_layout(verified_record, partition)
     expected_count = sum(samples * repetitions * concurrency for concurrency, _ in offsets)
     if len(rows) != expected_count:
         raise ResultAuditError(
             f"{partition} row cardinality {len(rows)} does not equal precommit {expected_count}"
         )
+
+
+def _validate_partition_rows(
+    verified_record: Mapping[str, object],
+    partition: str,
+    rows: object,
+) -> list[dict[str, object]]:
+    _preflight_partition_rows(verified_record, partition, rows)
+    assert type(rows) is list
+    base_seed, samples, repetitions, offsets = _run_layout(
+        verified_record, partition
+    )
 
     # The precommit already defines one exact total row order.  Requiring the
     # producer to emit that order lets coverage be proved in one pass with
@@ -232,6 +243,11 @@ def _bundle_core_from_verified(
 ) -> dict[str, object]:
     if not isinstance(runs, Mapping) or set(runs) != set(split.PARTITIONS):
         raise ResultAuditError("result runs must contain exact calibration and held_out keys")
+    # Check every partition container and exact cardinality before traversing the
+    # first row. A malformed held-out container must not force a scan of up to
+    # 2.4 million otherwise valid calibration rows.
+    for partition in split.PARTITIONS:
+        _preflight_partition_rows(verified_record, partition, runs[partition])
     normalized_runs = {
         partition: _validate_partition_rows(verified_record, partition, runs[partition])
         for partition in split.PARTITIONS
