@@ -64,6 +64,55 @@ class _UnboundProcess:
         self.killed = True
 
 
+class _PipeEnd:
+    def __init__(self, messages=None):
+        self.messages = list(messages or [])
+        self.closed = False
+        self.poll_timeouts = []
+
+    def poll(self, timeout):
+        self.poll_timeouts.append(timeout)
+        return bool(self.messages)
+
+    def recv(self):
+        return self.messages.pop(0)
+
+    def close(self):
+        self.closed = True
+
+
+class _ContainedProcess:
+    def __init__(self, target, args, name):
+        self.target = target
+        self.args = args
+        self.name = name
+        self.pid = 5151
+        self.exitcode = None
+        self.started = False
+
+    def start(self):
+        self.started = True
+
+    def is_alive(self):
+        return True
+
+
+class _SpawnContext:
+    def __init__(self, messages):
+        self.receiver = _PipeEnd(messages)
+        self.sender = _PipeEnd()
+        self.pipe_duplex = None
+        self.process = None
+
+    def Pipe(self, duplex):
+        self.pipe_duplex = duplex
+        return self.receiver, self.sender
+
+    def Process(self, *, target, args, name):
+        self.process = _ContainedProcess(target, args, name)
+        return self.process
+
+
 class RuntimeRetirementTotalDeadlineTests(unittest.TestCase):
     def test_unbound_child_term_overrun_is_charged_to_kill_budget(self):
         clock = _Clock()
@@ -210,6 +259,81 @@ class RuntimeRetirementTotalDeadlineTests(unittest.TestCase):
                 )
 
             process.join.assert_not_called()
+
+
+    def test_production_containment_uses_spawn_and_exact_started_binding(self):
+        outcome = {"cells": [], "run": {}, "host": {}}
+        context = _SpawnContext([
+            ("STARTED", 5151, 5151),
+            ("OUTCOME", outcome),
+        ])
+        args = mock.sentinel.args
+        parameters = {"samples": 1}
+        provenance = {"generation": "test"}
+
+        with mock.patch.object(
+            bench._BootstrapMultiprocessing,
+            "get_context",
+            return_value=context,
+        ) as get_context, mock.patch.object(
+            bench,
+            "_runtime_process_deadline_s",
+            return_value=1.0,
+        ), mock.patch.object(
+            bench.time,
+            "monotonic",
+            return_value=0.0,
+        ), mock.patch.object(
+            bench,
+            "_retire_runtime_process_group",
+        ) as retire:
+            result = bench._execute_runtime_contained(
+                args,
+                parameters,
+                provenance,
+            )
+
+        self.assertIs(result, outcome)
+        get_context.assert_called_once_with("spawn")
+        self.assertFalse(context.pipe_duplex)
+        self.assertTrue(context.process.started)
+        self.assertIs(context.process.target, bench._runtime_child_entry)
+        self.assertEqual(
+            context.process.args,
+            (context.sender, args, parameters, provenance),
+        )
+        self.assertEqual(context.process.name, "void-war-college-runtime")
+        self.assertTrue(context.sender.closed)
+        self.assertTrue(context.receiver.closed)
+        retire.assert_called_once_with(context.process, context.process.pid)
+
+    def test_production_containment_rejects_outcome_before_started_binding(self):
+        context = _SpawnContext([("OUTCOME", {"cells": []})])
+
+        with mock.patch.object(
+            bench._BootstrapMultiprocessing,
+            "get_context",
+            return_value=context,
+        ), mock.patch.object(
+            bench.time,
+            "monotonic",
+            return_value=0.0,
+        ), mock.patch.object(
+            bench,
+            "_retire_unbound_runtime_child",
+        ) as retire, self.assertRaisesRegex(
+            bench.ContractError,
+            "runtime child outcome arrived before process-group binding",
+        ):
+            bench._execute_runtime_contained(
+                mock.sentinel.args,
+                {},
+                {},
+            )
+
+        self.assertTrue(context.sender.closed)
+        self.assertTrue(context.receiver.closed)
+        retire.assert_called_once_with(context.process)
 
 
 if __name__ == "__main__":
