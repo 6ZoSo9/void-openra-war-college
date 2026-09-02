@@ -172,6 +172,26 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
         ):
             self.assert_hold(bundle, record, manifest, "differs from precommit")
 
+    def test_late_partition_type_fails_before_any_row_traversal(self) -> None:
+        manifest, record, bundle = fixture()
+        bundle["runs"]["held_out"] = tuple(bundle["runs"]["held_out"])
+        with mock.patch.object(
+            audit,
+            "_validate_partition_rows",
+            side_effect=AssertionError("invalid container reached result rows"),
+        ):
+            self.assert_hold(bundle, record, manifest, "held_out rows must be an exact list")
+
+    def test_late_partition_cardinality_fails_before_any_row_traversal(self) -> None:
+        manifest, record, bundle = fixture()
+        bundle["runs"]["held_out"].pop()
+        with mock.patch.object(
+            audit,
+            "_validate_partition_rows",
+            side_effect=AssertionError("invalid cardinality reached result rows"),
+        ):
+            self.assert_hold(bundle, record, manifest, "held_out row cardinality")
+
     def test_scalar_provenance_requires_exact_value_and_type(self) -> None:
         manifest, record, bundle = fixture()
         mutations: tuple[tuple[str, object], ...] = (
