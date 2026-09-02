@@ -273,22 +273,40 @@ def audit_result_bundle(
         bundle["result_digest"]
     ):
         raise ResultAuditError("result_digest must be exactly 64 lowercase hex characters")
-    rebuilt = build_result_bundle(precommit_record, manifest, bundle["runs"])
-    # Compare the same canonical byte identity through incremental SHA-256.
-    # At the maximum admitted plan this avoids materializing two multi-gigabyte
-    # canonical JSON strings after the already-linear row validation pass.
-    if _sha256_json(rebuilt) != _sha256_json(dict(bundle)):
+    core = _bundle_core(precommit_record, manifest, bundle["runs"])
+    # Row validation already proves exact schema, order, cardinality, identity,
+    # and per-outcome binding in place. Compare the remaining scalar provenance
+    # fields with exact Python types before the one canonical core-digest pass.
+    # This preserves canonical byte identity without two redundant full-bundle
+    # traversals at the maximum 2.4-million-row-per-partition plan.
+    for field in (
+        "marker",
+        "schema_version",
+        "record_digest",
+        "plan_digest",
+        "split_digest",
+        "benchmark_source_sha",
+        "engine_frozen_commit",
+        "war_college_comparison_point",
+        "generation",
+    ):
+        if type(bundle[field]) is not type(core[field]) or bundle[field] != core[field]:
+            raise ResultAuditError(
+                "result bundle identity, provenance, coverage, or digest differs from precommit"
+            )
+    expected_result_digest = _sha256_json(core)
+    if bundle["result_digest"] != expected_result_digest:
         raise ResultAuditError(
             "result bundle identity, provenance, coverage, or digest differs from precommit"
         )
-    runs = rebuilt["runs"]
+    runs = core["runs"]
     assert isinstance(runs, Mapping)
     return {
         "marker": MARKER,
         "schema_version": SCHEMA_VERSION,
         "status": "GREEN",
-        "record_digest": rebuilt["record_digest"],
-        "result_digest": rebuilt["result_digest"],
+        "record_digest": core["record_digest"],
+        "result_digest": expected_result_digest,
         "calibration_rows": len(runs["calibration"]),
         "held_out_rows": len(runs["held_out"]),
         "calibration_generalization_claim_authority": "NONE",
