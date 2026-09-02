@@ -142,6 +142,39 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
         self.assertEqual(result["calibration_rows"], 24)
         self.assertEqual(result["held_out_rows"], 24)
 
+    def test_full_bundle_audit_hashes_the_validated_core_once(self) -> None:
+        manifest, record, bundle = fixture()
+        original_sha256_json = audit._sha256_json
+        whole_bundle_inputs: list[dict[str, object]] = []
+
+        def tracked_sha256_json(value: object) -> str:
+            if type(value) is dict and "runs" in value:
+                whole_bundle_inputs.append(value)
+            return original_sha256_json(value)
+
+        with mock.patch.object(
+            audit,
+            "_sha256_json",
+            side_effect=tracked_sha256_json,
+        ):
+            result = audit.audit_result_bundle(bundle, record, manifest)
+        self.assertEqual(result["status"], "GREEN")
+        self.assertEqual(len(whole_bundle_inputs), 1)
+        self.assertNotIn("result_digest", whole_bundle_inputs[0])
+
+    def test_scalar_provenance_requires_exact_value_and_type(self) -> None:
+        manifest, record, bundle = fixture()
+        mutations: tuple[tuple[str, object], ...] = (
+            ("schema_version", True),
+            ("engine_frozen_commit", "f" * 40),
+            ("generation", "darwin-audit-other-generation"),
+        )
+        for field, value in mutations:
+            with self.subTest(field=field):
+                mutated = copy.deepcopy(bundle)
+                mutated[field] = value
+                self.assert_hold(mutated, record, manifest, "differs from precommit")
+
     def test_cross_partition_relabel_fails_closed(self) -> None:
         manifest, record, bundle = fixture()
         row = bundle["runs"]["held_out"][0]
