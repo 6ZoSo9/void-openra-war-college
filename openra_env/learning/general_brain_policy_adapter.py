@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import json
 import statistics
 from collections.abc import Mapping, Sequence
 from pathlib import Path
