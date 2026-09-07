@@ -403,6 +403,93 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertFalse(report["automatic_recovery"])
             self.assertFalse(report["automatic_rewrite"])
 
+    def test_post_provenance_stages_require_runtime_provenance(self):
+        cases = (
+            ("readiness_timeout", "readiness"),
+            ("channel_error", "readiness"),
+            ("startup_error", "endpoint_preflight"),
+        )
+        for terminal, stage in cases:
+            with self.subTest(terminal=terminal, stage=stage), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "evidence.json"
+                report_body = json.loads(startup_error_payload())
+                report_body["run"].update({
+                    "terminal": terminal,
+                    "stage": stage,
+                    "error": "synthetic post-provenance failure",
+                })
+                payload = bench.stable_json(report_body).encode("utf-8")
+                self.assertIsNone(
+                    bench._validate_recoverable_evidence(payload)[
+                        "run"
+                    ]["runtime_provenance"],
+                )
+                write_0400(output, payload)
+                receipt = bench._commit_receipt_path(output)
+                write_0400(
+                    receipt,
+                    bench._commit_receipt_payload(output, payload),
+                )
+
+                report = INSPECT.inspect_namespace(output)
+
+                final = report["final"]
+                self.assertEqual(
+                    report["classification"],
+                    "CURRENT_SCHEMA_INVALID_HOLD",
+                )
+                self.assertFalse(final["report_schema_valid"])
+                self.assertEqual(
+                    final["validation_error"],
+                    "ContractError:run stage lacks established runtime "
+                    f"provenance: {terminal}/{stage}",
+                )
+                self.assertIsNone(final["report_terminal"])
+                self.assertIsNone(final["report_run_stage"])
+                self.assertIsNone(final["report_attempt_failure"])
+                self.assertTrue(report["commit_receipt_binds_final"])
+                self.assertFalse(report["countable"])
+                self.assertFalse(report["automatic_recovery"])
+                self.assertFalse(report["automatic_rewrite"])
+
+    def test_runtime_provenance_acquisition_failure_may_lack_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            report_body = json.loads(startup_error_payload())
+            report_body["run"]["stage"] = "runtime_provenance"
+            report_body["run"]["error"] = "synthetic provenance failure"
+            payload = bench.stable_json(report_body).encode("utf-8")
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(
+                receipt,
+                bench._commit_receipt_payload(output, payload),
+            )
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(
+                report["classification"],
+                "COMMITTED_LOCAL_UNTRUSTED",
+            )
+            self.assertTrue(final["report_schema_valid"])
+            self.assertEqual(final["report_terminal"], "startup_error")
+            self.assertEqual(
+                final["report_run_stage"],
+                "runtime_provenance",
+            )
+            self.assertIsNone(
+                json.loads(payload)["run"]["runtime_provenance"],
+            )
+            self.assertEqual(final["report_attempt_failure"], {
+                "scope": "run",
+                "terminal": "startup_error",
+                "stage": "runtime_provenance",
+            })
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+
     def test_channel_error_at_first_cell_accepts_exact_empty_predecessor_prefix(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
