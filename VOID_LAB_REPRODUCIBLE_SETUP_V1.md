@@ -164,7 +164,7 @@ void_publish_lab_receipt() (
   test -f "$VOID_LAB_RECEIPT_TEMP"
   test ! -L "$VOID_LAB_RECEIPT_TEMP"
   test "$(stat -c '%a' "$VOID_LAB_RECEIPT_TEMP")" = '600'
-  python -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert d["schema_version"] == 6; assert d["generation"] == "ad1926569b12466c"; assert d["source_contract"] == "GREEN"; assert d["checkout_contract"] == "GREEN"; assert d["exact_checkout_evidence"] is True; assert d["runtime_evidence"] == "PENDING_DESIGNATED_HOST"' "$VOID_LAB_RECEIPT_TEMP"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert d["schema_version"] == 6; assert d["generation"] == "ad1926569b12466c"; assert d["source_contract"] == "GREEN"; assert d["checkout_contract"] == "GREEN"; assert d["exact_checkout_evidence"] is True; assert d["runtime_evidence"] == "PENDING_DESIGNATED_HOST"' "$VOID_LAB_RECEIPT_TEMP"
   ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"
   test -f "$VOID_LAB_RECEIPT"
   test ! -L "$VOID_LAB_RECEIPT"
