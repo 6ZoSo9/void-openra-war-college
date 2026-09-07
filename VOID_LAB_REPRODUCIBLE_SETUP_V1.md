@@ -143,17 +143,15 @@ void_publish_lab_receipt() (
   test -d "$VOID_LAB_RECEIPT_DIR"
   test ! -e "$VOID_LAB_RECEIPT"
   test ! -L "$VOID_LAB_RECEIPT"
-  VOID_LAB_RECEIPT_TEMP="$(mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout.XXXXXX")"
+  VOID_LAB_RECEIPT_TEMP="$(mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout-$VOID_LAB_RECEIPT_ID.XXXXXX.pending")"
   VOID_LAB_RECEIPT_TEMP_ID="$(stat -c '%d:%i' "$VOID_LAB_RECEIPT_TEMP")"
-  cleanup_owned_temp() {
-    if [ -n "${VOID_LAB_RECEIPT_TEMP:-}" ] &&
-       [ -f "$VOID_LAB_RECEIPT_TEMP" ] &&
-       [ ! -L "$VOID_LAB_RECEIPT_TEMP" ] &&
-       [ "$(stat -c '%d:%i' "$VOID_LAB_RECEIPT_TEMP" 2>/dev/null || true)" = "$VOID_LAB_RECEIPT_TEMP_ID" ]; then
-      rm -f -- "$VOID_LAB_RECEIPT_TEMP" || true
+  report_retained_temp() {
+    if [ -n "${VOID_LAB_RECEIPT_TEMP:-}" ]; then
+      printf 'receipt_staging_path=%s\npending_retired=false\nstaging_cleanup=DEFERRED_NO_PATHNAME_DELETE\n' \
+        "$VOID_LAB_RECEIPT_TEMP" >&2
     fi
   }
-  trap cleanup_owned_temp EXIT HUP INT TERM
+  trap report_retained_temp EXIT
   python "$VOID_WAR_COLLEGE_DIR/scripts/verify_void_lab_checkout_v1.py" \
     --repo-root "$VOID_WAR_COLLEGE_DIR" > "$VOID_LAB_RECEIPT_TEMP"
   test -f "$VOID_LAB_RECEIPT_TEMP"
@@ -165,10 +163,7 @@ void_publish_lab_receipt() (
   test ! -L "$VOID_LAB_RECEIPT"
   test "$(stat -c '%a' "$VOID_LAB_RECEIPT")" = '600'
   test "$(stat -c '%d:%i' "$VOID_LAB_RECEIPT")" = "$VOID_LAB_RECEIPT_TEMP_ID"
-  cleanup_owned_temp
   sync -f "$VOID_LAB_RECEIPT_DIR"
-  VOID_LAB_RECEIPT_TEMP=''
-  trap - EXIT HUP INT TERM
   printf 'receipt_id=%s\nreceipt_path=%s\n' "$VOID_LAB_RECEIPT_ID" "$VOID_LAB_RECEIPT"
   sha256sum "$VOID_LAB_RECEIPT"
 )
@@ -177,15 +172,23 @@ void_publish_lab_receipt setup-001
 
 Keep the receipt outside the repository so it does not make the exact worktree
 dirty. The hard-link publication is create-only even if another process creates
-the destination after the initial preflight. Cleanup retains the temporary
-file's exact device/inode witness and removes only that witnessed generation;
-a missing or replaced pathname is left untouched. Cleanup failure cannot reverse
-a validated final receipt: directory sync remains the durable commit point and
-the function reports the receipt after it. A verifier or validation failure
-cannot truncate an earlier receipt. Record its identifier, exact path, and
-SHA-256 with any later designated-host
-evidence. Retain earlier receipts; never delete, rename, chmod, or replace one to
-reuse its identifier. Do not treat
+the destination after the initial preflight. This generation deliberately keeps
+the owner-only staging alias after publication and performs no pathname cleanup.
+The function reports `receipt_staging_path`, `pending_retired=false`, and
+`staging_cleanup=DEFERRED_NO_PATHNAME_DELETE` on success and on verifier exits
+after staging creation. This removes check-then-unlink authority: a same-UID
+replacement at the staging pathname cannot be deleted by this workflow, and
+staging retirement cannot reverse the validated final receipt.
+
+One attempt creates at most one discoverable staging alias whose name includes
+the explicit attempt identifier. Preserve it for bounded reconciliation; do not
+delete, rename, chmod, or reuse it through this evidence-creation function.
+Staging retirement requires a separately reviewed generation-conditional
+primitive or explicit operator reconciliation outside this contract. A verifier
+or validation failure cannot truncate an earlier receipt. Record the receipt
+identifier, final path, staging path, `pending_retired=false`, and final SHA-256
+with any later designated-host evidence. Retain earlier receipts; never delete,
+rename, chmod, or replace one to reuse its identifier. Do not treat
 `--source-only` GREEN, unit tests, or hosted CI as exact designated-host checkout
 evidence.
 
