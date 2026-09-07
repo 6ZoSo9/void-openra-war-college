@@ -37,6 +37,8 @@ CSV_MAX_ITEMS_BY_LABEL = {
     "concurrency": len(window_binding.ALLOWED_JOINT_ADVANCE_CONCURRENCY),
     "tick_batches": plan_contract.MAX_MATRIX_CELLS,
 }
+# The largest admitted invocation is "record" plus eleven option/value pairs.
+MAX_ARGV_TOKENS = 23
 
 
 class RecordError(ValueError):
@@ -64,12 +66,25 @@ class StableArgumentParser(argparse.ArgumentParser):
         raise ArgumentContractError(message)
 
 
+def _bounded_argv_tokens(argv: Iterable[str] | None) -> list[str]:
+    """Collect at most one complete CLI grammar without consuming token 25."""
+    source = sys.argv[1:] if argv is None else argv
+    tokens: list[str] = []
+    for token_number, token in enumerate(source, start=1):
+        if token_number > MAX_ARGV_TOKENS:
+            raise ArgumentContractError(
+                f"argv must contain at most {MAX_ARGV_TOKENS} tokens"
+            )
+        tokens.append(token)
+    return tokens
+
+
 def parse_unique_args(
     parser: StableArgumentParser,
     argv: Iterable[str] | None,
 ) -> argparse.Namespace:
-    """Reject ambiguous repeated long options before any file-system access."""
-    tokens = list(argv) if argv is not None else sys.argv[1:]
+    """Reject over-bound or ambiguous repeated options before file-system access."""
+    tokens = _bounded_argv_tokens(argv)
     seen: set[str] = set()
     for token in tokens:
         if token == "--":
