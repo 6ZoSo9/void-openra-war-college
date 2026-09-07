@@ -16,7 +16,7 @@ from typing import Any
 
 
 MARKER = "VOID_WAR_COLLEGE_CONTROLLER_EVIDENCE_ISOLATION_V1"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 GENERATION = "ad1926569b12466c"
 WAR_COLLEGE_FROZEN_COMMIT = "973802ef0a614e5afa782ff20e231e18966ae3e5"
 ENGINE_FROZEN_COMMIT = "1607a7a6501d42a47638393ecef8b22831064932"
@@ -24,8 +24,8 @@ RUNTIME_EVIDENCE = "PENDING_DESIGNATED_HOST"
 
 TOP_LEVEL_KEYS = {
     "marker", "schema_version", "generation", "war_college_frozen_commit",
-    "engine_frozen_commit", "world_tick", "controllers",
-    "joint_evidence_sha256",
+    "engine_frozen_commit", "attempt_id", "controller_session_generation",
+    "world_tick", "controllers", "joint_evidence_sha256",
 }
 CONTROLLER_KEYS = {
     "player_id", "controller_id", "observation_subject_player_id",
@@ -35,7 +35,8 @@ CONTROLLER_KEYS = {
     "action_sha256", "action_binding_sha256",
 }
 ACTION_PAYLOAD_KEYS = {
-    "request_id", "player_id", "controller_id", "world_tick",
+    "request_id", "attempt_id", "controller_session_generation",
+    "player_id", "controller_id", "world_tick",
     "decision_observation_binding_sha256", "commands",
 }
 
@@ -56,6 +57,8 @@ def sha256_hex(value: Any) -> str:
 
 def observation_binding(
     *,
+    attempt_id: str,
+    controller_session_generation: int,
     player_id: str,
     controller_id: str,
     world_tick: int,
@@ -63,7 +66,9 @@ def observation_binding(
 ) -> str:
     return sha256_hex(
         {
+            "attempt_id": attempt_id,
             "controller_id": controller_id,
+            "controller_session_generation": controller_session_generation,
             "generation": GENERATION,
             "observation_sha256": observation_sha256,
             "player_id": player_id,
@@ -74,6 +79,8 @@ def observation_binding(
 
 def action_binding(
     *,
+    attempt_id: str,
+    controller_session_generation: int,
     player_id: str,
     controller_id: str,
     world_tick: int,
@@ -85,7 +92,9 @@ def action_binding(
         {
             "action_request_id": action_request_id,
             "action_sha256": action_sha256,
+            "attempt_id": attempt_id,
             "controller_id": controller_id,
+            "controller_session_generation": controller_session_generation,
             "decision_observation_binding_sha256": decision_observation_binding_sha256,
             "generation": GENERATION,
             "player_id": player_id,
@@ -96,12 +105,16 @@ def action_binding(
 
 def joint_evidence_binding(
     *,
+    attempt_id: str,
+    controller_session_generation: int,
     world_tick: int,
     bindings: list[dict[str, str]],
 ) -> str:
     return sha256_hex(
         {
+            "attempt_id": attempt_id,
             "bindings": sorted(bindings, key=lambda item: item["player_id"]),
+            "controller_session_generation": controller_session_generation,
             "engine_frozen_commit": ENGINE_FROZEN_COMMIT,
             "generation": GENERATION,
             "war_college_frozen_commit": WAR_COLLEGE_FROZEN_COMMIT,
@@ -114,7 +127,12 @@ def _nonempty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value) and value == value.strip()
 
 
-def verify_evidence(evidence: Any) -> dict[str, Any]:
+def verify_evidence(
+    evidence: Any,
+    *,
+    expected_attempt_id: str,
+    expected_controller_session_generation: int,
+) -> dict[str, Any]:
     holds: set[str] = set()
     checked_players: list[str] = []
 
@@ -134,6 +152,23 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
         holds.add("HOLD_WAR_COLLEGE_BASE_MISMATCH")
     if evidence.get("engine_frozen_commit") != ENGINE_FROZEN_COMMIT:
         holds.add("HOLD_ENGINE_BASE_MISMATCH")
+
+    attempt_id = evidence.get("attempt_id")
+    attempt_id_valid = _nonempty_string(attempt_id)
+    if not attempt_id_valid:
+        holds.add("HOLD_ATTEMPT_ID_INVALID")
+    elif attempt_id != expected_attempt_id:
+        holds.add("HOLD_EXPECTED_ATTEMPT_ID_MISMATCH")
+
+    controller_session_generation = evidence.get("controller_session_generation")
+    controller_session_valid = (
+        type(controller_session_generation) is int
+        and controller_session_generation >= 1
+    )
+    if not controller_session_valid:
+        holds.add("HOLD_CONTROLLER_SESSION_GENERATION_INVALID")
+    elif controller_session_generation != expected_controller_session_generation:
+        holds.add("HOLD_EXPECTED_CONTROLLER_SESSION_GENERATION_MISMATCH")
 
     world_tick = evidence.get("world_tick")
     if isinstance(world_tick, bool) or not isinstance(world_tick, int) or world_tick < 0:
@@ -186,6 +221,13 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
             observation_payload_valid = False
         else:
             observation_payload_valid = True
+            if observation_payload.get("attempt_id") != attempt_id:
+                holds.add("HOLD_PAYLOAD_ATTEMPT_BINDING")
+            if (
+                observation_payload.get("controller_session_generation")
+                != controller_session_generation
+            ):
+                holds.add("HOLD_PAYLOAD_SESSION_BINDING")
             if observation_payload.get("player_id") != player_id:
                 holds.add("HOLD_PAYLOAD_PLAYER_BINDING")
             if observation_payload.get("world_tick") != world_tick:
@@ -199,7 +241,9 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
 
         claimed_observation_binding = record.get("observation_binding_sha256")
         observation_binding_inputs_valid = (
-            _nonempty_string(player_id)
+            attempt_id_valid
+            and controller_session_valid
+            and _nonempty_string(player_id)
             and _nonempty_string(controller_id)
             and world_tick_valid
             and _nonempty_string(claimed_observation_sha)
@@ -208,6 +252,8 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
             holds.add("HOLD_OBSERVATION_BINDING_INVALID")
         elif observation_binding_inputs_valid:
             expected_observation_binding = observation_binding(
+                attempt_id=attempt_id,
+                controller_session_generation=controller_session_generation,
                 player_id=player_id,
                 controller_id=controller_id,
                 world_tick=world_tick,
@@ -233,6 +279,13 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
                 holds.add("HOLD_ACTION_PAYLOAD_SCHEMA_DRIFT")
             if action_payload.get("request_id") != action_request_id:
                 holds.add("HOLD_ACTION_PAYLOAD_REQUEST_BINDING")
+            if action_payload.get("attempt_id") != attempt_id:
+                holds.add("HOLD_ACTION_PAYLOAD_ATTEMPT_BINDING")
+            if (
+                action_payload.get("controller_session_generation")
+                != controller_session_generation
+            ):
+                holds.add("HOLD_ACTION_PAYLOAD_SESSION_BINDING")
             if action_payload.get("player_id") != player_id:
                 holds.add("HOLD_ACTION_PAYLOAD_PLAYER_BINDING")
             if action_payload.get("controller_id") != controller_id:
@@ -255,7 +308,9 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
 
         claimed_action_binding = record.get("action_binding_sha256")
         action_binding_inputs_valid = (
-            _nonempty_string(player_id)
+            attempt_id_valid
+            and controller_session_valid
+            and _nonempty_string(player_id)
             and _nonempty_string(controller_id)
             and world_tick_valid
             and _nonempty_string(action_request_id)
@@ -266,6 +321,8 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
             holds.add("HOLD_ACTION_BINDING_INVALID")
         elif action_binding_inputs_valid:
             expected_action_binding = action_binding(
+                attempt_id=attempt_id,
+                controller_session_generation=controller_session_generation,
                 player_id=player_id,
                 controller_id=controller_id,
                 world_tick=world_tick,
@@ -302,12 +359,24 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
     if not _nonempty_string(claimed_joint):
         holds.add("HOLD_JOINT_EVIDENCE_DIGEST_INVALID")
     elif world_tick_valid and len(bindings) == 2:
-        expected_joint = joint_evidence_binding(world_tick=world_tick, bindings=bindings)
+        expected_joint = joint_evidence_binding(
+            attempt_id=attempt_id,
+            controller_session_generation=controller_session_generation,
+            world_tick=world_tick,
+            bindings=bindings,
+        )
         if claimed_joint != expected_joint:
             holds.add("HOLD_JOINT_EVIDENCE_DIGEST_MISMATCH")
 
     ordered_holds = sorted(holds)
     return {
+        "admitted_attempt_id": attempt_id if attempt_id_valid else None,
+        "admitted_controller_session_generation": (
+            controller_session_generation if controller_session_valid else None
+        ),
+        "admitted_joint_evidence_sha256": (
+            claimed_joint if _nonempty_string(claimed_joint) else None
+        ),
         "checked_players": sorted(set(checked_players)),
         "contract": "GREEN" if not ordered_holds else "HOLD",
         "engine_frozen_commit": ENGINE_FROZEN_COMMIT,
@@ -323,12 +392,27 @@ def verify_evidence(evidence: Any) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("evidence", type=Path)
+    parser.add_argument("--expected-attempt-id", required=True)
+    parser.add_argument(
+        "--expected-controller-session-generation",
+        required=True,
+        type=int,
+    )
     args = parser.parse_args(argv)
     try:
         evidence = json.loads(args.evidence.read_text(encoding="utf-8"))
-        report = verify_evidence(evidence)
+        report = verify_evidence(
+            evidence,
+            expected_attempt_id=args.expected_attempt_id,
+            expected_controller_session_generation=(
+                args.expected_controller_session_generation
+            ),
+        )
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
         report = {
+            "admitted_attempt_id": None,
+            "admitted_controller_session_generation": None,
+            "admitted_joint_evidence_sha256": None,
             "checked_players": [],
             "contract": "HOLD",
             "engine_frozen_commit": ENGINE_FROZEN_COMMIT,
