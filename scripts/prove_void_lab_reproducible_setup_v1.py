@@ -122,6 +122,7 @@ def prove_document_contract() -> None:
         'pending_retired=false',
         'staging_cleanup=DEFERRED_NO_PATHNAME_DELETE',
         'trap report_retained_temp EXIT',
+        'python3 -c \'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8"))',
         'stat -c \'%a\' "$VOID_LAB_RECEIPT_TEMP"',
         'ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"',
         'stat -c \'%d:%i\' "$VOID_LAB_RECEIPT"',
@@ -139,6 +140,8 @@ def prove_document_contract() -> None:
         raise RuntimeError("documented receipt shell retains pathname cleanup authority")
     if "mktemp " in receipt_shell:
         raise RuntimeError("documented receipt shell permits unbounded random staging aliases")
+    if "\n  python -c " in receipt_shell:
+        raise RuntimeError("documented receipt shell depends on undeclared python alias")
 
 
 def documented_host_preflight() -> str:
@@ -211,6 +214,16 @@ def run_documented_receipt_shell(root: Path, slot: str) -> subprocess.CompletedP
         1,
     )
     environment = dict(os.environ)
+    receipt_bin = root / "receipt-bin"
+    receipt_bin.mkdir()
+    for command in ("dirname", "python3", "ln", "sha256sum", "stat", "sync"):
+        resolved = shutil.which(command)
+        if resolved is None:
+            raise RuntimeError(f"proof host lacks receipt command: {command}")
+        (receipt_bin / command).symlink_to(resolved)
+    if (receipt_bin / "python").exists():
+        raise RuntimeError("python alias unexpectedly entered receipt-only PATH")
+    environment["PATH"] = str(receipt_bin)
     environment["VOID_WAR_COLLEGE_DIR"] = str(repository)
     return subprocess.run(
         ["/bin/dash"],
@@ -583,6 +596,7 @@ def main() -> int:
     print("receipt_shell_dash_syntax=true")
     print("receipt_shell_syntax_mutant_rejected=true")
     print("documented_receipt_shell_execution=true")
+    print("documented_receipt_python3_only_path=true")
     print("documented_receipt_slot_reuse_rejected=true")
     print("documented_receipt_invalid_slot_exit=72")
     print("documented_receipt_foreign_staging_preserved=true")
