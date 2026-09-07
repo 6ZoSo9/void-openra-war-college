@@ -23,6 +23,7 @@ BUNDLE_MARKER = "VOID_WAR_COLLEGE_EVALUATION_RESULT_BUNDLE_V1"
 SCHEMA_VERSION = 1
 SHA64_RE = re.compile(r"[0-9a-f]{64}\Z")
 ROW_KEYS = {
+    "record_digest",
     "evaluation_attempt_id",
     "producer_session_generation",
     "partition",
@@ -66,6 +67,7 @@ def _exact_int(value: object, label: str) -> int:
 
 def result_binding_sha256(
     *,
+    record_digest: str,
     evaluation_attempt_id: str,
     producer_session_generation: int,
     partition: str,
@@ -77,6 +79,10 @@ def result_binding_sha256(
     seed: int,
     outcome_digest: str,
 ) -> str:
+    if type(record_digest) is not str or not SHA64_RE.fullmatch(record_digest):
+        raise ResultAuditError(
+            "record_digest must be exactly 64 lowercase hex characters"
+        )
     return _sha256_json(
         {
             "concurrency": concurrency,
@@ -84,6 +90,7 @@ def result_binding_sha256(
             "outcome_digest": outcome_digest,
             "partition": partition,
             "producer_session_generation": producer_session_generation,
+            "record_digest": record_digest,
             "repetition_index": repetition_index,
             "sample_index": sample_index,
             "seed": seed,
@@ -162,8 +169,10 @@ def _validate_partition_rows(
     base_seed, samples, repetitions, offsets = _run_layout(
         verified_record, partition
     )
+    record_digest = verified_record["record_digest"]
     evaluation_attempt_id = verified_record["evaluation_attempt_id"]
     producer_session_generation = verified_record["producer_session_generation"]
+    assert isinstance(record_digest, str)
     assert isinstance(evaluation_attempt_id, str)
     assert type(producer_session_generation) is int
 
@@ -177,13 +186,16 @@ def _validate_partition_rows(
         if row["partition"] != partition:
             raise ResultAuditError(f"{partition} container includes a cross-partition row")
         if (
-            type(row["evaluation_attempt_id"]) is not str
+            type(row["record_digest"]) is not str
+            or row["record_digest"] != record_digest
+            or type(row["evaluation_attempt_id"]) is not str
             or row["evaluation_attempt_id"] != evaluation_attempt_id
             or type(row["producer_session_generation"]) is not int
             or row["producer_session_generation"] != producer_session_generation
         ):
             raise ResultAuditError(
-                f"{partition} row belongs to a different execution attempt/session generation"
+                f"{partition} row belongs to a different precommit record or execution "
+                "attempt/session generation"
             )
         concurrency = _exact_int(row["concurrency"], "concurrency")
         tick_batches = _exact_int(row["tick_batches"], "tick_batches")
@@ -224,6 +236,7 @@ def _validate_partition_rows(
                 "result_binding_sha256 must be exactly 64 lowercase hex characters"
             )
         expected_binding = result_binding_sha256(
+            record_digest=record_digest,
             evaluation_attempt_id=evaluation_attempt_id,
             producer_session_generation=producer_session_generation,
             partition=partition,
