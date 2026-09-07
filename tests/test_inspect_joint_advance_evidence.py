@@ -50,6 +50,27 @@ def valid_report_payload() -> bytes:
     return benchmark_tests.EvidencePublicationTests.payload()
 
 
+def startup_error_payload() -> bytes:
+    report = json.loads(valid_report_payload())
+    report["cells"] = []
+    report["run"] = {
+        "terminal": "startup_error",
+        "stage": "host_attestation",
+        "error_type": "ContractError",
+        "error": "designated hostname mismatch",
+        "listener_identity": None,
+        "runtime_provenance": None,
+        "daemon_log": None,
+        "cleanup": {"failures": []},
+        "containment": {
+            "required_by_cell": False,
+            "boundary": "not_required",
+            "daemon_retired": True,
+        },
+    }
+    return bench.stable_json(report).encode("utf-8")
+
+
 class ReadOnlyInspectionTests(unittest.TestCase):
     def assert_inspection_failure_terminal(self, report, reason_code):
         self.assertEqual(report, {
@@ -172,6 +193,8 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
             self.assertTrue(report["final"]["report_schema_valid"])
             self.assertEqual(report["final"]["report_cell_terminals"], ["success"])
+            self.assertEqual(report["final"]["report_run_stage"], "matrix_complete")
+            self.assertIsNone(report["final"]["report_attempt_failure"])
             self.assertEqual(report["final"]["report_matrix_summary"], {
                 "planned_cell_count": 1,
                 "cell_count": 1,
@@ -226,10 +249,43 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 "first_non_success": {"key": "c1-t1", "terminal": "timeout"},
                 "first_failure": {"key": "c1-t1", "terminal": "timeout"},
             })
+            self.assertEqual(report["final"]["report_run_stage"], "matrix_complete")
+            self.assertEqual(report["final"]["report_attempt_failure"], {
+                "scope": "matrix",
+                "key": "c1-t1",
+                "terminal": "timeout",
+            })
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
             self.assertFalse(report["automatic_recovery"])
             self.assertFalse(report["automatic_rewrite"])
+
+    def test_pre_matrix_run_failure_is_not_misreported_as_zero_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = startup_error_payload()
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertEqual(final["report_terminal"], "startup_error")
+            self.assertEqual(final["report_run_stage"], "host_attestation")
+            self.assertEqual(final["report_cell_terminals"], [])
+            self.assertEqual(final["report_matrix_summary"]["planned_cell_count"], 1)
+            self.assertEqual(final["report_matrix_summary"]["cell_count"], 0)
+            self.assertEqual(final["report_matrix_summary"]["failure_count"], 0)
+            self.assertEqual(final["report_matrix_summary"]["missing_cell_count"], 1)
+            self.assertEqual(final["report_attempt_failure"], {
+                "scope": "run",
+                "terminal": "startup_error",
+                "stage": "host_attestation",
+            })
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
 
     def test_matrix_summary_uses_planned_order_not_lexicographic_storage_order(self):
         report = {
