@@ -10,6 +10,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import re
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -39,6 +42,26 @@ ACTION_PAYLOAD_KEYS = {
     "player_id", "controller_id", "world_tick",
     "decision_observation_binding_sha256", "commands",
 }
+
+OBSERVATION_PAYLOAD_KEYS = {
+    "attempt_id", "controller_session_generation", "player_id",
+    "visible_actor_ids", "world_tick",
+}
+
+MAX_EVIDENCE_BYTES = 128 * 1024
+MAX_JSON_DEPTH = 16
+MAX_IDENTIFIER_BYTES = 128
+MAX_REQUEST_ID_BYTES = 256
+MAX_COMMANDS = 64
+MAX_COMMAND_KEYS = 8
+MAX_COMMAND_STRING_BYTES = 256
+MAX_VISIBLE_ACTORS = 256
+MAX_OBSERVATION_PAYLOAD_BYTES = 48 * 1024
+MAX_ACTION_PAYLOAD_BYTES = 48 * 1024
+MAX_UINT32 = (1 << 32) - 1
+
+_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*\Z")
+_LOWER_HEX_64_RE = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -127,6 +150,365 @@ def _nonempty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value) and value == value.strip()
 
 
+class AdmissionError(ValueError):
+    "Typed fail-closed input-admission terminal."
+
+
+def _bounded_identifier(
+    value: Any,
+    *,
+    maximum_bytes: int = MAX_IDENTIFIER_BYTES,
+) -> bool:
+    if type(value) is not str or not value:
+        return False
+    try:
+        encoded = value.encode("ascii", "strict")
+    except UnicodeError:
+        return False
+    return (
+        len(encoded) <= maximum_bytes
+        and _IDENTIFIER_RE.fullmatch(value) is not None
+    )
+
+
+def _bounded_flat_string(value: Any, maximum_bytes: int) -> bool:
+    if type(value) is not str:
+        return False
+    try:
+        encoded = value.encode("utf-8", "strict")
+    except UnicodeError:
+        return False
+    if len(encoded) > maximum_bytes or "\x00" in value:
+        return False
+    return all(ord(char) >= 0x20 or char in "\t" for char in value)
+
+
+def _canonical_sha256(value: Any) -> bool:
+    return (
+        type(value) is str
+        and _LOWER_HEX_64_RE.fullmatch(value) is not None
+    )
+
+
+def _uint32(value: Any, *, positive: bool = False) -> bool:
+    if type(value) is not int:
+        return False
+    minimum = 1 if positive else 0
+    return minimum <= value <= MAX_UINT32
+
+
+def _bounded_canonical_size(value: Any, maximum_bytes: int) -> bool:
+    try:
+        return len(canonical_bytes(value)) <= maximum_bytes
+    except (TypeError, ValueError, UnicodeError, RecursionError):
+        return False
+
+
+def _json_depth_preflight(raw: bytes) -> None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for byte in raw:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif byte == 0x5C:
+                escaped = True
+            elif byte == 0x22:
+                in_string = False
+            continue
+
+        if byte == 0x22:
+            in_string = True
+        elif byte in (0x7B, 0x5B):
+            depth += 1
+            if depth > MAX_JSON_DEPTH:
+                raise AdmissionError("HOLD_JSON_DEPTH_EXCEEDED")
+        elif byte in (0x7D, 0x5D):
+            depth = max(0, depth - 1)
+
+
+def _read_evidence_file(path: Path) -> Any:
+    try:
+        visible = path.lstat()
+    except OSError as error:
+        raise AdmissionError(
+            f"HOLD_EVIDENCE_PATH_STAT_FAILURE:{type(error).__name__}"
+        ) from error
+
+    if not stat.S_ISREG(visible.st_mode):
+        raise AdmissionError("HOLD_EVIDENCE_PATH_NOT_REGULAR")
+    if visible.st_size > MAX_EVIDENCE_BYTES:
+        raise AdmissionError("HOLD_EVIDENCE_FILE_TOO_LARGE")
+
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_NONBLOCK", 0)
+
+    try:
+        fd = os.open(path, flags)
+    except OSError as error:
+        raise AdmissionError(
+            f"HOLD_EVIDENCE_OPEN_FAILURE:{type(error).__name__}"
+        ) from error
+
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise AdmissionError("HOLD_EVIDENCE_PATH_NOT_REGULAR")
+        if (before.st_dev, before.st_ino) != (visible.st_dev, visible.st_ino):
+            raise AdmissionError("HOLD_EVIDENCE_PATH_GENERATION_CHANGED")
+        if before.st_size > MAX_EVIDENCE_BYTES:
+            raise AdmissionError("HOLD_EVIDENCE_FILE_TOO_LARGE")
+
+        chunks: list[bytes] = []
+        remaining = MAX_EVIDENCE_BYTES + 1
+        while remaining:
+            chunk = os.read(fd, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+
+        after = os.fstat(fd)
+        identity = lambda value: (
+            value.st_dev,
+            value.st_ino,
+            value.st_size,
+            value.st_mtime_ns,
+        )
+        if identity(before) != identity(after) or len(raw) != before.st_size:
+            raise AdmissionError("HOLD_EVIDENCE_FILE_CHANGED_DURING_READ")
+        if len(raw) > MAX_EVIDENCE_BYTES:
+            raise AdmissionError("HOLD_EVIDENCE_FILE_TOO_LARGE")
+    finally:
+        os.close(fd)
+
+    _json_depth_preflight(raw)
+    try:
+        text = raw.decode("utf-8", "strict")
+    except UnicodeError as error:
+        raise AdmissionError("HOLD_EVIDENCE_UTF8_INVALID") from error
+
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, RecursionError) as error:
+        raise AdmissionError("HOLD_EVIDENCE_JSON_INVALID") from error
+
+
+def _validate_command_shape(command: Any) -> str | None:
+    if type(command) is not dict:
+        return "HOLD_ACTION_COMMAND_ELEMENT_NOT_OBJECT"
+    if len(command) > MAX_COMMAND_KEYS:
+        return "HOLD_ACTION_COMMAND_KEY_CARDINALITY"
+    for key, value in command.items():
+        if not _bounded_identifier(key, maximum_bytes=64):
+            return "HOLD_ACTION_COMMAND_KEY_INVALID"
+        if type(value) is str:
+            if not _bounded_flat_string(value, MAX_COMMAND_STRING_BYTES):
+                return "HOLD_ACTION_COMMAND_STRING_INVALID"
+        elif type(value) is int:
+            if not -(1 << 31) <= value <= (1 << 31) - 1:
+                return "HOLD_ACTION_COMMAND_INTEGER_OUT_OF_RANGE"
+        elif type(value) not in (bool, type(None)):
+            return "HOLD_ACTION_COMMAND_VALUE_NOT_FLAT"
+    return None
+
+
+def _preflight_evidence(evidence: Any) -> list[str]:
+    holds: set[str] = set()
+
+    if type(evidence) is not dict:
+        return ["HOLD_EVIDENCE_NOT_OBJECT"]
+
+    if set(evidence) != TOP_LEVEL_KEYS:
+        return ["HOLD_TOP_LEVEL_SCHEMA_DRIFT"]
+
+    if evidence.get("schema_version") != SCHEMA_VERSION:
+        holds.add("HOLD_SCHEMA_VERSION_MISMATCH")
+
+    if not _bounded_identifier(evidence.get("attempt_id")):
+        holds.add("HOLD_ATTEMPT_ID_INPUT_INVALID")
+    if not _uint32(
+        evidence.get("controller_session_generation"),
+        positive=True,
+    ):
+        holds.add("HOLD_CONTROLLER_SESSION_GENERATION_INPUT_INVALID")
+    if not _uint32(evidence.get("world_tick")):
+        holds.add("HOLD_WORLD_TICK_INPUT_INVALID")
+    if not _canonical_sha256(evidence.get("joint_evidence_sha256")):
+        holds.add("HOLD_JOINT_EVIDENCE_DIGEST_NONCANONICAL")
+
+    controllers = evidence.get("controllers")
+    if type(controllers) is not list or len(controllers) != 2:
+        holds.add("HOLD_CONTROLLER_CARDINALITY")
+        return sorted(holds)
+
+    for record in controllers:
+        if type(record) is not dict:
+            holds.add("HOLD_CONTROLLER_RECORD_NOT_OBJECT")
+            continue
+        if set(record) != CONTROLLER_KEYS:
+            holds.add("HOLD_CONTROLLER_SCHEMA_DRIFT")
+            continue
+
+        for field in (
+            "player_id",
+            "controller_id",
+            "observation_subject_player_id",
+            "visibility_owner_player_id",
+            "action_actor_player_id",
+        ):
+            if not _bounded_identifier(record.get(field)):
+                holds.add(f"HOLD_{field.upper()}_INPUT_INVALID")
+
+        if not _bounded_identifier(
+            record.get("action_request_id"),
+            maximum_bytes=MAX_REQUEST_ID_BYTES,
+        ):
+            holds.add("HOLD_ACTION_REQUEST_ID_INPUT_INVALID")
+
+        for field in (
+            "observation_sha256",
+            "observation_binding_sha256",
+            "action_sha256",
+            "action_binding_sha256",
+        ):
+            if not _canonical_sha256(record.get(field)):
+                holds.add(f"HOLD_{field.upper()}_NONCANONICAL")
+
+        observation = record.get("observation_payload")
+        if type(observation) is not dict:
+            holds.add("HOLD_OBSERVATION_PAYLOAD_NOT_OBJECT")
+        elif set(observation) != OBSERVATION_PAYLOAD_KEYS:
+            holds.add("HOLD_OBSERVATION_PAYLOAD_SCHEMA_DRIFT")
+        else:
+            if not _bounded_identifier(observation.get("attempt_id")):
+                holds.add("HOLD_OBSERVATION_ATTEMPT_ID_INPUT_INVALID")
+            if not _uint32(
+                observation.get("controller_session_generation"),
+                positive=True,
+            ):
+                holds.add("HOLD_OBSERVATION_SESSION_INPUT_INVALID")
+            if not _bounded_identifier(observation.get("player_id")):
+                holds.add("HOLD_OBSERVATION_PLAYER_ID_INPUT_INVALID")
+            if not _uint32(observation.get("world_tick")):
+                holds.add("HOLD_OBSERVATION_WORLD_TICK_INPUT_INVALID")
+
+            actors = observation.get("visible_actor_ids")
+            if type(actors) is not list:
+                holds.add("HOLD_VISIBLE_ACTOR_IDS_NOT_LIST")
+            elif len(actors) > MAX_VISIBLE_ACTORS:
+                holds.add("HOLD_VISIBLE_ACTOR_IDS_CARDINALITY")
+            elif any(not _bounded_identifier(actor) for actor in actors):
+                holds.add("HOLD_VISIBLE_ACTOR_ID_INPUT_INVALID")
+
+        action = record.get("action_payload")
+        if type(action) is not dict:
+            holds.add("HOLD_ACTION_PAYLOAD_NOT_OBJECT")
+        elif set(action) != ACTION_PAYLOAD_KEYS:
+            holds.add("HOLD_ACTION_PAYLOAD_SCHEMA_DRIFT")
+        else:
+            if not _bounded_identifier(
+                action.get("request_id"),
+                maximum_bytes=MAX_REQUEST_ID_BYTES,
+            ):
+                holds.add("HOLD_ACTION_PAYLOAD_REQUEST_ID_INPUT_INVALID")
+            if not _bounded_identifier(action.get("attempt_id")):
+                holds.add("HOLD_ACTION_PAYLOAD_ATTEMPT_ID_INPUT_INVALID")
+            if not _uint32(
+                action.get("controller_session_generation"),
+                positive=True,
+            ):
+                holds.add("HOLD_ACTION_PAYLOAD_SESSION_INPUT_INVALID")
+            if not _bounded_identifier(action.get("player_id")):
+                holds.add("HOLD_ACTION_PAYLOAD_PLAYER_ID_INPUT_INVALID")
+            if not _bounded_identifier(action.get("controller_id")):
+                holds.add("HOLD_ACTION_PAYLOAD_CONTROLLER_ID_INPUT_INVALID")
+            if not _uint32(action.get("world_tick")):
+                holds.add("HOLD_ACTION_PAYLOAD_WORLD_TICK_INPUT_INVALID")
+            if not _canonical_sha256(
+                action.get("decision_observation_binding_sha256")
+            ):
+                holds.add("HOLD_ACTION_DECISION_BINDING_NONCANONICAL")
+
+            commands = action.get("commands")
+            if type(commands) is not list:
+                holds.add("HOLD_ACTION_COMMANDS_NOT_LIST")
+            elif len(commands) > MAX_COMMANDS:
+                holds.add("HOLD_ACTION_COMMANDS_CARDINALITY")
+            else:
+                for command in commands:
+                    command_hold = _validate_command_shape(command)
+                    if command_hold is not None:
+                        holds.add(command_hold)
+                        break
+
+    if holds:
+        return sorted(holds)
+
+    for record in controllers:
+        observation = record["observation_payload"]
+        action = record["action_payload"]
+        if not _bounded_canonical_size(
+            observation,
+            MAX_OBSERVATION_PAYLOAD_BYTES,
+        ):
+            holds.add("HOLD_OBSERVATION_PAYLOAD_TOO_LARGE")
+        if not _bounded_canonical_size(
+            action,
+            MAX_ACTION_PAYLOAD_BYTES,
+        ):
+            holds.add("HOLD_ACTION_PAYLOAD_TOO_LARGE")
+
+    if holds:
+        return sorted(holds)
+
+    if not _bounded_canonical_size(evidence, MAX_EVIDENCE_BYTES):
+        return ["HOLD_EVIDENCE_OBJECT_TOO_LARGE"]
+
+    return []
+
+
+def _hold_report(holds: list[str]) -> dict[str, Any]:
+    return {
+        "admitted_attempt_id": None,
+        "admitted_controller_session_generation": None,
+        "admitted_joint_evidence_sha256": None,
+        "checked_players": [],
+        "contract": "HOLD",
+        "engine_frozen_commit": ENGINE_FROZEN_COMMIT,
+        "generation": GENERATION,
+        "holds": sorted(set(holds)),
+        "marker": MARKER,
+        "runtime_evidence": RUNTIME_EVIDENCE,
+        "schema_version": SCHEMA_VERSION,
+        "war_college_frozen_commit": WAR_COLLEGE_FROZEN_COMMIT,
+    }
+
+
+def _parse_positive_uint32_decimal(value: str) -> int:
+    if (
+        type(value) is not str
+        or not value
+        or len(value) > 10
+        or not value.isascii()
+        or not value.isdecimal()
+        or value.startswith("0")
+    ):
+        raise AdmissionError(
+            "HOLD_EXPECTED_CONTROLLER_SESSION_GENERATION_INVALID"
+        )
+    parsed = int(value, 10)
+    if not 1 <= parsed <= MAX_UINT32:
+        raise AdmissionError(
+            "HOLD_EXPECTED_CONTROLLER_SESSION_GENERATION_INVALID"
+        )
+    return parsed
+
+
 def verify_evidence(
     evidence: Any,
     *,
@@ -135,6 +517,17 @@ def verify_evidence(
 ) -> dict[str, Any]:
     holds: set[str] = set()
     checked_players: list[str] = []
+
+    admission_holds: list[str] = []
+    if not _bounded_identifier(expected_attempt_id):
+        admission_holds.append("HOLD_EXPECTED_ATTEMPT_ID_INVALID")
+    if not _uint32(expected_controller_session_generation, positive=True):
+        admission_holds.append(
+            "HOLD_EXPECTED_CONTROLLER_SESSION_GENERATION_INVALID"
+        )
+    admission_holds.extend(_preflight_evidence(evidence))
+    if admission_holds:
+        return _hold_report(admission_holds)
 
     if not isinstance(evidence, dict):
         holds.add("HOLD_EVIDENCE_NOT_OBJECT")
@@ -396,33 +789,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--expected-controller-session-generation",
         required=True,
-        type=int,
     )
     args = parser.parse_args(argv)
+
     try:
-        evidence = json.loads(args.evidence.read_text(encoding="utf-8"))
+        if not _bounded_identifier(args.expected_attempt_id):
+            raise AdmissionError("HOLD_EXPECTED_ATTEMPT_ID_INVALID")
+        expected_generation = _parse_positive_uint32_decimal(
+            args.expected_controller_session_generation
+        )
+        evidence = _read_evidence_file(args.evidence)
         report = verify_evidence(
             evidence,
             expected_attempt_id=args.expected_attempt_id,
-            expected_controller_session_generation=(
-                args.expected_controller_session_generation
-            ),
+            expected_controller_session_generation=expected_generation,
         )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
-        report = {
-            "admitted_attempt_id": None,
-            "admitted_controller_session_generation": None,
-            "admitted_joint_evidence_sha256": None,
-            "checked_players": [],
-            "contract": "HOLD",
-            "engine_frozen_commit": ENGINE_FROZEN_COMMIT,
-            "generation": GENERATION,
-            "holds": [f"HOLD_EVIDENCE_READ_FAILURE:{type(error).__name__}"],
-            "marker": MARKER,
-            "runtime_evidence": RUNTIME_EVIDENCE,
-            "schema_version": SCHEMA_VERSION,
-            "war_college_frozen_commit": WAR_COLLEGE_FROZEN_COMMIT,
-        }
+    except AdmissionError as error:
+        report = _hold_report([str(error)])
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+    ) as error:
+        report = _hold_report(
+            [f"HOLD_EVIDENCE_READ_FAILURE:{type(error).__name__}"]
+        )
+
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
     return 0 if report["contract"] == "GREEN" else 1
 
