@@ -192,6 +192,117 @@ def prove_documented_receipt_shell_syntax() -> None:
         raise RuntimeError("receipt shell syntax-deletion mutant was accepted")
 
 
+def run_documented_receipt_shell(root: Path, slot: str) -> subprocess.CompletedProcess[str]:
+    repository = root / "checkout"
+    scripts = repository / "scripts"
+    scripts.mkdir(parents=True)
+    verifier = scripts / "verify_void_lab_checkout_v1.py"
+    verifier.write_text(
+        "print('{\"schema_version\":6,\"generation\":\"ad1926569b12466c\","
+        "\"source_contract\":\"GREEN\",\"checkout_contract\":\"GREEN\","
+        "\"exact_checkout_evidence\":true,"
+        "\"runtime_evidence\":\"PENDING_DESIGNATED_HOST\"}')\n",
+        encoding="utf-8",
+    )
+    source = documented_receipt_shell()
+    source = source.replace(
+        "void_publish_lab_receipt slot-01",
+        f"void_publish_lab_receipt {slot}",
+        1,
+    )
+    environment = dict(os.environ)
+    environment["VOID_WAR_COLLEGE_DIR"] = str(repository)
+    return subprocess.run(
+        ["/bin/dash"],
+        input=source,
+        text=True,
+        capture_output=True,
+        env=environment,
+        check=False,
+    )
+
+
+def prove_documented_receipt_shell_execution() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        control = run_documented_receipt_shell(root, "slot-01")
+        if control.returncode != 0:
+            raise RuntimeError(
+                f"documented receipt shell control failed: {control.returncode}: "
+                f"{control.stderr}"
+            )
+        staging = root / ".void-lab-checkout-slot-01.pending"
+        final = root / "void-lab-checkout-c164a7d2-slot-01.json"
+        staged = staging.lstat()
+        published = final.lstat()
+        if (
+            not stat.S_ISREG(staged.st_mode)
+            or not stat.S_ISREG(published.st_mode)
+            or stat.S_IMODE(staged.st_mode) != 0o600
+            or stat.S_IMODE(published.st_mode) != 0o600
+            or (staged.st_dev, staged.st_ino)
+            != (published.st_dev, published.st_ino)
+        ):
+            raise RuntimeError("documented shell did not publish one exact mode-0600 inode")
+        if "staging_cleanup=DEFERRED_NO_PATHNAME_DELETE" not in control.stderr:
+            raise RuntimeError("documented shell omitted deferred-cleanup receipt")
+        staging_bytes = staging.read_bytes()
+        final_bytes = final.read_bytes()
+        staging_before = staging.lstat()
+        final_before = final.lstat()
+
+        reused = run_documented_receipt_shell(root, "slot-01")
+        if reused.returncode == 0:
+            raise RuntimeError("documented shell reused a consumed receipt slot")
+        staging_after = staging.lstat()
+        final_after = final.lstat()
+        if staging.read_bytes() != staging_bytes or final.read_bytes() != final_bytes:
+            raise RuntimeError("documented shell slot reuse changed prior bytes")
+        if (staging_after.st_dev, staging_after.st_ino) != (
+            staging_before.st_dev,
+            staging_before.st_ino,
+        ):
+            raise RuntimeError("documented shell slot reuse changed staging identity")
+        if (final_after.st_dev, final_after.st_ino) != (
+            final_before.st_dev,
+            final_before.st_ino,
+        ):
+            raise RuntimeError("documented shell slot reuse changed final identity")
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        invalid = run_documented_receipt_shell(root, "slot-17")
+        if invalid.returncode != 72:
+            raise RuntimeError(
+                f"documented shell invalid slot returned {invalid.returncode}, not 72"
+            )
+        if "HOLD_VOID_LAB_RECEIPT_SLOTS_EXHAUSTED" not in invalid.stderr:
+            raise RuntimeError("documented shell invalid slot omitted exhaustion HOLD")
+        if list(root.glob("*.json")) or list(root.glob(".*.pending")):
+            raise RuntimeError("invalid documented shell slot created receipt state")
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        repository = root / "checkout"
+        repository.mkdir()
+        foreign = root / ".void-lab-checkout-slot-01.pending"
+        foreign.write_bytes(b"foreign-staging-generation\n")
+        foreign.chmod(0o600)
+        before = foreign.lstat()
+        preserved = foreign.read_bytes()
+        collision = run_documented_receipt_shell(root, "slot-01")
+        if collision.returncode == 0:
+            raise RuntimeError("documented shell accepted a foreign staging generation")
+        after = foreign.lstat()
+        if foreign.read_bytes() != preserved:
+            raise RuntimeError("documented shell changed foreign staging bytes")
+        if (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino):
+            raise RuntimeError("documented shell changed foreign staging identity")
+        final = root / "void-lab-checkout-c164a7d2-slot-01.json"
+        if final.exists() or final.is_symlink():
+            raise RuntimeError("foreign staging collision published a final receipt")
+
+
 def host_command_paths() -> dict[str, str]:
     paths: dict[str, str] = {}
     for command in REQUIRED_HOST_COMMANDS:
@@ -461,6 +572,7 @@ def prove_postpublication_staging_retention_has_no_delete_authority() -> None:
 def main() -> int:
     prove_document_contract()
     prove_documented_receipt_shell_syntax()
+    prove_documented_receipt_shell_execution()
     prove_host_preflight_fails_before_downstream_mutation()
     prove_existing_receipt_is_unchanged()
     prove_absent_path_publishes_mode_0600()
@@ -470,6 +582,10 @@ def main() -> int:
     print(f"{MARKER} PASS")
     print("receipt_shell_dash_syntax=true")
     print("receipt_shell_syntax_mutant_rejected=true")
+    print("documented_receipt_shell_execution=true")
+    print("documented_receipt_slot_reuse_rejected=true")
+    print("documented_receipt_invalid_slot_exit=72")
+    print("documented_receipt_foreign_staging_preserved=true")
     print("host_preflight_supported_control=true")
     print(f"host_preflight_missing_command_cases={len(REQUIRED_HOST_COMMANDS)}")
     print(f"host_preflight_substituted_command_cases={len(REQUIRED_HOST_COMMANDS)}")
