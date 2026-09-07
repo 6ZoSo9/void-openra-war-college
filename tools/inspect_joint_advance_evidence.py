@@ -278,6 +278,18 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
             "run stage lacks established runtime provenance: "
             f"{terminal}/{stage}"
         )
+    if stage == "cleanup" and run["listener_identity"] is None:
+        raise bench.ContractError(
+            "run stage lacks established listener identity: "
+            f"{terminal}/{stage}"
+        )
+    if terminal == "output_error" and report["cells"] and (
+        run["listener_identity"] is None
+        or run["runtime_provenance"] is None
+    ):
+        raise bench.ContractError(
+            "output-error matrix evidence lacks established runtime identity"
+        )
     if terminal == "cleanup_error":
         actual_keys = [cell["key"] for cell in report["cells"]]
         if actual_keys != sorted(planned_keys):
