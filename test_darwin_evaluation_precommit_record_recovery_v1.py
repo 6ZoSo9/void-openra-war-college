@@ -259,22 +259,25 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
                 self.assertFalse(self.path.exists())
                 self.assertFalse(shadow_manifest.exists())
 
+        # Keep abbreviation falsifiers within the exact 23-token valid grammar
+        # envelope so they test exact spelling rather than the independent argv bound.
         base_cases = (
             [
                 "record",
                 "--mani",
                 str(shadow_manifest),
-                *self.record_args()[1:],
+                *self.record_args()[3:],
             ],
             [
-                *self.record_args(),
+                "record",
+                *self.record_args()[3:],
                 "--mani",
                 str(shadow_manifest),
             ],
             [
                 "record",
                 f"--man={shadow_manifest}",
-                *self.record_args()[1:],
+                *self.record_args()[3:],
             ],
         )
         for argv in base_cases:
