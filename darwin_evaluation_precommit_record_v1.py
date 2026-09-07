@@ -84,17 +84,22 @@ def parse_unique_args(
     argv: Iterable[str] | None,
 ) -> argparse.Namespace:
     """Reject over-bound or ambiguous repeated options before file-system access."""
-    tokens = _bounded_argv_tokens(argv)
+    source = sys.argv[1:] if argv is None else argv
+    tokens: list[str] = []
     seen: set[str] = set()
-    for token in tokens:
-        if token == "--":
-            break
-        if not token.startswith("--"):
-            continue
-        option = token.split("=", 1)[0]
-        if option in seen:
-            parser.error(f"argument {option}: may not be repeated")
-        seen.add(option)
+    scan_options = True
+    for token_number, token in enumerate(source, start=1):
+        if scan_options:
+            if token == "--":
+                scan_options = False
+            elif token.startswith("--"):
+                option = token.split("=", 1)[0]
+                if option in seen:
+                    parser.error(f"argument {option}: may not be repeated")
+                seen.add(option)
+        if token_number > MAX_ARGV_TOKENS:
+            parser.error(f"argv must contain at most {MAX_ARGV_TOKENS} tokens")
+        tokens.append(token)
     return parser.parse_args(tokens)
 
 
