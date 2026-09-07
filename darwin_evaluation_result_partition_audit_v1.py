@@ -194,8 +194,8 @@ def _validate_partition_rows(
             or row["producer_session_generation"] != producer_session_generation
         ):
             raise ResultAuditError(
-                f"{partition} row belongs to a different precommit record or execution "
-                "attempt/session generation"
+                f"{partition} row belongs to a different execution attempt/session "
+                "generation or a different precommit record"
             )
         concurrency = _exact_int(row["concurrency"], "concurrency")
         tick_batches = _exact_int(row["tick_batches"], "tick_batches")
