@@ -10,6 +10,7 @@ and designated-host execution runs inside a spawned process group so detached
 cancellation-resistant work cannot hang top-level process retirement.
 """
 
+import json as _BootstrapJson
 import multiprocessing as _BootstrapMultiprocessing
 import signal as _BootstrapSignal
 import sys as _BootstrapSys
@@ -341,6 +342,42 @@ def _retire_unbound_runtime_child(process: Any) -> None:
         raise ContractError("unbound runtime child could not be retired")
 
 
+class RuntimeChildHandoffError(ContractError):
+    """Retain the sender-handoff cause plus every secondary cleanup outcome."""
+
+    def __init__(
+        self,
+        primary: BaseException,
+        receiver_close_error: BaseException | None,
+        retirement_error: BaseException | None,
+    ) -> None:
+        def outcome(error: BaseException | None) -> dict[str, str]:
+            if error is None:
+                return {"status": "ok"}
+            return {
+                "status": "error",
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+
+        self.primary = primary
+        self.receiver_close_error = receiver_close_error
+        self.retirement_error = retirement_error
+        self.details = {
+            "primary": outcome(primary),
+            "cleanup": {
+                "receiver_close": outcome(receiver_close_error),
+                "child_retirement": outcome(retirement_error),
+            },
+        }
+        encoded = _BootstrapJson.dumps(
+            self.details,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        super().__init__(f"runtime child sender handoff cleanup failed:{encoded}")
+
+
 def _runtime_child_entry(
     sender: Any,
     args: argparse.Namespace,
@@ -413,12 +450,24 @@ def _execute_runtime_contained(
         raise
     try:
         sender.close()
-    except BaseException:
+    except BaseException as primary:
+        receiver_close_error: BaseException | None = None
+        retirement_error: BaseException | None = None
         try:
             receiver.close()
-        finally:
+        except BaseException as error:
+            receiver_close_error = error
+        try:
             _retire_unbound_runtime_child(process)
-        raise
+        except BaseException as error:
+            retirement_error = error
+        if receiver_close_error is None and retirement_error is None:
+            raise
+        raise RuntimeChildHandoffError(
+            primary,
+            receiver_close_error,
+            retirement_error,
+        ) from primary
 
     pgid: int | None = None
     outcome: dict[str, Any] | None = None
