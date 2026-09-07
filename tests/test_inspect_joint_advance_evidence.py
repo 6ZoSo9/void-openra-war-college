@@ -452,6 +452,69 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 self.assertFalse(report["automatic_recovery"])
                 self.assertFalse(report["automatic_rewrite"])
 
+    def test_pre_runtime_stages_reject_premature_identity(self):
+        valid_run = json.loads(valid_report_payload())["run"]
+        cases = (
+            (
+                "startup_error",
+                "host_attestation",
+                None,
+                "runtime provenance",
+            ),
+            (
+                "readiness_timeout",
+                "readiness",
+                valid_run["listener_identity"],
+                "listener identity",
+            ),
+        )
+        for terminal, stage, listener_identity, identity_name in cases:
+            with self.subTest(
+                terminal=terminal,
+                stage=stage,
+            ), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "evidence.json"
+                report_body = json.loads(startup_error_payload())
+                report_body["run"].update({
+                    "terminal": terminal,
+                    "stage": stage,
+                    "error": "synthetic pre-runtime identity contradiction",
+                    "runtime_provenance": valid_run["runtime_provenance"],
+                    "listener_identity": listener_identity,
+                })
+                payload = bench.stable_json(report_body).encode("utf-8")
+                validated = bench._validate_recoverable_evidence(payload)
+                self.assertIsNotNone(validated["run"]["runtime_provenance"])
+                if listener_identity is not None:
+                    self.assertIsNotNone(validated["run"]["listener_identity"])
+                write_0400(output, payload)
+                receipt = bench._commit_receipt_path(output)
+                write_0400(
+                    receipt,
+                    bench._commit_receipt_payload(output, payload),
+                )
+
+                report = INSPECT.inspect_namespace(output)
+
+                final = report["final"]
+                self.assertEqual(
+                    report["classification"],
+                    "CURRENT_SCHEMA_INVALID_HOLD",
+                )
+                self.assertFalse(final["report_schema_valid"])
+                self.assertEqual(
+                    final["validation_error"],
+                    f"ContractError:run stage carries premature "
+                    f"{identity_name}: {terminal}/{stage}",
+                )
+                self.assertIsNone(final["report_terminal"])
+                self.assertIsNone(final["report_run_stage"])
+                self.assertIsNone(final["report_attempt_failure"])
+                self.assertTrue(report["commit_receipt_binds_final"])
+                self.assertFalse(report["countable"])
+                self.assertFalse(report["automatic_recovery"])
+                self.assertFalse(report["automatic_rewrite"])
+
     def test_runtime_provenance_acquisition_failure_may_lack_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
