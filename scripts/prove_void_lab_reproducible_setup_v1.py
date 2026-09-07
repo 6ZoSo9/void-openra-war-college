@@ -16,7 +16,7 @@ from pathlib import Path
 MARKER = "VOID_LAB_REPRODUCIBLE_SETUP_PROOF_V1"
 DOCUMENT = Path(__file__).parents[1] / "VOID_LAB_REPRODUCIBLE_SETUP_V1.md"
 KNOWN_BYTES = b"preserved-prior-receipt\n"
-ATTEMPT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+ATTEMPT_ID = re.compile(r"slot-(?:0[1-9]|1[0-6])")
 RUNTIME_PATH_EXECUTED = False
 REQUIRED_HOST_COMMANDS = (
     "uname",
@@ -35,8 +35,22 @@ REQUIRED_HOST_COMMANDS = (
 
 def receipt_destination(root: Path, attempt_id: str) -> Path:
     if ATTEMPT_ID.fullmatch(attempt_id) is None:
-        raise ValueError("invalid receipt attempt identifier")
+        raise ValueError("invalid receipt slot identifier")
     return root / f"void-lab-checkout-c164a7d2-{attempt_id}.json"
+
+
+def staging_destination(root: Path, attempt_id: str) -> Path:
+    if ATTEMPT_ID.fullmatch(attempt_id) is None:
+        raise ValueError("invalid receipt slot identifier")
+    return root / f".void-lab-checkout-{attempt_id}.pending"
+
+
+def write_staging_create_only(path: Path, payload: bytes) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
 
 
 def publish_create_only(temp: Path, destination: Path) -> None:
@@ -95,11 +109,13 @@ def prove_document_contract() -> None:
         '# VOID_LAB_HOST_PREFLIGHT_V1_END',
         'void_publish_lab_receipt() (',
         'VOID_LAB_RECEIPT_ID="$1"',
-        '[a-z0-9][a-z0-9_-]{0,63}',
+        'slot-(?:0[1-9]|1[0-6])',
         'void-lab-checkout-c164a7d2-$VOID_LAB_RECEIPT_ID.json',
         'test ! -e "$VOID_LAB_RECEIPT"',
         'test ! -L "$VOID_LAB_RECEIPT"',
-        'mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout-$VOID_LAB_RECEIPT_ID.XXXXXX.pending"',
+        'VOID_LAB_RECEIPT_TEMP="$VOID_LAB_RECEIPT_DIR/.void-lab-checkout-$VOID_LAB_RECEIPT_ID.pending"',
+        'test ! -e "$VOID_LAB_RECEIPT_TEMP"',
+        'set -C',
         'VOID_LAB_RECEIPT_TEMP_ID="$(stat -c \'%d:%i\' "$VOID_LAB_RECEIPT_TEMP")"',
         'report_retained_temp() {',
         'pending_retired=false',
@@ -109,8 +125,8 @@ def prove_document_contract() -> None:
         'ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"',
         'stat -c \'%d:%i\' "$VOID_LAB_RECEIPT"',
         'sync -f "$VOID_LAB_RECEIPT_DIR"',
-        'void_publish_lab_receipt setup-001',
-        'void_publish_lab_receipt prebuild-001',
+        'void_publish_lab_receipt slot-01',
+        'void_publish_lab_receipt slot-02',
     )
     for fragment in required:
         if fragment not in text:
@@ -120,6 +136,8 @@ def prove_document_contract() -> None:
     receipt_shell = documented_receipt_shell()
     if 'rm ' in receipt_shell or "cleanup_owned_temp" in receipt_shell:
         raise RuntimeError("documented receipt shell retains pathname cleanup authority")
+    if "mktemp " in receipt_shell:
+        raise RuntimeError("documented receipt shell permits unbounded random staging aliases")
 
 
 def documented_host_preflight() -> str:
@@ -134,7 +152,7 @@ def documented_host_preflight() -> str:
 def documented_receipt_shell() -> str:
     text = DOCUMENT.read_text(encoding="utf-8")
     begin = "void_publish_lab_receipt() ("
-    end = "void_publish_lab_receipt setup-001"
+    end = "void_publish_lab_receipt slot-01"
     start = text.index(begin)
     finish = text.index(end, start) + len(end)
     return text[start:finish] + "\n"
@@ -154,12 +172,12 @@ def prove_documented_receipt_shell_syntax() -> None:
             f"documented receipt shell has invalid dash syntax: {control.stderr}"
         )
 
-    closing = "\n)\nvoid_publish_lab_receipt setup-001"
+    closing = "\n)\nvoid_publish_lab_receipt slot-01"
     if closing not in source:
         raise RuntimeError("receipt shell extraction omitted its exact function close")
     mutant = source.replace(
         closing,
-        "\nvoid_publish_lab_receipt setup-001",
+        "\nvoid_publish_lab_receipt slot-01",
         1,
     )
     rejected = subprocess.run(
@@ -289,15 +307,63 @@ def prove_absent_path_publishes_mode_0600() -> None:
             raise RuntimeError("publication did not retain exact candidate identity")
 
 
+def prove_fixed_slots_bound_staging_aliases() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        for number in range(1, 17):
+            slot = f"slot-{number:02d}"
+            staging = staging_destination(root, slot)
+            final = receipt_destination(root, slot)
+            payload = f'{{"slot":"{slot}"}}\n'.encode()
+            write_staging_create_only(staging, payload)
+            witness = staging.lstat()
+            publish_create_only(staging, final)
+            if classify_staging_alias(staging, witness) != "DEFERRED_OWNED":
+                raise RuntimeError(f"{slot} staging alias was not retained")
+            if classify_published_receipt(final, witness) != "COMMITTED":
+                raise RuntimeError(f"{slot} final receipt was not committed")
+
+        entries = list(root.iterdir())
+        if len(entries) != 32:
+            raise RuntimeError("fixed slot set did not produce exactly 16 aliases and receipts")
+        if any(stat.S_IMODE(path.lstat().st_mode) != 0o600 for path in entries):
+            raise RuntimeError("fixed slot set contains a non-owner-only path")
+
+        first = staging_destination(root, "slot-01")
+        first_before = first.lstat()
+        first_bytes = first.read_bytes()
+        try:
+            write_staging_create_only(first, b"replacement\n")
+        except FileExistsError:
+            pass
+        else:
+            raise RuntimeError("consumed staging slot was reusable")
+        first_after = first.lstat()
+        if first.read_bytes() != first_bytes:
+            raise RuntimeError("staging-slot reuse changed prior bytes")
+        if (first_after.st_dev, first_after.st_ino) != (
+            first_before.st_dev,
+            first_before.st_ino,
+        ):
+            raise RuntimeError("staging-slot reuse changed prior identity")
+
+        for invalid in ("slot-00", "slot-17", "setup-001", "slot-1", "slot-001"):
+            try:
+                staging_destination(root, invalid)
+            except ValueError:
+                continue
+            raise RuntimeError(f"invalid receipt slot was admitted: {invalid}")
+
+
 def prove_repeat_verification_preserves_both_receipts() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        first = receipt_destination(root, "setup-001")
-        second = receipt_destination(root, "prebuild-001")
+        first = receipt_destination(root, "slot-01")
+        second = receipt_destination(root, "slot-02")
         first_temp = root / ".first-candidate"
         second_temp = root / ".second-candidate"
-        first_temp.write_bytes(b'{"attempt":"setup-001"}\n')
-        second_temp.write_bytes(b'{"attempt":"prebuild-001"}\n')
+        first_temp.write_bytes(b'{"attempt":"slot-01"}\n')
+        second_temp.write_bytes(b'{"attempt":"slot-02"}\n')
         first_temp.chmod(0o600)
         second_temp.chmod(0o600)
 
@@ -397,6 +463,7 @@ def main() -> int:
     prove_host_preflight_fails_before_downstream_mutation()
     prove_existing_receipt_is_unchanged()
     prove_absent_path_publishes_mode_0600()
+    prove_fixed_slots_bound_staging_aliases()
     prove_repeat_verification_preserves_both_receipts()
     prove_postpublication_staging_retention_has_no_delete_authority()
     print(f"{MARKER} PASS")
@@ -408,6 +475,9 @@ def main() -> int:
     print("host_preflight_downstream_mutations=0")
     print("preexisting_receipt_unchanged=true")
     print("absent_path_mode_0600=true")
+    print("receipt_slot_limit=16")
+    print("staging_alias_cardinality_bound=16")
+    print("staging_retry_reuse_rejected=true")
     print("repeat_verification_distinct_receipts=true")
     print("prior_receipt_preserved=true")
     print("staging_alias_retained=true")
