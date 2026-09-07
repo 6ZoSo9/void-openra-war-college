@@ -254,7 +254,6 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
         "daemon_startup",
         "readiness",
         "cleanup",
-        "evidence_publication",
         "matrix_complete",
     } | planned_cell_stages
     if (
