@@ -202,16 +202,15 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
         "runtime_import",
         "daemon_startup",
     }
-    planned_cell_stages = {
-        (
-            f"cell:c{planned['concurrency']}-"
-            f"t{planned['ticks_per_joint_advance']}"
-        )
-        for planned in bench.build_matrix(
-            tuple(report["parameters"]["concurrency"]),
-            tuple(report["parameters"]["tick_batches"]),
-        )
-    }
+    planned = bench.build_matrix(
+        tuple(report["parameters"]["concurrency"]),
+        tuple(report["parameters"]["tick_batches"]),
+    )
+    planned_keys = [
+        f"c{cell['concurrency']}-t{cell['ticks_per_joint_advance']}"
+        for cell in planned
+    ]
+    planned_cell_stages = {f"cell:{key}" for key in planned_keys}
     allowed_stages = {
         "startup_error": startup_stages,
         "readiness_timeout": {"readiness"},
@@ -230,13 +229,6 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
             f"pre-matrix run terminal carries matrix cells: {terminal}/{stage}"
         )
     if terminal == "channel_error" and stage in planned_cell_stages:
-        planned_keys = [
-            f"c{planned['concurrency']}-t{planned['ticks_per_joint_advance']}"
-            for planned in bench.build_matrix(
-                tuple(report["parameters"]["concurrency"]),
-                tuple(report["parameters"]["tick_batches"]),
-            )
-        ]
         current_key = stage.removeprefix("cell:")
         current_index = planned_keys.index(current_key)
         predecessor_keys = planned_keys[:current_index]
@@ -252,6 +244,13 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
                 "channel-error stage does not bind exact successful "
                 f"predecessor prefix: {stage}"
             )
+    if terminal == "cleanup_error":
+        actual_keys = [cell["key"] for cell in report["cells"]]
+        if actual_keys != sorted(planned_keys):
+            raise bench.ContractError(
+                "cleanup-error evidence does not close the planned matrix"
+            )
+        bench._validate_completed_matrix_causality(report["cells"], planned)
 
 
 def _artifact(
