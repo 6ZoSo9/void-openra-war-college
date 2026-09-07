@@ -55,6 +55,7 @@ def fixture() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
                             )
                             rows.append(
                                 {
+                                    "record_digest": record["record_digest"],
                                     "evaluation_attempt_id": "attempt-001",
                                     "producer_session_generation": 1,
                                     "partition": partition,
@@ -66,6 +67,7 @@ def fixture() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
                                     "seed": seed,
                                     "outcome_digest": outcome_digest,
                                     "result_binding_sha256": audit.result_binding_sha256(
+                                        record_digest=record["record_digest"],
                                         evaluation_attempt_id="attempt-001",
                                         producer_session_generation=1,
                                         partition=partition,
@@ -248,6 +250,38 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
         row = bundle["runs"]["calibration"][0]
         row["producer_session_generation"] = 2
         self.assert_hold(bundle, record, manifest, "session generation")
+
+    def test_cross_record_row_mix_fails_closed(self) -> None:
+        manifest, record, bundle = fixture()
+        other_record = record_contract.build_record(
+            "darwin-audit-002",
+            manifest,
+            record["plan"],
+            "attempt-001",
+            1,
+        )
+        other_runs = copy.deepcopy(bundle["runs"])
+        for partition in split.PARTITIONS:
+            for row in other_runs[partition]:
+                row["record_digest"] = other_record["record_digest"]
+                row["result_binding_sha256"] = audit.result_binding_sha256(
+                    record_digest=other_record["record_digest"],
+                    evaluation_attempt_id=row["evaluation_attempt_id"],
+                    producer_session_generation=row["producer_session_generation"],
+                    partition=row["partition"],
+                    concurrency=row["concurrency"],
+                    tick_batches=row["tick_batches"],
+                    sample_index=row["sample_index"],
+                    repetition_index=row["repetition_index"],
+                    slot=row["slot"],
+                    seed=row["seed"],
+                    outcome_digest=row["outcome_digest"],
+                )
+        other_bundle = audit.build_result_bundle(other_record, manifest, other_runs)
+        bundle["runs"]["held_out"][0] = copy.deepcopy(
+            other_bundle["runs"]["held_out"][0]
+        )
+        self.assert_hold(bundle, record, manifest, "different precommit record")
 
     def test_top_level_attempt_or_session_substitution_fails_before_rows(self) -> None:
         manifest, record, bundle = fixture()
