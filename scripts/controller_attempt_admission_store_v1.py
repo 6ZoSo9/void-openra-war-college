@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -112,6 +113,47 @@ def _connect(path: Path) -> sqlite3.Connection:
     connection.execute("PRAGMA busy_timeout=5000")
     connection.execute("PRAGMA synchronous=FULL")
     return connection
+
+
+def _connect_existing(path: Path) -> sqlite3.Connection:
+    path = Path(path)
+    try:
+        visible = path.lstat()
+    except FileNotFoundError as error:
+        raise AdmissionHold("HOLD_STORE_NOT_FOUND") from error
+    except OSError as error:
+        raise AdmissionHold(
+            f"HOLD_STORE_PATH_STAT_FAILURE:{type(error).__name__}"
+        ) from error
+    if not stat.S_ISREG(visible.st_mode):
+        raise AdmissionHold("HOLD_STORE_PATH_NOT_REGULAR")
+
+    try:
+        connection = sqlite3.connect(
+            f"file:{path}?mode=rw",
+            uri=True,
+            timeout=5.0,
+            isolation_level=None,
+        )
+    except sqlite3.Error as error:
+        raise AdmissionHold("HOLD_STORE_OPEN_FAILURE") from error
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys=ON")
+    connection.execute("PRAGMA busy_timeout=5000")
+    connection.execute("PRAGMA synchronous=FULL")
+    _require_store_schema(connection)
+    return connection
+
+
+def _require_store_schema(connection: sqlite3.Connection) -> None:
+    try:
+        row = connection.execute(
+            "SELECT value FROM metadata WHERE key='schema_version'"
+        ).fetchone()
+    except sqlite3.Error as error:
+        raise AdmissionHold("HOLD_STORE_SCHEMA_INVALID") from error
+    if row is None or row["value"] != str(SCHEMA_VERSION):
+        raise AdmissionHold("HOLD_STORE_SCHEMA_VERSION_MISMATCH")
 
 
 def initialize_store(path: Path) -> None:
@@ -290,8 +332,7 @@ def create_attempt(path: Path, identity: AttemptIdentity) -> dict[str, Any]:
 
 def inspect_attempt(path: Path, identity: AttemptIdentity) -> dict[str, Any]:
     _validate_identity(identity)
-    initialize_store(path)
-    connection = _connect(path)
+    connection = _connect_existing(path)
     try:
         row = connection.execute(
             "SELECT * FROM attempts WHERE attempt_id=?",
@@ -308,8 +349,7 @@ def inspect_attempt(path: Path, identity: AttemptIdentity) -> dict[str, Any]:
 def load_attempt(path: Path, attempt_id: str) -> tuple[AttemptIdentity, int]:
     if not _bounded_identifier(attempt_id):
         raise AdmissionHold("HOLD_ATTEMPT_ID_INVALID")
-    initialize_store(path)
-    connection = _connect(path)
+    connection = _connect_existing(path)
     try:
         row = connection.execute(
             "SELECT * FROM attempts WHERE attempt_id=?",
@@ -338,8 +378,7 @@ def advance_session(
     if expected_current_generation >= MAX_UINT32:
         raise AdmissionHold("HOLD_SESSION_GENERATION_EXHAUSTED")
 
-    initialize_store(path)
-    connection = _connect(path)
+    connection = _connect_existing(path)
     try:
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
@@ -398,8 +437,7 @@ def consume_joint_evidence(
     if not _canonical_sha256(joint_evidence_sha256):
         raise AdmissionHold("HOLD_JOINT_EVIDENCE_DIGEST_INVALID")
 
-    initialize_store(path)
-    connection = _connect(path)
+    connection = _connect_existing(path)
     try:
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(

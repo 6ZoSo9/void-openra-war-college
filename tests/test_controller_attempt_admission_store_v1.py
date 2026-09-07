@@ -73,6 +73,55 @@ class ControllerAttemptAdmissionStoreTests(unittest.TestCase):
             ):
                 load_attempt(path, "attempt-missing")
 
+    def test_read_paths_do_not_initialize_missing_store(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "missing.sqlite3"
+            self.assertFalse(path.exists())
+
+            with self.assertRaisesRegex(
+                AdmissionHold,
+                "HOLD_STORE_NOT_FOUND",
+            ):
+                load_attempt(path, "attempt-001")
+            self.assertFalse(path.exists())
+
+            with self.assertRaisesRegex(
+                AdmissionHold,
+                "HOLD_STORE_NOT_FOUND",
+            ):
+                consume_joint_evidence(
+                    path,
+                    identity(),
+                    session_generation=1,
+                    joint_evidence_sha256=JOINT_A,
+                )
+            self.assertFalse(path.exists())
+
+    def test_old_store_schema_fails_closed(self) -> None:
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "old.sqlite3"
+            connection = sqlite3.connect(path)
+            try:
+                connection.execute(
+                    "CREATE TABLE metadata "
+                    "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                )
+                connection.execute(
+                    "INSERT INTO metadata(key, value) "
+                    "VALUES('schema_version', '1')"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            with self.assertRaisesRegex(
+                AdmissionHold,
+                "HOLD_STORE_SCHEMA_VERSION_MISMATCH",
+            ):
+                load_attempt(path, "attempt-001")
+
     def test_reconnect_advances_monotonically_and_stales_predecessor(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "ledger.sqlite3"
