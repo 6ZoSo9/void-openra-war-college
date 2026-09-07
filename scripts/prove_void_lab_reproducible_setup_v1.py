@@ -54,27 +54,19 @@ def publish_create_only(temp: Path, destination: Path) -> None:
         raise RuntimeError("published receipt identity or mode changed")
 
 
-def cleanup_owned_generation(
-    path: Path,
-    witness: os.stat_result,
-    *,
-    unlink=os.unlink,
-) -> bool:
+def classify_staging_alias(path: Path, witness: os.stat_result) -> str:
     try:
         current = path.lstat()
     except FileNotFoundError:
-        return False
+        return "ABSENT"
     if (
         stat.S_ISLNK(current.st_mode)
+        or not stat.S_ISREG(current.st_mode)
+        or stat.S_IMODE(current.st_mode) != 0o600
         or (current.st_dev, current.st_ino) != (witness.st_dev, witness.st_ino)
     ):
-        return False
-    try:
-        unlink(path)
-    except OSError:
-        return False
-    return True
-
+        return "DEFERRED_FOREIGN"
+    return "DEFERRED_OWNED"
 
 def classify_published_receipt(destination: Path, witness: os.stat_result) -> str:
     published = destination.lstat()
@@ -107,13 +99,15 @@ def prove_document_contract() -> None:
         'void-lab-checkout-c164a7d2-$VOID_LAB_RECEIPT_ID.json',
         'test ! -e "$VOID_LAB_RECEIPT"',
         'test ! -L "$VOID_LAB_RECEIPT"',
-        'mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout.XXXXXX"',
+        'mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout-$VOID_LAB_RECEIPT_ID.XXXXXX.pending"',
         'VOID_LAB_RECEIPT_TEMP_ID="$(stat -c \'%d:%i\' "$VOID_LAB_RECEIPT_TEMP")"',
-        'cleanup_owned_temp() {',
+        'report_retained_temp() {',
+        'pending_retired=false',
+        'staging_cleanup=DEFERRED_NO_PATHNAME_DELETE',
+        'trap report_retained_temp EXIT',
         'stat -c \'%a\' "$VOID_LAB_RECEIPT_TEMP"',
         'ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"',
         'stat -c \'%d:%i\' "$VOID_LAB_RECEIPT"',
-        'cleanup_owned_temp',
         'sync -f "$VOID_LAB_RECEIPT_DIR"',
         'void_publish_lab_receipt setup-001',
         'void_publish_lab_receipt prebuild-001',
@@ -123,6 +117,9 @@ def prove_document_contract() -> None:
             raise RuntimeError(f"documentation omits receipt guard: {fragment}")
     if '> "$VOID_LAB_RECEIPT"' in text:
         raise RuntimeError("documentation directly redirects over final receipt")
+    receipt_shell = documented_receipt_shell()
+    if 'rm ' in receipt_shell or "cleanup_owned_temp" in receipt_shell:
+        raise RuntimeError("documented receipt shell retains pathname cleanup authority")
 
 
 def documented_host_preflight() -> str:
@@ -340,7 +337,7 @@ def prove_repeat_verification_preserves_both_receipts() -> None:
             raise RuntimeError("source-only proof reached a runtime path")
 
 
-def prove_postpublication_cleanup_is_terminal_monotone() -> None:
+def prove_postpublication_staging_retention_has_no_delete_authority() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         destination = root / "receipt.json"
@@ -350,22 +347,34 @@ def prove_postpublication_cleanup_is_terminal_monotone() -> None:
         witness = temp.lstat()
         publish_create_only(temp, destination)
 
+        if classify_staging_alias(temp, witness) != "DEFERRED_OWNED":
+            raise RuntimeError("owned staging alias was not retained")
+        staged = temp.lstat()
+        final = destination.lstat()
+        if (staged.st_dev, staged.st_ino) != (final.st_dev, final.st_ino):
+            raise RuntimeError("retained staging alias lost published identity")
+
+        # Adversarial interleaving at the former validation-to-unlink boundary:
+        # observe A, replace it with B, then execute only the non-mutating
+        # classification admitted by this generation.
+        if classify_staging_alias(temp, witness) != "DEFERRED_OWNED":
+            raise RuntimeError("pre-replacement staging observation changed")
         temp.unlink()
         temp.write_bytes(b"foreign-generation\n")
         temp.chmod(0o600)
         foreign_before = temp.lstat()
-        if cleanup_owned_generation(temp, witness):
-            raise RuntimeError("replacement generation was reported as cleaned")
+        if classify_staging_alias(temp, witness) != "DEFERRED_FOREIGN":
+            raise RuntimeError("foreign staging generation was not deferred")
         foreign_after = temp.lstat()
         if temp.read_bytes() != b"foreign-generation\n":
-            raise RuntimeError("replacement generation bytes changed")
+            raise RuntimeError("foreign staging generation bytes changed")
         if (foreign_after.st_dev, foreign_after.st_ino) != (
             foreign_before.st_dev,
             foreign_before.st_ino,
         ):
-            raise RuntimeError("replacement generation identity changed")
+            raise RuntimeError("foreign staging generation identity changed")
         if classify_published_receipt(destination, witness) != "COMMITTED":
-            raise RuntimeError("replacement cleanup changed committed terminal")
+            raise RuntimeError("foreign staging replacement changed committed terminal")
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -375,16 +384,11 @@ def prove_postpublication_cleanup_is_terminal_monotone() -> None:
         temp.chmod(0o600)
         witness = temp.lstat()
         publish_create_only(temp, destination)
-
-        def fail_unlink(_: os.PathLike[str] | str) -> None:
-            raise PermissionError("injected cleanup failure")
-
-        if cleanup_owned_generation(temp, witness, unlink=fail_unlink):
-            raise RuntimeError("injected cleanup failure was reported as cleaned")
+        temp.unlink()
+        if classify_staging_alias(temp, witness) != "ABSENT":
+            raise RuntimeError("missing staging alias was not classified absent")
         if classify_published_receipt(destination, witness) != "COMMITTED":
-            raise RuntimeError("cleanup failure reversed committed terminal")
-        if destination.read_bytes() != b"validated\n":
-            raise RuntimeError("cleanup failure changed committed receipt bytes")
+            raise RuntimeError("missing staging alias changed committed terminal")
 
 
 def main() -> int:
@@ -394,7 +398,7 @@ def main() -> int:
     prove_existing_receipt_is_unchanged()
     prove_absent_path_publishes_mode_0600()
     prove_repeat_verification_preserves_both_receipts()
-    prove_postpublication_cleanup_is_terminal_monotone()
+    prove_postpublication_staging_retention_has_no_delete_authority()
     print(f"{MARKER} PASS")
     print("receipt_shell_dash_syntax=true")
     print("receipt_shell_syntax_mutant_rejected=true")
@@ -406,8 +410,10 @@ def main() -> int:
     print("absent_path_mode_0600=true")
     print("repeat_verification_distinct_receipts=true")
     print("prior_receipt_preserved=true")
-    print("replacement_generation_preserved=true")
-    print("cleanup_failure_terminal=COMMITTED")
+    print("staging_alias_retained=true")
+    print("replacement_at_retirement_boundary_preserved=true")
+    print("staging_cleanup_authority=false")
+    print("receipt_commit_terminal=COMMITTED")
     print("runtime_path_executed=false")
     print("runtime_evidence=PENDING_DESIGNATED_HOST")
     return 0
