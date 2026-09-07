@@ -1,0 +1,257 @@
+name: joint-advance-source-contract
+
+on:
+  pull_request:
+    paths:
+      - bench_joint_advance.py
+      - bench_joint_advance_core.py
+      - test_bench_joint_advance.py
+      - .github/workflows/joint-advance-source-contract.yml
+  push:
+    branches:
+      - main
+    paths:
+      - bench_joint_advance.py
+      - bench_joint_advance_core.py
+      - test_bench_joint_advance.py
+      - .github/workflows/joint-advance-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    name: Python ${{ matrix.python-version }} source contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    env:
+      EVENT_NAME: ${{ github.event_name }}
+      SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      INTEGRATION_SHA: ${{ github.sha }}
+      REVIEWED_ENGINE_SHA: 1607a7a6501d42a47638393ecef8b22831064932
+      REVIEWED_WAR_COLLEGE_SHA: 973802ef0a614e5afa782ff20e231e18966ae3e5
+      REVIEWED_GENERATION: ad1926569b12466c
+    steps:
+      - name: Checkout integration generation
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Checkout exact benchmark source head
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ env.SOURCE_HEAD_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: exact-head
+      - name: Checkout current pull-request base ref
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: live-base
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Prove integration and exact-head identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$INTEGRATION_SHA"
+          test "$(git -C exact-head rev-parse HEAD)" = "$SOURCE_HEAD_SHA"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            read -r integration_base_sha integration_source_sha extra_parent \
+              <<< "$(git show -s --format=%P HEAD)"
+            test -n "$integration_base_sha"
+            test -n "$integration_source_sha"
+            test -z "${extra_parent:-}"
+            test "$integration_source_sha" = "$SOURCE_HEAD_SHA"
+            test "$integration_base_sha" = "$EVENT_BASE_SHA"
+            live_base_sha="$(git -C live-base rev-parse HEAD)"
+            test -n "$live_base_sha"
+            test "$integration_base_sha" = "$live_base_sha"
+          else
+            integration_base_sha="$EVENT_BASE_SHA"
+            live_base_sha="$integration_base_sha"
+          fi
+          export INTEGRATION_BASE_SHA="$integration_base_sha"
+          export LIVE_BASE_SHA="$live_base_sha"
+          printf 'INTEGRATION_BASE_SHA=%s\nLIVE_BASE_SHA=%s\n' \
+            "$INTEGRATION_BASE_SHA" "$LIVE_BASE_SHA" >> "$GITHUB_ENV"
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          paths = (
+              "bench_joint_advance.py",
+              "bench_joint_advance_core.py",
+              "test_bench_joint_advance.py",
+              ".github/workflows/joint-advance-source-contract.yml",
+          )
+
+          def tree_entry(repo, rel):
+              completed = subprocess.run(
+                  ["git", "-C", repo, "ls-tree", "HEAD", "--", rel],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              raw = completed.stdout.rstrip("\n")
+              if not raw:
+                  raise SystemExit(f"missing tracked path in {repo}: {rel}")
+              prefix, listed_path = raw.split("\t", 1)
+              mode, object_type, object_id = prefix.split()
+              if listed_path != rel or object_type != "blob":
+                  raise SystemExit(f"unexpected tree entry in {repo}: {rel}")
+              return mode, object_id
+
+          manifest = {
+              "event_base_sha": os.environ["EVENT_BASE_SHA"],
+              "integration_base_sha": os.environ["INTEGRATION_BASE_SHA"],
+              "live_base_sha": os.environ["LIVE_BASE_SHA"],
+              "integration_sha": os.environ["INTEGRATION_SHA"],
+              "source_head_sha": os.environ["SOURCE_HEAD_SHA"],
+              "event_base_matches_integration_base": (
+                  os.environ["EVENT_BASE_SHA"] == os.environ["INTEGRATION_BASE_SHA"]
+              ),
+              "integration_base_matches_live_base": (
+                  os.environ["INTEGRATION_BASE_SHA"] == os.environ["LIVE_BASE_SHA"]
+              ),
+              "paths": {},
+          }
+          for rel in paths:
+              integration_bytes = Path(rel).read_bytes()
+              source_bytes = (Path("exact-head") / rel).read_bytes()
+              integration_mode, integration_object = tree_entry(".", rel)
+              source_mode, source_object = tree_entry("exact-head", rel)
+              manifest["paths"][rel] = {
+                  "integration": {
+                      "sha256": hashlib.sha256(integration_bytes).hexdigest(),
+                      "bytes": len(integration_bytes),
+                      "git_mode": integration_mode,
+                      "git_object": integration_object,
+                  },
+                  "source_head": {
+                      "sha256": hashlib.sha256(source_bytes).hexdigest(),
+                      "bytes": len(source_bytes),
+                      "git_mode": source_mode,
+                      "git_object": source_object,
+                  },
+                  "byte_identical": integration_bytes == source_bytes,
+                  "tree_entry_identical": (
+                      integration_mode == source_mode
+                      and integration_object == source_object
+                  ),
+              }
+          mismatched_paths = [
+              rel
+              for rel, evidence in manifest["paths"].items()
+              if not evidence["byte_identical"] or not evidence["tree_entry_identical"]
+          ]
+          if mismatched_paths:
+              raise SystemExit(
+                  "integration/source tree-entry mismatch: " + ",".join(mismatched_paths)
+              )
+          print(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
+          PY
+      - name: Verify committed-range hygiene
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C exact-head cat-file -e "${INTEGRATION_BASE_SHA}^{commit}"
+          git -C exact-head cat-file -e "${SOURCE_HEAD_SHA}^{commit}"
+          MERGE_BASE_SHA="$(git -C exact-head merge-base "$INTEGRATION_BASE_SHA" "$SOURCE_HEAD_SHA")"
+          test -n "$MERGE_BASE_SHA"
+          if [ "$MERGE_BASE_SHA" != "$INTEGRATION_BASE_SHA" ]; then
+            printf 'source head is not based on exact integration base: merge_base=%s integration_base=%s\n' \
+              "$MERGE_BASE_SHA" "$INTEGRATION_BASE_SHA" >&2
+            exit 1
+          fi
+          git -C exact-head diff --check "${MERGE_BASE_SHA}...${SOURCE_HEAD_SHA}"
+          printf 'event_base_sha=%s\nintegration_base_sha=%s\nlive_base_sha=%s\nsource_head_sha=%s\nmerge_base_sha=%s\nsource_head_contains_integration_base=true\nintegration_sha=%s\n' \
+            "$EVENT_BASE_SHA" "$INTEGRATION_BASE_SHA" "$LIVE_BASE_SHA" "$SOURCE_HEAD_SHA" "$MERGE_BASE_SHA" "$INTEGRATION_SHA"
+      - name: Verify pushed-head hygiene
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git -C exact-head rev-parse HEAD^ >/dev/null 2>&1; then
+            git -C exact-head diff --check HEAD^ HEAD
+          else
+            git -C exact-head diff --check HEAD
+          fi
+      - name: Compile integration source contract
+        run: python -m py_compile bench_joint_advance.py bench_joint_advance_core.py test_bench_joint_advance.py
+      - name: Run integration source contract tests
+        run: python -m unittest -v test_bench_joint_advance.py
+      - name: Compile exact-head source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          python -m py_compile bench_joint_advance.py bench_joint_advance_core.py test_bench_joint_advance.py
+      - name: Run exact-head source contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          python -m unittest -v test_bench_joint_advance.py
+      - name: Verify exact-head source-only plan provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python exact-head/bench_joint_advance.py plan \
+            --engine-sha "$REVIEWED_ENGINE_SHA" \
+            --war-college-sha "$REVIEWED_WAR_COLLEGE_SHA" \
+            --benchmark-source-sha "$SOURCE_HEAD_SHA" \
+            --generation "$REVIEWED_GENERATION" \
+            --concurrency 1,2 \
+            --tick-batches 1,8 \
+            --samples 2 \
+            --repetitions 2 \
+            --workload-profile noop_control \
+            --seed 2050 > joint-advance-plan.json
+          python - <<'PY'
+          import json
+          import os
+
+          with open("joint-advance-plan.json", encoding="utf-8") as stream:
+              report = json.load(stream)
+          provenance = report["provenance"]
+          parameters = report["parameters"]
+          expected_parameters = {
+              "concurrency": [1, 2],
+              "tick_batches": [1, 8],
+              "samples": 2,
+              "repetitions": 2,
+              "workload_profile": "noop_control",
+              "seed": 2050,
+              "rpc_timeout_s": 60,
+              "cell_timeout_s": 900,
+              "teardown_timeout_s": 10,
+              "ready_timeout_s": 30,
+              "port": 9999,
+              "map_name": "singles.oramap",
+              "bots": "Multi1:rl-agent,Multi0:rl-agent",
+          }
+          assert report["runtime_evidence"] == "PENDING_DESIGNATED_HOST"
+          assert report["cells"] == []
+          assert report["run"] is None
+          assert parameters == expected_parameters
+          assert provenance["engine_sha"] == os.environ["REVIEWED_ENGINE_SHA"]
+          assert provenance["war_college_sha"] == os.environ["REVIEWED_WAR_COLLEGE_SHA"]
+          assert provenance["benchmark_source_sha"] == os.environ["SOURCE_HEAD_SHA"]
+          assert provenance["generation"] == os.environ["REVIEWED_GENERATION"]
+          PY
