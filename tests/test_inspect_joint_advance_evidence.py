@@ -96,6 +96,21 @@ def channel_error_at_first_cell_payload(*, include_current_cell: bool) -> bytes:
     return bench.stable_json(report).encode("utf-8")
 
 
+def cleanup_error_payload(*, include_completed_matrix: bool) -> bytes:
+    report = json.loads(valid_report_payload())
+    if not include_completed_matrix:
+        report["cells"] = []
+    failure = "channel:RuntimeError:synthetic cleanup failure"
+    report["run"].update({
+        "terminal": "cleanup_error",
+        "stage": "cleanup",
+        "error_type": "CleanupError",
+        "error": failure,
+        "cleanup": {"failures": [failure]},
+    })
+    return bench.stable_json(report).encode("utf-8")
+
+
 class ReadOnlyInspectionTests(unittest.TestCase):
     def assert_inspection_failure_terminal(self, report, reason_code):
         self.assertEqual(report, {
@@ -420,6 +435,63 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 final["validation_error"],
                 "ContractError:channel-error stage does not bind exact successful "
                 "predecessor prefix: cell:c1-t1",
+            )
+            self.assertIsNone(final["report_terminal"])
+            self.assertIsNone(final["report_run_stage"])
+            self.assertIsNone(final["report_attempt_failure"])
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_rewrite"])
+
+    def test_cleanup_error_accepts_the_completed_matrix_it_follows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = cleanup_error_payload(include_completed_matrix=True)
+            validated = bench._validate_recoverable_evidence(payload)
+            self.assertEqual(len(validated["cells"]), 1)
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertTrue(final["report_schema_valid"])
+            self.assertEqual(final["report_terminal"], "cleanup_error")
+            self.assertEqual(final["report_run_stage"], "cleanup")
+            self.assertEqual(final["report_matrix_summary"]["cell_count"], 1)
+            self.assertEqual(final["report_matrix_summary"]["missing_cell_count"], 0)
+            self.assertEqual(final["report_attempt_failure"], {
+                "scope": "run",
+                "terminal": "cleanup_error",
+                "stage": "cleanup",
+            })
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+
+    def test_cleanup_error_cannot_omit_the_completed_matrix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = cleanup_error_payload(include_completed_matrix=False)
+            self.assertEqual(
+                bench._validate_recoverable_evidence(payload)["cells"],
+                [],
+            )
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(report["classification"], "CURRENT_SCHEMA_INVALID_HOLD")
+            self.assertFalse(final["report_schema_valid"])
+            self.assertEqual(
+                final["validation_error"],
+                "ContractError:cleanup-error evidence does not close the planned "
+                "matrix",
             )
             self.assertIsNone(final["report_terminal"])
             self.assertIsNone(final["report_run_stage"])
