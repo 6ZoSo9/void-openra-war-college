@@ -287,6 +287,27 @@ def inspect_attempt(path: Path, identity: AttemptIdentity) -> dict[str, Any]:
         connection.close()
 
 
+def load_attempt(path: Path, attempt_id: str) -> tuple[AttemptIdentity, int]:
+    if not _bounded_identifier(attempt_id):
+        raise AdmissionHold("HOLD_ATTEMPT_ID_INVALID")
+    initialize_store(path)
+    connection = _connect(path)
+    try:
+        row = connection.execute(
+            "SELECT * FROM attempts WHERE attempt_id=?",
+            (attempt_id,),
+        ).fetchone()
+        if row is None:
+            raise AdmissionHold("HOLD_ATTEMPT_NOT_FOUND")
+        identity = _identity_from_row(row)
+        generation = int(row["current_session_generation"])
+        if not _uint32(generation, positive=True):
+            raise AdmissionHold("HOLD_STORED_SESSION_GENERATION_INVALID")
+        return identity, generation
+    finally:
+        connection.close()
+
+
 def advance_session(
     path: Path,
     identity: AttemptIdentity,
