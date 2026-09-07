@@ -67,6 +67,16 @@ class ExecutionBindingTests(unittest.TestCase):
             "436dddc9d85efcaf3e4646fc25462667ba04104c",
         )
         self.assertFalse(b["runtime_execution_authorized"])
+        supervisor = verifier.json.loads(
+            (
+                verifier.ROOT / b["supervisor_contract_path"]
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(supervisor["service_name"], b["service_template_name"])
+        self.assertEqual(
+            supervisor["service_instance_id_regex"],
+            b["request_id_regex"],
+        )
 
     def test_clean_installed_binding_is_green_without_starting_service(self):
         report = verifier.verify_installed_binding(clean_report())

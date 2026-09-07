@@ -27,7 +27,7 @@
   "source_environment_path": "ops/war-college/void-war-college-evidence-verifier.env",
   "source_unit_path": "ops/war-college/void-war-college-evidence-verifier@.service",
   "source_wrapper_path": "scripts/war_college_designated_host_verify_request_v1.py",
-  "supervisor_contract_git_blob": "336eec0300d2ffc24622ed91b940a178cab5c147",
+  "supervisor_contract_git_blob": "28f0dd80a683d8c42b8248833ac3e6039dbfbcc0",
   "supervisor_contract_path": "config/war-college/designated-host-supervisor-v1.json",
   "unit_required_mode": "0o600",
   "unit_sha256": "0194c458dd3e4f484aa49c6975e6457a87de14b49e67b2d813fb53edbfd495f7",

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
         "expected_node_id",
         "service_scope",
         "service_name",
+        "service_instance_id_regex",
         "runtime_uid",
         "runtime_gid",
         "runtime_repository",
@@ -48,6 +50,10 @@ def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
         raise SupervisorContractError("contract keys are not exact")
     if value["marker"] != CONTRACT_MARKER or value["version"] != 1:
         raise SupervisorContractError("contract marker/version mismatch")
+    if value["service_name"] != "void-war-college-evidence-verifier@.service":
+        raise SupervisorContractError("service template mismatch")
+    if value["service_instance_id_regex"] != r"wcrq1_[0-9a-f]{32}":
+        raise SupervisorContractError("service instance id regex mismatch")
     runtime_repository = Path(value["runtime_repository"])
     if not runtime_repository.is_absolute():
         raise SupervisorContractError("runtime repository is not absolute")
@@ -109,6 +115,32 @@ def _artifact_holds(
     return holds
 
 
+def _service_instance_id(
+    observed_service: Any,
+    *,
+    service_template: str,
+    instance_id_regex: str,
+) -> str | None:
+    if type(observed_service) is not str:
+        return None
+    suffix = "@.service"
+    if not service_template.endswith(suffix):
+        return None
+    prefix = service_template[: -len(suffix)]
+    observed_prefix = prefix + "@"
+    observed_suffix = ".service"
+    if not observed_service.startswith(observed_prefix):
+        return None
+    if not observed_service.endswith(observed_suffix):
+        return None
+    instance_id = observed_service[
+        len(observed_prefix) : -len(observed_suffix)
+    ]
+    if re.fullmatch(instance_id_regex, instance_id) is None:
+        return None
+    return instance_id
+
+
 def verify_discovery(
     report: Any,
     *,
@@ -128,8 +160,13 @@ def verify_discovery(
         holds.append("HOLD_DISCOVERY_MARKER_MISMATCH")
     if report.get("schema_version") != 1:
         holds.append("HOLD_DISCOVERY_SCHEMA_MISMATCH")
-    if report.get("service") != c["service_name"]:
-        holds.append("HOLD_SUPERVISOR_SERVICE_NAME_MISMATCH")
+    service_instance_id = _service_instance_id(
+        report.get("service"),
+        service_template=c["service_name"],
+        instance_id_regex=c["service_instance_id_regex"],
+    )
+    if service_instance_id is None:
+        holds.append("HOLD_SUPERVISOR_SERVICE_INSTANCE_MISMATCH")
     if report.get("active_state") != "active":
         holds.append("HOLD_SUPERVISOR_NOT_ACTIVE")
     sub_state = report.get("sub_state")
@@ -240,6 +277,7 @@ def verify_discovery(
         "supervisor_contract_green": green,
         "designated_host_label": c["designated_host_label"],
         "service_name": c["service_name"],
+        "service_instance_id": service_instance_id,
         "runtime_repository": c["runtime_repository"],
         "runtime_source_commit": c["runtime_source_commit"],
         "void_data_dir": c["void_data_dir"],

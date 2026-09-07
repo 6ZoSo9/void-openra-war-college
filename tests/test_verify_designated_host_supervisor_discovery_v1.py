@@ -12,7 +12,12 @@ def clean_report() -> dict[str, object]:
     return {
         "marker": "VOID_WAR_COLLEGE_DESIGNATED_HOST_SUPERVISOR_DISCOVERY_V1",
         "schema_version": 1,
-        "service": contract["service_name"],
+        "service": (
+            "void-war-college-evidence-verifier@"
+            + "wcrq1_"
+            + "a" * 32
+            + ".service"
+        ),
         "active_state": "active",
         "sub_state": "running",
         "main_pid": 4242,
@@ -107,13 +112,32 @@ class SupervisorContractTests(unittest.TestCase):
             )
         )
         self.assertEqual(len(contract["runtime_artifact_git_blobs"]), 5)
+        self.assertEqual(
+            contract["service_instance_id_regex"],
+            r"wcrq1_[0-9a-f]{32}",
+        )
         self.assertTrue(all(value is False for value in contract["authority"].values()))
 
     def test_clean_dedicated_supervisor_discovery_is_green(self):
         report = verifier.verify_discovery(clean_report())
         self.assertEqual(report["contract"], "GREEN")
         self.assertTrue(report["supervisor_contract_green"])
+        self.assertEqual(report["service_instance_id"], "wcrq1_" + "a" * 32)
         self.assertFalse(report["runtime_execution_authorized"])
+
+    def test_bare_template_name_is_not_a_runtime_instance(self):
+        candidate = clean_report()
+        candidate["service"] = verifier.load_contract()["service_name"]
+        report = verifier.verify_discovery(candidate)
+        self.assert_hold(report, "HOLD_SUPERVISOR_SERVICE_INSTANCE_MISMATCH")
+
+    def test_malformed_template_instance_id_fails_closed(self):
+        candidate = clean_report()
+        candidate["service"] = (
+            "void-war-college-evidence-verifier@wcrq1_NOTLOWERHEX.service"
+        )
+        report = verifier.verify_discovery(candidate)
+        self.assert_hold(report, "HOLD_SUPERVISOR_SERVICE_INSTANCE_MISMATCH")
 
     def test_completed_oneshot_template_instance_is_inspectable(self):
         candidate = clean_report()
@@ -132,7 +156,7 @@ class SupervisorContractTests(unittest.TestCase):
         candidate["service_artifacts"][0]["mode"] = "0o664"
         candidate["service_artifacts"][0]["group_or_other_writable"] = True
         report = verifier.verify_discovery(candidate)
-        self.assert_hold(report, "HOLD_SUPERVISOR_SERVICE_NAME_MISMATCH")
+        self.assert_hold(report, "HOLD_SUPERVISOR_SERVICE_INSTANCE_MISMATCH")
         self.assert_hold(report, "HOLD_VOID_DATA_DIR_NOT_ABSOLUTE")
         self.assert_hold(report, "HOLD_VOID_DATA_DIR_RAW_MISMATCH")
         self.assert_hold(report, "HOLD_SERVICE_ARTIFACT_0_GROUP_OR_OTHER_WRITABLE")

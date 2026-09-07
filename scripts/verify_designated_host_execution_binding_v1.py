@@ -22,6 +22,12 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _git_blob_sha1(path: Path) -> str:
+    raw = path.read_bytes()
+    header = f"blob {len(raw)}\0".encode("ascii")
+    return hashlib.sha1(header + raw).hexdigest()
+
+
 def load_binding(path: Path = BINDING_PATH) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if type(value) is not dict:
@@ -32,6 +38,8 @@ def load_binding(path: Path = BINDING_PATH) -> dict[str, Any]:
         "source_unit_path",
         "source_environment_path",
         "source_wrapper_path",
+        "supervisor_contract_path",
+        "supervisor_contract_git_blob",
         "installed_unit_path",
         "installed_environment_path",
         "installed_wrapper_path",
@@ -63,6 +71,26 @@ def load_binding(path: Path = BINDING_PATH) -> dict[str, Any]:
         )
     ):
         raise ExecutionBindingError("source binding accidentally grants runtime authority")
+
+    supervisor_relative = Path(value["supervisor_contract_path"])
+    if supervisor_relative.is_absolute() or ".." in supervisor_relative.parts:
+        raise ExecutionBindingError("supervisor contract path is not repository-relative")
+    source_supervisor = ROOT / supervisor_relative
+    if _git_blob_sha1(source_supervisor) != value.get("supervisor_contract_git_blob"):
+        raise ExecutionBindingError("supervisor contract Git blob mismatch")
+    try:
+        supervisor_contract = json.loads(
+            source_supervisor.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as error:
+        raise ExecutionBindingError("supervisor contract unreadable") from error
+    if supervisor_contract.get("service_name") != value.get("service_template_name"):
+        raise ExecutionBindingError("supervisor/execution service template mismatch")
+    if (
+        supervisor_contract.get("service_instance_id_regex")
+        != value.get("request_id_regex")
+    ):
+        raise ExecutionBindingError("supervisor/execution request id mismatch")
 
     source_unit = ROOT / value["source_unit_path"]
     source_env = ROOT / value["source_environment_path"]
