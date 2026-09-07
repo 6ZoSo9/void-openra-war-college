@@ -18,6 +18,7 @@ from scripts.controller_attempt_admission_store_v1 import (
 
 WAR_COLLEGE_COMMIT = "f57c561f3a4c742e34d820933be40dd7d4253951"
 ENGINE_COMMIT = "1607a7a6501d42a47638393ecef8b22831064932"
+PRODUCER_PUBLIC_KEY_SHA256 = "c" * 64
 JOINT_A = "a" * 64
 JOINT_B = "b" * 64
 
@@ -26,6 +27,7 @@ def identity(attempt_id: str = "attempt-001") -> AttemptIdentity:
     return AttemptIdentity(
         attempt_id=attempt_id,
         producer_id="designated-host-1",
+        producer_public_key_sha256=PRODUCER_PUBLIC_KEY_SHA256,
         controller_a_id="controller-a",
         controller_a_player_id="player-1",
         controller_b_id="controller-b",
@@ -245,6 +247,7 @@ class ControllerAttemptAdmissionStoreTests(unittest.TestCase):
             wrong = AttemptIdentity(
                 attempt_id=original.attempt_id,
                 producer_id="other-producer",
+                producer_public_key_sha256=PRODUCER_PUBLIC_KEY_SHA256,
                 controller_a_id=original.controller_a_id,
                 controller_a_player_id=original.controller_a_player_id,
                 controller_b_id=original.controller_b_id,
@@ -284,6 +287,7 @@ class ControllerAttemptAdmissionStoreTests(unittest.TestCase):
             swapped = AttemptIdentity(
                 attempt_id=original.attempt_id,
                 producer_id=original.producer_id,
+                producer_public_key_sha256=PRODUCER_PUBLIC_KEY_SHA256,
                 controller_a_id=original.controller_a_id,
                 controller_a_player_id=original.controller_b_player_id,
                 controller_b_id=original.controller_b_id,

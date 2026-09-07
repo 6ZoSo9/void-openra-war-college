@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind controller evidence to durable currentness and exactly-once consumption."""
+"""Bind controller evidence to durable currentness and VOID-node producer authentication."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts import verify_controller_evidence_isolation_v1 as structural
+from scripts import verify_controller_evidence_producer_auth_v1 as producer_auth
 from scripts.controller_attempt_admission_store_v1 import (
     AdmissionHold,
     AttemptIdentity,
@@ -25,7 +26,7 @@ from scripts.controller_attempt_admission_store_v1 import (
 MARKER = "VOID_WAR_COLLEGE_CONTROLLER_DURABLE_CURRENTNESS_INTEGRATION_V1"
 RUNTIME_EVIDENCE = "PENDING_DESIGNATED_HOST"
 STORE_WAR_COLLEGE_SOURCE_BASE = "f57c561f3a4c742e34d820933be40dd7d4253951"
-STORE_RELATIVE_PATH = Path("war_college/controller_attempt_admission_v2.sqlite3")
+STORE_RELATIVE_PATH = Path("war_college/controller_attempt_admission_v3.sqlite3")
 
 
 def canonical_store_path() -> Path:
@@ -66,7 +67,12 @@ def _report(
     joint_evidence_sha256: str | None = None,
     consumption_sha256: str | None = None,
     structural_report: dict[str, Any] | None = None,
+    producer_auth_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    producer_signature_green = (
+        isinstance(producer_auth_report, dict)
+        and producer_auth_report.get("contract") == "GREEN"
+    )
     return {
         "attempt_id": identity.attempt_id if identity is not None else None,
         "canonical_store_relative_path": str(STORE_RELATIVE_PATH),
@@ -77,7 +83,16 @@ def _report(
         "joint_evidence_sha256": joint_evidence_sha256,
         "marker": MARKER,
         "phase": phase,
+        "producer_auth_transcript_sha256": (
+            producer_auth_report.get("transcript_sha256")
+            if isinstance(producer_auth_report, dict)
+            else None
+        ),
         "producer_id": identity.producer_id if identity is not None else None,
+        "producer_public_key_sha256": (
+            identity.producer_public_key_sha256 if identity is not None else None
+        ),
+        "producer_signature_authentication_green": producer_signature_green,
         "runtime_evidence": RUNTIME_EVIDENCE,
         "session_generation": session_generation,
         "structural_contract": (
@@ -124,7 +139,10 @@ def _observed_controller_player_bindings(
     return bindings
 
 
-def verify_and_consume_evidence(evidence: Any) -> dict[str, Any]:
+def verify_and_consume_evidence(
+    evidence: Any,
+    producer_auth_record: Any,
+) -> dict[str, Any]:
     if type(evidence) is not dict:
         return _report(
             contract="HOLD",
@@ -188,10 +206,31 @@ def verify_and_consume_evidence(evidence: Any) -> dict[str, Any]:
         return _report(
             contract="HOLD",
             holds=["HOLD_STRUCTURAL_JOINT_DIGEST_NOT_ADMITTED"],
-            phase="pre_consume",
+            phase="pre_auth",
             identity=identity,
             session_generation=current_generation,
             structural_report=structural_report,
+        )
+
+    auth_report = producer_auth.verify_producer_auth(
+        producer_auth_record,
+        identity=identity,
+        session_generation=current_generation,
+        joint_evidence_sha256=joint_digest,
+        evidence_generation=structural.GENERATION,
+        war_college_frozen_commit=structural.WAR_COLLEGE_FROZEN_COMMIT,
+        engine_frozen_commit=structural.ENGINE_FROZEN_COMMIT,
+    )
+    if auth_report.get("contract") != "GREEN":
+        return _report(
+            contract="HOLD",
+            holds=list(auth_report.get("holds", [])),
+            phase="producer_authentication",
+            identity=identity,
+            session_generation=current_generation,
+            joint_evidence_sha256=joint_digest,
+            structural_report=structural_report,
+            producer_auth_report=auth_report,
         )
 
     try:
@@ -210,6 +249,7 @@ def verify_and_consume_evidence(evidence: Any) -> dict[str, Any]:
             session_generation=current_generation,
             joint_evidence_sha256=joint_digest,
             structural_report=structural_report,
+            producer_auth_report=auth_report,
         )
 
     return _report(
@@ -221,22 +261,31 @@ def verify_and_consume_evidence(evidence: Any) -> dict[str, Any]:
         joint_evidence_sha256=joint_digest,
         consumption_sha256=str(consumption["consumption_sha256"]),
         structural_report=structural_report,
+        producer_auth_report=auth_report,
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("evidence", type=Path)
+    parser.add_argument("producer_auth", type=Path)
     args = parser.parse_args(argv)
 
     try:
         evidence = structural._read_evidence_file(args.evidence)
-        report = verify_and_consume_evidence(evidence)
+        auth_record = producer_auth.read_producer_auth_file(args.producer_auth)
+        report = verify_and_consume_evidence(evidence, auth_record)
     except structural.AdmissionError as error:
         report = _report(
             contract="HOLD",
             holds=[str(error)],
             phase="evidence_read",
+        )
+    except producer_auth.ProducerAuthAdmissionError as error:
+        report = _report(
+            contract="HOLD",
+            holds=[str(error)],
+            phase="producer_auth_read",
         )
     except (OSError, ValueError, RecursionError) as error:
         report = _report(
