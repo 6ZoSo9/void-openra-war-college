@@ -228,6 +228,20 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
         raise bench.ContractError(
             f"pre-matrix run terminal carries matrix cells: {terminal}/{stage}"
         )
+    provenance_forbidden_stages = {"host_attestation", "runtime_provenance"}
+    if (
+        stage in provenance_forbidden_stages
+        and run["runtime_provenance"] is not None
+    ):
+        raise bench.ContractError(
+            "run stage carries premature runtime provenance: "
+            f"{terminal}/{stage}"
+        )
+    if stage in pre_matrix_stages and run["listener_identity"] is not None:
+        raise bench.ContractError(
+            "run stage carries premature listener identity: "
+            f"{terminal}/{stage}"
+        )
     if terminal == "channel_error" and stage in planned_cell_stages:
         if run["listener_identity"] is None or run["runtime_provenance"] is None:
             raise bench.ContractError(
