@@ -19,6 +19,20 @@ def canonical(value):
 
 
 class VerifyRequestTests(unittest.TestCase):
+    def setUp(self):
+        self._production_uid = wrapper.EXPECTED_UID
+        self._production_gid = wrapper.EXPECTED_GID
+        wrapper.EXPECTED_UID = os.getuid()
+        wrapper.EXPECTED_GID = os.getgid()
+
+    def tearDown(self):
+        wrapper.EXPECTED_UID = self._production_uid
+        wrapper.EXPECTED_GID = self._production_gid
+
+    def test_production_identity_constants_are_precision_uid_gid(self):
+        self.assertEqual(self._production_uid, 1000)
+        self.assertEqual(self._production_gid, 1000)
+
     def make_bundle(self, root: Path, request_id: str, *, evidence=None, auth=None):
         evidence = {"attempt_id": "attempt"} if evidence is None else evidence
         auth = {"marker": "auth"} if auth is None else auth

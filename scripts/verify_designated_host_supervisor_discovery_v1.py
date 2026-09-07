@@ -132,19 +132,30 @@ def verify_discovery(
         holds.append("HOLD_SUPERVISOR_SERVICE_NAME_MISMATCH")
     if report.get("active_state") != "active":
         holds.append("HOLD_SUPERVISOR_NOT_ACTIVE")
-    if report.get("sub_state") != "running":
-        holds.append("HOLD_SUPERVISOR_NOT_RUNNING")
-    if type(report.get("main_pid")) is not int or report.get("main_pid", 0) <= 0:
-        holds.append("HOLD_SUPERVISOR_MAIN_PID_INVALID")
+    sub_state = report.get("sub_state")
+    if sub_state not in ("running", "exited"):
+        holds.append("HOLD_SUPERVISOR_SUBSTATE_INVALID")
 
+    main_pid = report.get("main_pid")
     process = report.get("process")
-    if type(process) is not dict:
-        holds.append("HOLD_SUPERVISOR_PROCESS_INVALID")
-    else:
-        if process.get("uid") != c["runtime_uid"] or process.get("gid") != c["runtime_gid"]:
-            holds.append("HOLD_SUPERVISOR_PROCESS_OWNER_MISMATCH")
-        if process.get("cwd") != c["runtime_repository"]:
-            holds.append("HOLD_SUPERVISOR_RUNTIME_REPOSITORY_MISMATCH")
+    if sub_state == "running":
+        if type(main_pid) is not int or main_pid <= 0:
+            holds.append("HOLD_SUPERVISOR_MAIN_PID_INVALID")
+        if type(process) is not dict:
+            holds.append("HOLD_SUPERVISOR_PROCESS_INVALID")
+        else:
+            if (
+                process.get("uid") != c["runtime_uid"]
+                or process.get("gid") != c["runtime_gid"]
+            ):
+                holds.append("HOLD_SUPERVISOR_PROCESS_OWNER_MISMATCH")
+            if process.get("cwd") != c["runtime_repository"]:
+                holds.append("HOLD_SUPERVISOR_RUNTIME_REPOSITORY_MISMATCH")
+    elif sub_state == "exited":
+        if main_pid != 0:
+            holds.append("HOLD_SUPERVISOR_EXITED_MAIN_PID_NOT_ZERO")
+        if process not in (None, {}):
+            holds.append("HOLD_SUPERVISOR_EXITED_PROCESS_STILL_ASSERTED")
 
     if report.get("runtime_source_commit") != c["runtime_source_commit"]:
         holds.append("HOLD_RUNTIME_SOURCE_COMMIT_MISMATCH")

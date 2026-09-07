@@ -5,6 +5,7 @@ Requires=void-node-live.service
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 EnvironmentFile=/home/zoso/.config/void-war-college/evidence-verifier.env
 WorkingDirectory=/home/zoso/dev/openra-rl-war-college-worktrees/designated-host-runtime-bae61935
 ExecStart=/usr/bin/python3 -I -B /home/zoso/.local/libexec/void-war-college-evidence-verifier-v1.py %i

@@ -115,6 +115,15 @@ class SupervisorContractTests(unittest.TestCase):
         self.assertTrue(report["supervisor_contract_green"])
         self.assertFalse(report["runtime_execution_authorized"])
 
+    def test_completed_oneshot_template_instance_is_inspectable(self):
+        candidate = clean_report()
+        candidate["sub_state"] = "exited"
+        candidate["main_pid"] = 0
+        candidate["process"] = None
+        report = verifier.verify_discovery(candidate)
+        self.assertEqual(report["contract"], "GREEN")
+        self.assertTrue(report["supervisor_contract_green"])
+
     def test_existing_shared_void_node_service_is_rejected(self):
         candidate = clean_report()
         candidate["service"] = "void-node-live.service"

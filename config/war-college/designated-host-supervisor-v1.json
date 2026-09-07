@@ -45,7 +45,7 @@
   "runtime_repository": "/home/zoso/dev/openra-rl-war-college-worktrees/designated-host-runtime-bae61935",
   "runtime_source_commit": "bae61935b956c5f7ebce005c0fef69ec86f69d09",
   "runtime_uid": 1000,
-  "service_name": "void-war-college-evidence-verifier.service",
+  "service_name": "void-war-college-evidence-verifier@.service",
   "service_scope": "systemd_user",
   "store_absolute_path": "/home/zoso/dev/void-node/data_a/war_college/controller_attempt_admission_v3.sqlite3",
   "store_relative_path": "war_college/controller_attempt_admission_v3.sqlite3",
