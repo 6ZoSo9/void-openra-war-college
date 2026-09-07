@@ -111,6 +111,26 @@ def cleanup_error_payload(*, include_completed_matrix: bool) -> bytes:
     return bench.stable_json(report).encode("utf-8")
 
 
+def output_error_payload(shape: str) -> bytes:
+    if shape == "empty":
+        report = json.loads(startup_error_payload())
+    else:
+        report = json.loads(
+            benchmark_tests.EvidencePublicationTests.completed_failure_payload()
+        )
+        if shape == "partial_failure":
+            report["cells"] = report["cells"][:1]
+        elif shape != "complete":
+            raise AssertionError(f"unsupported output-error shape: {shape}")
+    report["run"].update({
+        "terminal": "output_error",
+        "stage": "evidence_publication",
+        "error_type": "ContractError",
+        "error": "synthetic evidence publication failure",
+    })
+    return bench.stable_json(report).encode("utf-8")
+
+
 class ReadOnlyInspectionTests(unittest.TestCase):
     def assert_inspection_failure_terminal(self, report, reason_code):
         self.assertEqual(report, {
@@ -492,6 +512,79 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 final["validation_error"],
                 "ContractError:cleanup-error evidence does not close the planned "
                 "matrix",
+            )
+            self.assertIsNone(final["report_terminal"])
+            self.assertIsNone(final["report_run_stage"])
+            self.assertIsNone(final["report_attempt_failure"])
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_rewrite"])
+
+    def test_output_error_accepts_only_producible_matrix_shapes(self):
+        cases = (
+            ("empty", 0, 1),
+            ("complete", 2, 0),
+        )
+        for shape, cell_count, missing_count in cases:
+            with self.subTest(shape=shape), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "evidence.json"
+                payload = output_error_payload(shape)
+                validated = bench._validate_recoverable_evidence(payload)
+                self.assertEqual(len(validated["cells"]), cell_count)
+                write_0400(output, payload)
+                receipt = bench._commit_receipt_path(output)
+                write_0400(
+                    receipt,
+                    bench._commit_receipt_payload(output, payload),
+                )
+
+                report = INSPECT.inspect_namespace(output)
+
+                final = report["final"]
+                self.assertEqual(
+                    report["classification"],
+                    "COMMITTED_LOCAL_UNTRUSTED",
+                )
+                self.assertTrue(final["report_schema_valid"])
+                self.assertEqual(final["report_terminal"], "output_error")
+                self.assertEqual(
+                    final["report_run_stage"],
+                    "evidence_publication",
+                )
+                self.assertEqual(
+                    final["report_matrix_summary"]["cell_count"],
+                    cell_count,
+                )
+                self.assertEqual(
+                    final["report_matrix_summary"]["missing_cell_count"],
+                    missing_count,
+                )
+                self.assertTrue(report["commit_receipt_binds_final"])
+                self.assertFalse(report["countable"])
+
+    def test_output_error_cannot_carry_a_partial_failed_matrix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = output_error_payload("partial_failure")
+            validated = bench._validate_recoverable_evidence(payload)
+            self.assertEqual(
+                [cell["terminal"] for cell in validated["cells"]],
+                ["timeout"],
+            )
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(report["classification"], "CURRENT_SCHEMA_INVALID_HOLD")
+            self.assertFalse(final["report_schema_valid"])
+            self.assertEqual(
+                final["validation_error"],
+                "ContractError:output-error evidence does not bind a valid "
+                "pre-publication matrix state",
             )
             self.assertIsNone(final["report_terminal"])
             self.assertIsNone(final["report_run_stage"])
