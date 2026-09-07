@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_IDENTIFIER_BYTES = 128
 MAX_UINT32 = (1 << 32) - 1
 
@@ -34,7 +34,9 @@ class AttemptIdentity:
     attempt_id: str
     producer_id: str
     controller_a_id: str
+    controller_a_player_id: str
     controller_b_id: str
+    controller_b_player_id: str
     source_generation: str
     war_college_commit: str
     engine_commit: str
@@ -84,13 +86,17 @@ def _validate_identity(identity: AttemptIdentity) -> None:
         "attempt_id",
         "producer_id",
         "controller_a_id",
+        "controller_a_player_id",
         "controller_b_id",
+        "controller_b_player_id",
         "source_generation",
     ):
         if not _bounded_identifier(getattr(identity, field_name)):
             raise AdmissionHold(f"HOLD_{field_name.upper()}_INVALID")
     if identity.controller_a_id == identity.controller_b_id:
         raise AdmissionHold("HOLD_DUPLICATE_CONTROLLER_ID")
+    if identity.controller_a_player_id == identity.controller_b_player_id:
+        raise AdmissionHold("HOLD_DUPLICATE_CONTROLLER_PLAYER_ID")
     if not _canonical_git_commit(identity.war_college_commit):
         raise AdmissionHold("HOLD_WAR_COLLEGE_COMMIT_INVALID")
     if not _canonical_git_commit(identity.engine_commit):
@@ -123,7 +129,9 @@ def initialize_store(path: Path) -> None:
                 attempt_id TEXT PRIMARY KEY,
                 producer_id TEXT NOT NULL,
                 controller_a_id TEXT NOT NULL,
+                controller_a_player_id TEXT NOT NULL,
                 controller_b_id TEXT NOT NULL,
+                controller_b_player_id TEXT NOT NULL,
                 source_generation TEXT NOT NULL,
                 war_college_commit TEXT NOT NULL,
                 engine_commit TEXT NOT NULL,
@@ -147,7 +155,9 @@ def initialize_store(path: Path) -> None:
                 joint_evidence_sha256 TEXT NOT NULL UNIQUE,
                 producer_id TEXT NOT NULL,
                 controller_a_id TEXT NOT NULL,
+                controller_a_player_id TEXT NOT NULL,
                 controller_b_id TEXT NOT NULL,
+                controller_b_player_id TEXT NOT NULL,
                 consumption_sha256 TEXT NOT NULL UNIQUE,
                 PRIMARY KEY(
                     attempt_id,
@@ -183,7 +193,9 @@ def _identity_from_row(row: sqlite3.Row) -> AttemptIdentity:
         attempt_id=row["attempt_id"],
         producer_id=row["producer_id"],
         controller_a_id=row["controller_a_id"],
+        controller_a_player_id=row["controller_a_player_id"],
         controller_b_id=row["controller_b_id"],
+        controller_b_player_id=row["controller_b_player_id"],
         source_generation=row["source_generation"],
         war_college_commit=row["war_college_commit"],
         engine_commit=row["engine_commit"],
@@ -200,7 +212,9 @@ def _attempt_receipt(identity: AttemptIdentity, session_generation: int) -> dict
     payload = {
         "attempt_id": identity.attempt_id,
         "controller_a_id": identity.controller_a_id,
+        "controller_a_player_id": identity.controller_a_player_id,
         "controller_b_id": identity.controller_b_id,
+        "controller_b_player_id": identity.controller_b_player_id,
         "engine_commit": identity.engine_commit,
         "producer_id": identity.producer_id,
         "schema_version": SCHEMA_VERSION,
@@ -234,18 +248,22 @@ def create_attempt(path: Path, identity: AttemptIdentity) -> dict[str, Any]:
                 attempt_id,
                 producer_id,
                 controller_a_id,
+                controller_a_player_id,
                 controller_b_id,
+                controller_b_player_id,
                 source_generation,
                 war_college_commit,
                 engine_commit,
                 current_session_generation
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
             """,
             (
                 identity.attempt_id,
                 identity.producer_id,
                 identity.controller_a_id,
+                identity.controller_a_player_id,
                 identity.controller_b_id,
+                identity.controller_b_player_id,
                 identity.source_generation,
                 identity.war_college_commit,
                 identity.engine_commit,
@@ -425,7 +443,9 @@ def consume_joint_evidence(
         receipt_payload = {
             "attempt_id": identity.attempt_id,
             "controller_a_id": identity.controller_a_id,
+            "controller_a_player_id": identity.controller_a_player_id,
             "controller_b_id": identity.controller_b_id,
+            "controller_b_player_id": identity.controller_b_player_id,
             "joint_evidence_sha256": joint_evidence_sha256,
             "producer_id": identity.producer_id,
             "schema_version": SCHEMA_VERSION,
@@ -441,9 +461,11 @@ def consume_joint_evidence(
                 joint_evidence_sha256,
                 producer_id,
                 controller_a_id,
+                controller_a_player_id,
                 controller_b_id,
+                controller_b_player_id,
                 consumption_sha256
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 identity.attempt_id,
@@ -451,7 +473,9 @@ def consume_joint_evidence(
                 joint_evidence_sha256,
                 identity.producer_id,
                 identity.controller_a_id,
+                identity.controller_a_player_id,
                 identity.controller_b_id,
+                identity.controller_b_player_id,
                 consumption_sha256,
             ),
         )
