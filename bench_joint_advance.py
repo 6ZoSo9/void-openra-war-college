@@ -405,7 +405,12 @@ def _execute_runtime_contained(
         args=(sender, args, parameters, expected_provenance),
         name="void-war-college-runtime",
     )
-    process.start()
+    try:
+        process.start()
+    except BaseException:
+        receiver.close()
+        sender.close()
+        raise
     sender.close()
 
     pgid: int | None = None
