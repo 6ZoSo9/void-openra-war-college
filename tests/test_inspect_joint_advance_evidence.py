@@ -330,7 +330,7 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             output = Path(directory) / "evidence.json"
             payload = impossible_pre_matrix_cells_payload()
             self.assertEqual(
-                json.loads(bench._validate_recoverable_evidence(payload))["cells"][0]["terminal"],
+                bench._validate_recoverable_evidence(payload)["cells"][0]["terminal"],
                 "success",
             )
             write_0400(output, payload)
