@@ -139,9 +139,10 @@ class ControllerEvidenceInputBoundsTests(unittest.TestCase):
 
     def test_oversized_command_list_rejected_before_hash(self) -> None:
         evidence = make_evidence()
+        command = dict(evidence["controllers"][0]["action_payload"]["commands"][0])
         evidence["controllers"][0]["action_payload"]["commands"] = [
-            {"actor_id": "player-1-actor", "command": "hold"}
-        ] * (contract.MAX_COMMANDS + 1)
+            dict(command) for _ in range(contract.MAX_COMMANDS + 1)
+        ]
 
         original = contract.sha256_hex
         def bomb(_value):
@@ -157,9 +158,9 @@ class ControllerEvidenceInputBoundsTests(unittest.TestCase):
 
     def test_nested_command_value_rejected_before_hash(self) -> None:
         evidence = make_evidence()
-        evidence["controllers"][0]["action_payload"]["commands"] = [
-            {"actor_id": "player-1-actor", "command": {"nested": "hold"}}
-        ]
+        command = dict(evidence["controllers"][0]["action_payload"]["commands"][0])
+        command["item_type"] = {"nested": "hold"}
+        evidence["controllers"][0]["action_payload"]["commands"] = [command]
 
         original = contract.sha256_hex
         def bomb(_value):
@@ -170,7 +171,7 @@ class ControllerEvidenceInputBoundsTests(unittest.TestCase):
         finally:
             contract.sha256_hex = original
 
-        self.assertIn("HOLD_ACTION_COMMAND_VALUE_NOT_FLAT", report["holds"])
+        self.assertIn("HOLD_ACTION_COMMAND_ITEM_TYPE_INVALID", report["holds"])
 
     def test_expected_generation_5000_digits_is_one_line_hold(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

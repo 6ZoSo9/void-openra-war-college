@@ -28,11 +28,24 @@ def make_record(
     attempt_id: str,
     controller_session_generation: int,
 ) -> dict[str, object]:
+    if player_id == "player-1":
+        own_units = [101, 102]
+        own_buildings = [1101]
+        visible_enemies = [201, 1201]
+    else:
+        own_units = [201, 202]
+        own_buildings = [1201]
+        visible_enemies = [101, 1101]
+
     observation_payload = {
         "attempt_id": attempt_id,
         "controller_session_generation": controller_session_generation,
         "player_id": player_id,
-        "visible_actor_ids": [f"{player_id}-actor"],
+        "owned_unit_actor_ids": own_units,
+        "owned_building_actor_ids": own_buildings,
+        "visible_enemy_actor_ids": visible_enemies,
+        "available_production_items": ["e1", "powr"],
+        "active_production_items": ["powr"],
         "world_tick": world_tick,
     }
     observation_sha = contract.sha256_hex(observation_payload)
@@ -51,7 +64,15 @@ def make_record(
     action_payload = {
         "attempt_id": attempt_id,
         "controller_session_generation": controller_session_generation,
-        "commands": [{"actor_id": f"{player_id}-actor", "command": "hold"}],
+        "commands": [{
+            "action": "move",
+            "actor_id": own_units[0],
+            "target_actor_id": 0,
+            "target_x": 5,
+            "target_y": 5,
+            "item_type": "",
+            "queued": False,
+        }],
         "controller_id": controller_id,
         "decision_observation_binding_sha256": observation_binding_sha,
         "player_id": player_id,
@@ -217,7 +238,7 @@ class ControllerEvidenceIsolationTests(unittest.TestCase):
 
     def test_rejects_observation_byte_mutation(self) -> None:
         evidence = make_evidence()
-        evidence["controllers"][0]["observation_payload"]["visible_actor_ids"].append("injected")
+        evidence["controllers"][0]["observation_payload"]["visible_enemy_actor_ids"].append(999)
         self.assert_hold(evidence, "HOLD_OBSERVATION_DIGEST_MISMATCH")
 
     def test_rejects_split_tick_payload(self) -> None:
@@ -228,7 +249,7 @@ class ControllerEvidenceIsolationTests(unittest.TestCase):
     def test_rejects_action_from_different_admitted_observation(self) -> None:
         evidence = make_evidence()
         record = evidence["controllers"][0]
-        record["observation_payload"]["visible_actor_ids"] = ["alternate-visible-actor"]
+        record["observation_payload"]["visible_enemy_actor_ids"] = [999]
         record["observation_sha256"] = contract.sha256_hex(record["observation_payload"])
         record["observation_binding_sha256"] = contract.observation_binding(
             attempt_id=evidence["attempt_id"],
@@ -262,7 +283,7 @@ class ControllerEvidenceIsolationTests(unittest.TestCase):
 
     def test_rejects_action_byte_mutation(self) -> None:
         evidence = make_evidence()
-        evidence["controllers"][0]["action_payload"]["commands"][0]["command"] = "attack"
+        evidence["controllers"][0]["action_payload"]["commands"][0]["target_x"] = 6
         self.assert_hold(evidence, "HOLD_ACTION_DIGEST_MISMATCH")
 
     def test_rejects_action_replay_across_controller(self) -> None:

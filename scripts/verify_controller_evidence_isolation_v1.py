@@ -44,21 +44,56 @@ ACTION_PAYLOAD_KEYS = {
 }
 
 OBSERVATION_PAYLOAD_KEYS = {
-    "attempt_id", "controller_session_generation", "player_id",
-    "visible_actor_ids", "world_tick",
+    "attempt_id",
+    "controller_session_generation",
+    "player_id",
+    "owned_unit_actor_ids",
+    "owned_building_actor_ids",
+    "visible_enemy_actor_ids",
+    "available_production_items",
+    "active_production_items",
+    "world_tick",
 }
+
+COMMAND_KEYS = {
+    "action",
+    "actor_id",
+    "target_actor_id",
+    "target_x",
+    "target_y",
+    "item_type",
+    "queued",
+}
+
+# Exact controller variants from the frozen bridge Command/ActionType contract.
+# FAST_ADVANCE is excluded because this evidence binds player commands at one
+# JointAdvance tick, not host-side time advancement.
+CONTROLLER_ACTIONS = {
+    "no_op", "move", "attack_move", "attack", "stop", "harvest",
+    "build", "train", "deploy", "sell", "repair", "place_building",
+    "cancel_production", "set_rally_point", "guard", "set_stance",
+    "enter_transport", "unload", "power_down", "set_primary", "surrender",
+    "patrol",
+}
+
+UNIT_POSITION_ACTIONS = {"move", "attack_move", "patrol", "harvest"}
+UNIT_SIMPLE_ACTIONS = {"stop", "deploy", "unload"}
+BUILDING_SIMPLE_ACTIONS = {"sell", "repair", "power_down", "set_primary"}
+PRODUCTION_START_ACTIONS = {"build", "train"}
 
 MAX_EVIDENCE_BYTES = 128 * 1024
 MAX_JSON_DEPTH = 16
 MAX_IDENTIFIER_BYTES = 128
 MAX_REQUEST_ID_BYTES = 256
 MAX_COMMANDS = 64
-MAX_COMMAND_KEYS = 8
-MAX_COMMAND_STRING_BYTES = 256
-MAX_VISIBLE_ACTORS = 256
+MAX_ACTOR_IDS = 512
+MAX_PRODUCTION_ITEMS = 256
+MAX_ITEM_TYPE_BYTES = 128
 MAX_OBSERVATION_PAYLOAD_BYTES = 48 * 1024
 MAX_ACTION_PAYLOAD_BYTES = 48 * 1024
 MAX_UINT32 = (1 << 32) - 1
+MIN_INT32 = -(1 << 31)
+MAX_INT32 = (1 << 31) - 1
 
 _IDENTIFIER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*\Z")
 _LOWER_HEX_64_RE = re.compile(r"[0-9a-f]{64}\Z")
@@ -298,23 +333,188 @@ def _read_evidence_file(path: Path) -> Any:
         raise AdmissionError("HOLD_EVIDENCE_JSON_INVALID") from error
 
 
-def _validate_command_shape(command: Any) -> str | None:
+def _int32(value: Any) -> bool:
+    return type(value) is int and MIN_INT32 <= value <= MAX_INT32
+
+
+def _bounded_actor_id_list(value: Any) -> tuple[bool, set[int]]:
+    if type(value) is not list or len(value) > MAX_ACTOR_IDS:
+        return False, set()
+    if any(not _uint32(actor_id, positive=True) for actor_id in value):
+        return False, set()
+    values = set(value)
+    return len(values) == len(value), values
+
+
+def _bounded_item_list(value: Any) -> tuple[bool, set[str]]:
+    if type(value) is not list or len(value) > MAX_PRODUCTION_ITEMS:
+        return False, set()
+    if any(
+        not _bounded_identifier(item, maximum_bytes=MAX_ITEM_TYPE_BYTES)
+        for item in value
+    ):
+        return False, set()
+    values = set(value)
+    return len(values) == len(value), values
+
+
+def _command_unused_defaults(
+    command: dict[str, Any],
+    *,
+    actor: bool = False,
+    target_actor: bool = False,
+    coordinates: bool = False,
+    item: bool = False,
+    queued: bool = False,
+) -> bool:
+    if not actor and command["actor_id"] != 0:
+        return False
+    if not target_actor and command["target_actor_id"] != 0:
+        return False
+    if not coordinates and (command["target_x"] != 0 or command["target_y"] != 0):
+        return False
+    if not item and command["item_type"] != "":
+        return False
+    if not queued and command["queued"] is not False:
+        return False
+    return True
+
+
+def _validate_command_authority(
+    command: Any,
+    *,
+    owned_unit_ids: set[int],
+    owned_building_ids: set[int],
+    visible_enemy_ids: set[int],
+    available_production_items: set[str],
+    active_production_items: set[str],
+) -> str | None:
     if type(command) is not dict:
         return "HOLD_ACTION_COMMAND_ELEMENT_NOT_OBJECT"
-    if len(command) > MAX_COMMAND_KEYS:
-        return "HOLD_ACTION_COMMAND_KEY_CARDINALITY"
-    for key, value in command.items():
-        if not _bounded_identifier(key, maximum_bytes=64):
-            return "HOLD_ACTION_COMMAND_KEY_INVALID"
-        if type(value) is str:
-            if not _bounded_flat_string(value, MAX_COMMAND_STRING_BYTES):
-                return "HOLD_ACTION_COMMAND_STRING_INVALID"
-        elif type(value) is int:
-            if not -(1 << 31) <= value <= (1 << 31) - 1:
-                return "HOLD_ACTION_COMMAND_INTEGER_OUT_OF_RANGE"
-        elif type(value) not in (bool, type(None)):
-            return "HOLD_ACTION_COMMAND_VALUE_NOT_FLAT"
-    return None
+    if set(command) != COMMAND_KEYS:
+        return "HOLD_ACTION_COMMAND_SCHEMA_DRIFT"
+
+    action = command.get("action")
+    actor_id = command.get("actor_id")
+    target_actor_id = command.get("target_actor_id")
+    target_x = command.get("target_x")
+    target_y = command.get("target_y")
+    item_type = command.get("item_type")
+    queued = command.get("queued")
+
+    if type(action) is not str or action not in CONTROLLER_ACTIONS:
+        return "HOLD_ACTION_COMMAND_ACTION_UNSUPPORTED"
+    if not _uint32(actor_id):
+        return "HOLD_ACTION_COMMAND_ACTOR_ID_INVALID"
+    if not _uint32(target_actor_id):
+        return "HOLD_ACTION_COMMAND_TARGET_ACTOR_ID_INVALID"
+    if not _int32(target_x) or not _int32(target_y):
+        return "HOLD_ACTION_COMMAND_COORDINATE_INVALID"
+    if type(item_type) is not str:
+        return "HOLD_ACTION_COMMAND_ITEM_TYPE_INVALID"
+    if item_type and not _bounded_identifier(item_type, maximum_bytes=MAX_ITEM_TYPE_BYTES):
+        return "HOLD_ACTION_COMMAND_ITEM_TYPE_INVALID"
+    if type(queued) is not bool:
+        return "HOLD_ACTION_COMMAND_QUEUED_INVALID"
+
+    if action in {"no_op", "surrender"}:
+        if not _command_unused_defaults(command):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action in UNIT_POSITION_ACTIONS:
+        if actor_id not in owned_unit_ids:
+            return "HOLD_ACTION_COMMAND_ACTOR_NOT_OWN_UNIT"
+        allow_queued = action in {"move", "attack_move", "patrol"}
+        if not _command_unused_defaults(
+            command, actor=True, coordinates=True, queued=allow_queued
+        ):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action in UNIT_SIMPLE_ACTIONS:
+        if actor_id not in owned_unit_ids:
+            return "HOLD_ACTION_COMMAND_ACTOR_NOT_OWN_UNIT"
+        if not _command_unused_defaults(command, actor=True):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action == "set_stance":
+        if actor_id not in owned_unit_ids:
+            return "HOLD_ACTION_COMMAND_ACTOR_NOT_OWN_UNIT"
+        if not 0 <= target_x <= 3 or target_y != 0:
+            return "HOLD_ACTION_COMMAND_STANCE_INVALID"
+        if not _command_unused_defaults(command, actor=True, coordinates=True):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action == "attack":
+        if actor_id not in owned_unit_ids:
+            return "HOLD_ACTION_COMMAND_ACTOR_NOT_OWN_UNIT"
+        if target_actor_id not in visible_enemy_ids:
+            return "HOLD_ACTION_COMMAND_TARGET_NOT_VISIBLE_ENEMY"
+        if not _command_unused_defaults(
+            command, actor=True, target_actor=True, queued=True
+        ):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action == "guard":
+        if actor_id not in owned_unit_ids:
+            return "HOLD_ACTION_COMMAND_ACTOR_NOT_OWN_UNIT"
+        if target_actor_id not in (owned_unit_ids | owned_building_ids):
+            return "HOLD_ACTION_COMMAND_TARGET_NOT_OWN_ACTOR"
+        if not _command_unused_defaults(
+            command, actor=True, target_actor=True, queued=True
+        ):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action == "enter_transport":
+        if actor_id not in owned_unit_ids:
+            return "HOLD_ACTION_COMMAND_ACTOR_NOT_OWN_UNIT"
+        if target_actor_id not in owned_unit_ids or target_actor_id == actor_id:
+            return "HOLD_ACTION_COMMAND_TARGET_NOT_OWN_UNIT"
+        if not _command_unused_defaults(command, actor=True, target_actor=True):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action in BUILDING_SIMPLE_ACTIONS:
+        if actor_id not in owned_building_ids:
+            return "HOLD_ACTION_COMMAND_ACTOR_NOT_OWN_BUILDING"
+        if not _command_unused_defaults(command, actor=True):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action == "set_rally_point":
+        if actor_id not in owned_building_ids:
+            return "HOLD_ACTION_COMMAND_ACTOR_NOT_OWN_BUILDING"
+        if not _command_unused_defaults(command, actor=True, coordinates=True):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action in PRODUCTION_START_ACTIONS:
+        if item_type not in available_production_items:
+            return "HOLD_ACTION_COMMAND_ITEM_NOT_AVAILABLE"
+        if not _command_unused_defaults(command, item=True):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action == "place_building":
+        if item_type not in active_production_items:
+            return "HOLD_ACTION_COMMAND_ITEM_NOT_ACTIVE_PRODUCTION"
+        if not _command_unused_defaults(command, coordinates=True, item=True):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    if action == "cancel_production":
+        if item_type not in active_production_items:
+            return "HOLD_ACTION_COMMAND_ITEM_NOT_ACTIVE_PRODUCTION"
+        if not _command_unused_defaults(command, item=True):
+            return "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT"
+        return None
+
+    return "HOLD_ACTION_COMMAND_ACTION_UNSUPPORTED"
 
 
 def _preflight_evidence(evidence: Any) -> list[str]:
@@ -322,19 +522,13 @@ def _preflight_evidence(evidence: Any) -> list[str]:
 
     if type(evidence) is not dict:
         return ["HOLD_EVIDENCE_NOT_OBJECT"]
-
     if set(evidence) != TOP_LEVEL_KEYS:
         return ["HOLD_TOP_LEVEL_SCHEMA_DRIFT"]
-
     if evidence.get("schema_version") != SCHEMA_VERSION:
         holds.add("HOLD_SCHEMA_VERSION_MISMATCH")
-
     if not _bounded_identifier(evidence.get("attempt_id")):
         holds.add("HOLD_ATTEMPT_ID_INPUT_INVALID")
-    if not _uint32(
-        evidence.get("controller_session_generation"),
-        positive=True,
-    ):
+    if not _uint32(evidence.get("controller_session_generation"), positive=True):
         holds.add("HOLD_CONTROLLER_SESSION_GENERATION_INPUT_INVALID")
     if not _uint32(evidence.get("world_tick")):
         holds.add("HOLD_WORLD_TICK_INPUT_INVALID")
@@ -355,29 +549,27 @@ def _preflight_evidence(evidence: Any) -> list[str]:
             continue
 
         for field in (
-            "player_id",
-            "controller_id",
-            "observation_subject_player_id",
-            "visibility_owner_player_id",
-            "action_actor_player_id",
+            "player_id", "controller_id", "observation_subject_player_id",
+            "visibility_owner_player_id", "action_actor_player_id",
         ):
             if not _bounded_identifier(record.get(field)):
                 holds.add(f"HOLD_{field.upper()}_INPUT_INVALID")
-
         if not _bounded_identifier(
-            record.get("action_request_id"),
-            maximum_bytes=MAX_REQUEST_ID_BYTES,
+            record.get("action_request_id"), maximum_bytes=MAX_REQUEST_ID_BYTES
         ):
             holds.add("HOLD_ACTION_REQUEST_ID_INPUT_INVALID")
-
         for field in (
-            "observation_sha256",
-            "observation_binding_sha256",
-            "action_sha256",
-            "action_binding_sha256",
+            "observation_sha256", "observation_binding_sha256",
+            "action_sha256", "action_binding_sha256",
         ):
             if not _canonical_sha256(record.get(field)):
                 holds.add(f"HOLD_{field.upper()}_NONCANONICAL")
+
+        owned_unit_ids: set[int] = set()
+        owned_building_ids: set[int] = set()
+        visible_enemy_ids: set[int] = set()
+        available_items: set[str] = set()
+        active_items: set[str] = set()
 
         observation = record.get("observation_payload")
         if type(observation) is not dict:
@@ -387,23 +579,43 @@ def _preflight_evidence(evidence: Any) -> list[str]:
         else:
             if not _bounded_identifier(observation.get("attempt_id")):
                 holds.add("HOLD_OBSERVATION_ATTEMPT_ID_INPUT_INVALID")
-            if not _uint32(
-                observation.get("controller_session_generation"),
-                positive=True,
-            ):
+            if not _uint32(observation.get("controller_session_generation"), positive=True):
                 holds.add("HOLD_OBSERVATION_SESSION_INPUT_INVALID")
             if not _bounded_identifier(observation.get("player_id")):
                 holds.add("HOLD_OBSERVATION_PLAYER_ID_INPUT_INVALID")
             if not _uint32(observation.get("world_tick")):
                 holds.add("HOLD_OBSERVATION_WORLD_TICK_INPUT_INVALID")
 
-            actors = observation.get("visible_actor_ids")
-            if type(actors) is not list:
-                holds.add("HOLD_VISIBLE_ACTOR_IDS_NOT_LIST")
-            elif len(actors) > MAX_VISIBLE_ACTORS:
-                holds.add("HOLD_VISIBLE_ACTOR_IDS_CARDINALITY")
-            elif any(not _bounded_identifier(actor) for actor in actors):
-                holds.add("HOLD_VISIBLE_ACTOR_ID_INPUT_INVALID")
+            units_ok, owned_unit_ids = _bounded_actor_id_list(
+                observation.get("owned_unit_actor_ids")
+            )
+            buildings_ok, owned_building_ids = _bounded_actor_id_list(
+                observation.get("owned_building_actor_ids")
+            )
+            enemies_ok, visible_enemy_ids = _bounded_actor_id_list(
+                observation.get("visible_enemy_actor_ids")
+            )
+            available_ok, available_items = _bounded_item_list(
+                observation.get("available_production_items")
+            )
+            active_ok, active_items = _bounded_item_list(
+                observation.get("active_production_items")
+            )
+            if not units_ok:
+                holds.add("HOLD_OWNED_UNIT_ACTOR_IDS_INVALID")
+            if not buildings_ok:
+                holds.add("HOLD_OWNED_BUILDING_ACTOR_IDS_INVALID")
+            if not enemies_ok:
+                holds.add("HOLD_VISIBLE_ENEMY_ACTOR_IDS_INVALID")
+            if not available_ok:
+                holds.add("HOLD_AVAILABLE_PRODUCTION_ITEMS_INVALID")
+            if not active_ok:
+                holds.add("HOLD_ACTIVE_PRODUCTION_ITEMS_INVALID")
+            own_ids = owned_unit_ids | owned_building_ids
+            if owned_unit_ids & owned_building_ids:
+                holds.add("HOLD_OWN_ACTOR_ID_CLASS_OVERLAP")
+            if own_ids & visible_enemy_ids:
+                holds.add("HOLD_OWN_AND_ENEMY_ACTOR_ID_OVERLAP")
 
         action = record.get("action_payload")
         if type(action) is not dict:
@@ -412,16 +624,12 @@ def _preflight_evidence(evidence: Any) -> list[str]:
             holds.add("HOLD_ACTION_PAYLOAD_SCHEMA_DRIFT")
         else:
             if not _bounded_identifier(
-                action.get("request_id"),
-                maximum_bytes=MAX_REQUEST_ID_BYTES,
+                action.get("request_id"), maximum_bytes=MAX_REQUEST_ID_BYTES
             ):
                 holds.add("HOLD_ACTION_PAYLOAD_REQUEST_ID_INPUT_INVALID")
             if not _bounded_identifier(action.get("attempt_id")):
                 holds.add("HOLD_ACTION_PAYLOAD_ATTEMPT_ID_INPUT_INVALID")
-            if not _uint32(
-                action.get("controller_session_generation"),
-                positive=True,
-            ):
+            if not _uint32(action.get("controller_session_generation"), positive=True):
                 holds.add("HOLD_ACTION_PAYLOAD_SESSION_INPUT_INVALID")
             if not _bounded_identifier(action.get("player_id")):
                 holds.add("HOLD_ACTION_PAYLOAD_PLAYER_ID_INPUT_INVALID")
@@ -429,9 +637,7 @@ def _preflight_evidence(evidence: Any) -> list[str]:
                 holds.add("HOLD_ACTION_PAYLOAD_CONTROLLER_ID_INPUT_INVALID")
             if not _uint32(action.get("world_tick")):
                 holds.add("HOLD_ACTION_PAYLOAD_WORLD_TICK_INPUT_INVALID")
-            if not _canonical_sha256(
-                action.get("decision_observation_binding_sha256")
-            ):
+            if not _canonical_sha256(action.get("decision_observation_binding_sha256")):
                 holds.add("HOLD_ACTION_DECISION_BINDING_NONCANONICAL")
 
             commands = action.get("commands")
@@ -441,34 +647,31 @@ def _preflight_evidence(evidence: Any) -> list[str]:
                 holds.add("HOLD_ACTION_COMMANDS_CARDINALITY")
             else:
                 for command in commands:
-                    command_hold = _validate_command_shape(command)
+                    command_hold = _validate_command_authority(
+                        command,
+                        owned_unit_ids=owned_unit_ids,
+                        owned_building_ids=owned_building_ids,
+                        visible_enemy_ids=visible_enemy_ids,
+                        available_production_items=available_items,
+                        active_production_items=active_items,
+                    )
                     if command_hold is not None:
                         holds.add(command_hold)
                         break
 
     if holds:
         return sorted(holds)
-
     for record in controllers:
         observation = record["observation_payload"]
         action = record["action_payload"]
-        if not _bounded_canonical_size(
-            observation,
-            MAX_OBSERVATION_PAYLOAD_BYTES,
-        ):
+        if not _bounded_canonical_size(observation, MAX_OBSERVATION_PAYLOAD_BYTES):
             holds.add("HOLD_OBSERVATION_PAYLOAD_TOO_LARGE")
-        if not _bounded_canonical_size(
-            action,
-            MAX_ACTION_PAYLOAD_BYTES,
-        ):
+        if not _bounded_canonical_size(action, MAX_ACTION_PAYLOAD_BYTES):
             holds.add("HOLD_ACTION_PAYLOAD_TOO_LARGE")
-
     if holds:
         return sorted(holds)
-
     if not _bounded_canonical_size(evidence, MAX_EVIDENCE_BYTES):
         return ["HOLD_EVIDENCE_OBJECT_TOO_LARGE"]
-
     return []
 
 
@@ -525,9 +728,29 @@ def verify_evidence(
         admission_holds.append(
             "HOLD_EXPECTED_CONTROLLER_SESSION_GENERATION_INVALID"
         )
-    admission_holds.extend(_preflight_evidence(evidence))
-    if admission_holds:
-        return _hold_report(admission_holds)
+
+    preflight_holds = _preflight_evidence(evidence)
+    deferred_command_semantic_holds = {
+        "HOLD_ACTION_COMMAND_ACTION_UNSUPPORTED",
+        "HOLD_ACTION_COMMAND_ACTOR_NOT_OWN_UNIT",
+        "HOLD_ACTION_COMMAND_ACTOR_NOT_OWN_BUILDING",
+        "HOLD_ACTION_COMMAND_TARGET_NOT_VISIBLE_ENEMY",
+        "HOLD_ACTION_COMMAND_TARGET_NOT_OWN_ACTOR",
+        "HOLD_ACTION_COMMAND_TARGET_NOT_OWN_UNIT",
+        "HOLD_ACTION_COMMAND_ITEM_NOT_AVAILABLE",
+        "HOLD_ACTION_COMMAND_ITEM_NOT_ACTIVE_PRODUCTION",
+        "HOLD_ACTION_COMMAND_UNUSED_FIELD_NONDEFAULT",
+        "HOLD_ACTION_COMMAND_STANCE_INVALID",
+    }
+    fatal_preflight_holds = [
+        hold
+        for hold in preflight_holds
+        if hold not in deferred_command_semantic_holds
+    ]
+    if admission_holds or fatal_preflight_holds:
+        return _hold_report(admission_holds + preflight_holds)
+
+    holds.update(preflight_holds)
 
     if not isinstance(evidence, dict):
         holds.add("HOLD_EVIDENCE_NOT_OBJECT")
