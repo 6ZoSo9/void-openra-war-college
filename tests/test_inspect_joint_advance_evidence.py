@@ -432,6 +432,41 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
 
+    def test_channel_error_at_cell_requires_established_runtime_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            report_body = json.loads(channel_error_at_first_cell_payload(
+                include_current_cell=False,
+            ))
+            report_body["run"]["listener_identity"] = None
+            report_body["run"]["runtime_provenance"] = None
+            payload = bench.stable_json(report_body).encode("utf-8")
+            self.assertEqual(
+                bench._validate_recoverable_evidence(payload)["cells"],
+                [],
+            )
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(report["classification"], "CURRENT_SCHEMA_INVALID_HOLD")
+            self.assertFalse(final["report_schema_valid"])
+            self.assertEqual(
+                final["validation_error"],
+                "ContractError:cell-stage channel error lacks established "
+                "runtime identity",
+            )
+            self.assertIsNone(final["report_terminal"])
+            self.assertIsNone(final["report_run_stage"])
+            self.assertIsNone(final["report_attempt_failure"])
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_rewrite"])
+
     def test_channel_error_at_first_cell_cannot_carry_that_cell_as_completed(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
