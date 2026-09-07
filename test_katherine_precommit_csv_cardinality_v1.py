@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import unittest
 from unittest import mock
 
+import darwin_evaluation_precommit_record_recovery_v1 as recovery
 import darwin_evaluation_precommit_record_v1 as record_contract
 
 
@@ -129,6 +133,87 @@ class PrecommitCsvCardinalityTests(unittest.TestCase):
             r"future has no bounded CSV cardinality contract",
         ):
             record_contract._parse_csv_positive_decimals(value, "future", 8)
+
+
+class TwentyFourThenTrap:
+    """Yield forever, but fail loudly if a consumer asks for token 25."""
+
+    def __init__(self) -> None:
+        self.consumed = 0
+
+    def __iter__(self) -> "TwentyFourThenTrap":
+        return self
+
+    def __next__(self) -> str:
+        self.consumed += 1
+        if self.consumed > record_contract.MAX_ARGV_TOKENS + 1:
+            raise AssertionError("argv collector consumed token 25")
+        return f"--future-{self.consumed}"
+
+
+class PrecommitArgvCardinalityTests(unittest.TestCase):
+    @staticmethod
+    def maximum_shape() -> list[str]:
+        tokens = ["record"]
+        for index in range(11):
+            tokens.extend((f"--future-{index}", "value"))
+        if len(tokens) != record_contract.MAX_ARGV_TOKENS:
+            raise AssertionError("test fixture no longer matches the maximum CLI grammar")
+        return tokens
+
+    def run_cli(self, module: object, argv: object) -> dict[str, object]:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with mock.patch.object(record_contract, "_bounded_read_json") as bounded_read:
+            with mock.patch.object(recovery, "_load_manifest") as load_manifest:
+                with mock.patch.object(record_contract.os, "open") as open_file:
+                    with mock.patch.object(record_contract.os, "fsync") as fsync_file:
+                        with contextlib.redirect_stdout(stdout):
+                            with contextlib.redirect_stderr(stderr):
+                                return_code = module.main(argv)
+
+        self.assertEqual(return_code, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        lines = stderr.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        terminal = json.loads(lines[0])
+        self.assertEqual(terminal["status"], "HOLD")
+        self.assertEqual(terminal["reason_code"], "ARGUMENT_ERROR")
+        bounded_read.assert_not_called()
+        load_manifest.assert_not_called()
+        open_file.assert_not_called()
+        fsync_file.assert_not_called()
+        return terminal
+
+    def test_exact_twenty_three_token_control_reaches_parser_in_both_clis(self) -> None:
+        argv = self.maximum_shape()
+        self.assertEqual(record_contract._bounded_argv_tokens(iter(argv)), argv)
+        for module in (record_contract, recovery):
+            with self.subTest(module=module.__name__):
+                terminal = self.run_cli(module, iter(argv))
+                self.assertNotIn("at most 23 tokens", terminal["reason"])
+
+    def test_token_twenty_four_rejects_before_parser_or_io_in_both_clis(self) -> None:
+        argv = [*self.maximum_shape(), "--overflow"]
+        self.assertEqual(len(argv), record_contract.MAX_ARGV_TOKENS + 1)
+        for module in (record_contract, recovery):
+            with self.subTest(module=module.__name__):
+                terminal = self.run_cli(module, iter(argv))
+                self.assertEqual(
+                    terminal["reason"],
+                    "argv must contain at most 23 tokens",
+                )
+
+    def test_infinite_iterable_stops_at_twenty_four_in_both_clis(self) -> None:
+        for module in (record_contract, recovery):
+            with self.subTest(module=module.__name__):
+                stream = TwentyFourThenTrap()
+                terminal = self.run_cli(module, stream)
+                self.assertEqual(stream.consumed, 24)
+                self.assertEqual(
+                    terminal["reason"],
+                    "argv must contain at most 23 tokens",
+                )
 
 
 if __name__ == "__main__":
