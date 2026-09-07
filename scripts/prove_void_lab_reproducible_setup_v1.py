@@ -110,6 +110,7 @@ def prove_document_contract() -> None:
         'void_publish_lab_receipt() (',
         'VOID_LAB_RECEIPT_ID="$1"',
         'slot-(?:0[1-9]|1[0-6])',
+        'HOLD_VOID_LAB_RECEIPT_SLOTS_EXHAUSTED',
         'void-lab-checkout-c164a7d2-$VOID_LAB_RECEIPT_ID.json',
         'test ! -e "$VOID_LAB_RECEIPT"',
         'test ! -L "$VOID_LAB_RECEIPT"',
