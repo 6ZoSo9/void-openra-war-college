@@ -248,6 +248,23 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
                 "channel-error stage does not bind exact successful "
                 f"predecessor prefix: {stage}"
             )
+    provenance_required_stages = {
+        "endpoint_preflight",
+        "runtime_import",
+        "daemon_startup",
+        "readiness",
+        "cleanup",
+        "evidence_publication",
+        "matrix_complete",
+    } | planned_cell_stages
+    if (
+        stage in provenance_required_stages
+        and run["runtime_provenance"] is None
+    ):
+        raise bench.ContractError(
+            "run stage lacks established runtime provenance: "
+            f"{terminal}/{stage}"
+        )
     if terminal == "cleanup_error":
         actual_keys = [cell["key"] for cell in report["cells"]]
         if actual_keys != sorted(planned_keys):
