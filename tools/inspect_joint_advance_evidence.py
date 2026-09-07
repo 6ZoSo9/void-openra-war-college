@@ -229,6 +229,10 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
             f"pre-matrix run terminal carries matrix cells: {terminal}/{stage}"
         )
     if terminal == "channel_error" and stage in planned_cell_stages:
+        if run["listener_identity"] is None or run["runtime_provenance"] is None:
+            raise bench.ContractError(
+                "cell-stage channel error lacks established runtime identity"
+            )
         current_key = stage.removeprefix("cell:")
         current_index = planned_keys.index(current_key)
         predecessor_keys = planned_keys[:current_index]
