@@ -649,6 +649,78 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             self.assertFalse(report["automatic_recovery"])
             self.assertFalse(report["automatic_rewrite"])
 
+    def test_cleanup_error_requires_established_listener_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            report_body = json.loads(
+                cleanup_error_payload(include_completed_matrix=True)
+            )
+            report_body["run"]["listener_identity"] = None
+            payload = bench.stable_json(report_body).encode("utf-8")
+            validated = bench._validate_recoverable_evidence(payload)
+            self.assertEqual(len(validated["cells"]), 1)
+            self.assertIsNone(validated["run"]["listener_identity"])
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(
+                report["classification"],
+                "CURRENT_SCHEMA_INVALID_HOLD",
+            )
+            self.assertFalse(final["report_schema_valid"])
+            self.assertEqual(
+                final["validation_error"],
+                "ContractError:run stage lacks established listener "
+                "identity: cleanup_error/cleanup",
+            )
+            self.assertIsNone(final["report_terminal"])
+            self.assertIsNone(final["report_run_stage"])
+            self.assertIsNone(final["report_attempt_failure"])
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_rewrite"])
+
+    def test_output_error_with_cells_requires_established_runtime_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            report_body = json.loads(output_error_payload("complete"))
+            report_body["run"]["listener_identity"] = None
+            report_body["run"]["runtime_provenance"] = None
+            payload = bench.stable_json(report_body).encode("utf-8")
+            validated = bench._validate_recoverable_evidence(payload)
+            self.assertGreater(len(validated["cells"]), 0)
+            self.assertIsNone(validated["run"]["listener_identity"])
+            self.assertIsNone(validated["run"]["runtime_provenance"])
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(
+                report["classification"],
+                "CURRENT_SCHEMA_INVALID_HOLD",
+            )
+            self.assertFalse(final["report_schema_valid"])
+            self.assertEqual(
+                final["validation_error"],
+                "ContractError:output-error matrix evidence lacks "
+                "established runtime identity",
+            )
+            self.assertIsNone(final["report_terminal"])
+            self.assertIsNone(final["report_run_stage"])
+            self.assertIsNone(final["report_attempt_failure"])
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_rewrite"])
+
     def test_cleanup_error_accepts_the_completed_matrix_it_follows(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
