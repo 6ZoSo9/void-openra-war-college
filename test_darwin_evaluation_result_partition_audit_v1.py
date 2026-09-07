@@ -55,9 +55,6 @@ def fixture() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
                             )
                             rows.append(
                                 {
-                                    "record_digest": record["record_digest"],
-                                    "evaluation_attempt_id": "attempt-001",
-                                    "producer_session_generation": 1,
                                     "partition": partition,
                                     "concurrency": concurrency,
                                     "tick_batches": tick_batches,
@@ -84,6 +81,29 @@ def fixture() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
         runs[partition] = rows
     bundle = audit.build_result_bundle(record, manifest, runs)
     return manifest, record, bundle
+
+
+
+def rebind_row(
+    row: dict[str, object],
+    *,
+    record_digest: str,
+    evaluation_attempt_id: str,
+    producer_session_generation: int,
+) -> None:
+    row["result_binding_sha256"] = audit.result_binding_sha256(
+        record_digest=record_digest,
+        evaluation_attempt_id=evaluation_attempt_id,
+        producer_session_generation=producer_session_generation,
+        partition=row["partition"],
+        concurrency=row["concurrency"],
+        tick_batches=row["tick_batches"],
+        sample_index=row["sample_index"],
+        repetition_index=row["repetition_index"],
+        slot=row["slot"],
+        seed=row["seed"],
+        outcome_digest=row["outcome_digest"],
+    )
 
 
 class EvaluationResultPartitionAuditTests(unittest.TestCase):
@@ -242,14 +262,24 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
     def test_rows_from_another_attempt_fail_closed(self) -> None:
         manifest, record, bundle = fixture()
         row = bundle["runs"]["held_out"][0]
-        row["evaluation_attempt_id"] = "attempt-002"
-        self.assert_hold(bundle, record, manifest, "different execution attempt")
+        rebind_row(
+            row,
+            record_digest=record["record_digest"],
+            evaluation_attempt_id="attempt-002",
+            producer_session_generation=1,
+        )
+        self.assert_hold(bundle, record, manifest, "not bound")
 
     def test_stale_session_row_after_reconnect_fails_closed(self) -> None:
         manifest, record, bundle = fixture()
         row = bundle["runs"]["calibration"][0]
-        row["producer_session_generation"] = 2
-        self.assert_hold(bundle, record, manifest, "session generation")
+        rebind_row(
+            row,
+            record_digest=record["record_digest"],
+            evaluation_attempt_id="attempt-001",
+            producer_session_generation=2,
+        )
+        self.assert_hold(bundle, record, manifest, "not bound")
 
     def test_cross_record_row_mix_fails_closed(self) -> None:
         manifest, record, bundle = fixture()
@@ -263,25 +293,19 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
         other_runs = copy.deepcopy(bundle["runs"])
         for partition in split.PARTITIONS:
             for row in other_runs[partition]:
-                row["record_digest"] = other_record["record_digest"]
-                row["result_binding_sha256"] = audit.result_binding_sha256(
+                rebind_row(
+                    row,
                     record_digest=other_record["record_digest"],
-                    evaluation_attempt_id=row["evaluation_attempt_id"],
-                    producer_session_generation=row["producer_session_generation"],
-                    partition=row["partition"],
-                    concurrency=row["concurrency"],
-                    tick_batches=row["tick_batches"],
-                    sample_index=row["sample_index"],
-                    repetition_index=row["repetition_index"],
-                    slot=row["slot"],
-                    seed=row["seed"],
-                    outcome_digest=row["outcome_digest"],
+                    evaluation_attempt_id=other_record["evaluation_attempt_id"],
+                    producer_session_generation=other_record[
+                        "producer_session_generation"
+                    ],
                 )
         other_bundle = audit.build_result_bundle(other_record, manifest, other_runs)
         bundle["runs"]["held_out"][0] = copy.deepcopy(
             other_bundle["runs"]["held_out"][0]
         )
-        self.assert_hold(bundle, record, manifest, "different precommit record")
+        self.assert_hold(bundle, record, manifest, "not bound")
 
     def test_top_level_attempt_or_session_substitution_fails_before_rows(self) -> None:
         manifest, record, bundle = fixture()
@@ -298,6 +322,17 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
                     side_effect=AssertionError("attempt mismatch reached rows"),
                 ):
                     self.assert_hold(mutated, record, manifest, "differs from precommit")
+
+    def test_rows_do_not_repeat_bundle_level_provenance(self) -> None:
+        _, _, bundle = fixture()
+        redundant = {
+            "record_digest",
+            "evaluation_attempt_id",
+            "producer_session_generation",
+        }
+        for partition in split.PARTITIONS:
+            for row in bundle["runs"][partition]:
+                self.assertTrue(redundant.isdisjoint(row))
 
     def test_seed_outside_precommitted_window_fails_closed(self) -> None:
         manifest, record, bundle = fixture()
