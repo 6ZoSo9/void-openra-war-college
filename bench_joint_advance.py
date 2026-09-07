@@ -400,12 +400,12 @@ def _execute_runtime_contained(
 
     context = _BootstrapMultiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
-    process = context.Process(
-        target=_runtime_child_entry,
-        args=(sender, args, parameters, expected_provenance),
-        name="void-war-college-runtime",
-    )
     try:
+        process = context.Process(
+            target=_runtime_child_entry,
+            args=(sender, args, parameters, expected_provenance),
+            name="void-war-college-runtime",
+        )
         process.start()
     except BaseException:
         receiver.close()
