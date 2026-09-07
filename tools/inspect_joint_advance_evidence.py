@@ -191,6 +191,41 @@ def _matrix_summary(
     )
 
 
+def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
+    run = report["run"]
+    terminal = run["terminal"]
+    stage = run["stage"]
+    startup_stages = {
+        "host_attestation",
+        "runtime_provenance",
+        "endpoint_preflight",
+        "runtime_import",
+        "daemon_startup",
+    }
+    planned_cell_stages = {
+        (
+            f"cell:c{planned['concurrency']}-"
+            f"t{planned['ticks_per_joint_advance']}"
+        )
+        for planned in bench.build_matrix(
+            tuple(report["parameters"]["concurrency"]),
+            tuple(report["parameters"]["tick_batches"]),
+        )
+    }
+    allowed_stages = {
+        "startup_error": startup_stages,
+        "readiness_timeout": {"readiness"},
+        "channel_error": startup_stages | {"readiness"} | planned_cell_stages,
+        "cleanup_error": {"cleanup"},
+        "output_error": {"evidence_publication"},
+        "completed": {"matrix_complete"},
+    }[terminal]
+    if stage not in allowed_stages:
+        raise bench.ContractError(
+            f"run terminal/stage mismatch: {terminal}/{stage}"
+        )
+
+
 def _artifact(
     parent_descriptor: int,
     name: str,
@@ -244,6 +279,7 @@ def _artifact(
         else:
             try:
                 report = bench._validate_recoverable_evidence(payload)
+                _require_run_terminal_stage_consistent(report)
             except bench.IncompatibleEvidenceSchemaError as error:
                 row["report_schema_valid"] = False
                 row["report_schema_compatible"] = False
