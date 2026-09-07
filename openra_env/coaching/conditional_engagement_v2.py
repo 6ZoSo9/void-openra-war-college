@@ -210,9 +210,12 @@ def select_mode(candidate: Mapping[str, Any], current: Mapping[str, Any], histor
         mode, reasons = "REBUILD_FORCE", ["combat_force_below_engagement_floor"]
     elif drop >= t["severe_force_drop_units"] or (deaths_delta > kills_delta and deaths_delta > 0) or (saturated and stagnant >= t["no_military_progress_rounds"]):
         mode = "ATTRITION_BRAKE"
-        if drop >= t["severe_force_drop_units"]: reasons.append("severe_recent_force_drop")
-        if deaths_delta > kills_delta and deaths_delta > 0: reasons.append("recent_deaths_cost_exceeds_kills_cost")
-        if saturated and stagnant >= t["no_military_progress_rounds"]: reasons.append("attack_move_saturation_without_military_progress")
+        if drop >= t["severe_force_drop_units"]:
+            reasons.append("severe_recent_force_drop")
+        if deaths_delta > kills_delta and deaths_delta > 0:
+            reasons.append("recent_deaths_cost_exceeds_kills_cost")
+        if saturated and stagnant >= t["no_military_progress_rounds"]:
+            reasons.append("attack_move_saturation_without_military_progress")
     elif current["visible_enemies"] > 0 and (passive >= 1 or hostile == 0):
         mode, reasons = "CONTACT_RESPONSE", ["visible_enemy_with_underused_combat_force"]
     elif current["visible_enemies"] > 0:
