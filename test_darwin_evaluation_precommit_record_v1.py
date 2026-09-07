@@ -267,7 +267,10 @@ class EvaluationPrecommitRecordTests(unittest.TestCase):
         )
         for option, value in duplicate_cases:
             with self.subTest(option=option):
-                attempt = self.run_cli(*self.record_args(), option, value)
+                argv = self.record_args()
+                removable = argv.index("--held-out-base-seed")
+                del argv[removable:removable + 2]
+                attempt = self.run_cli(*argv, option, value)
                 terminal = self.assert_json_hold(attempt, "ARGUMENT_ERROR")
                 self.assertIn(
                     f"argument {option}: may not be repeated",
@@ -276,10 +279,10 @@ class EvaluationPrecommitRecordTests(unittest.TestCase):
                 self.assertFalse(self.record_path.exists())
                 self.assertFalse((self.root / "shadow.json").exists())
 
-        equals_form = self.run_cli(
-            *self.record_args(),
-            "--record-id=eval-002",
-        )
+        equals_argv = self.record_args()
+        removable = equals_argv.index("--held-out-base-seed")
+        del equals_argv[removable:removable + 2]
+        equals_form = self.run_cli(*equals_argv, "--record-id=eval-002")
         equals_terminal = self.assert_json_hold(equals_form, "ARGUMENT_ERROR")
         self.assertIn(
             "argument --record-id: may not be repeated",

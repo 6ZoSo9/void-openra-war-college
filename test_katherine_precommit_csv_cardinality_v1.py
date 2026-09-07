@@ -135,6 +135,18 @@ class PrecommitCsvCardinalityTests(unittest.TestCase):
             record_contract._parse_csv_positive_decimals(value, "future", 8)
 
 
+class HostileToken:
+    """Fail if admission invokes any token behavior."""
+
+    def __eq__(self, other: object) -> bool:
+        raise AssertionError("hostile token equality executed")
+
+    def __getattribute__(self, name: str) -> object:
+        if name in {"startswith", "split", "encode", "__len__"}:
+            raise AssertionError(f"hostile token behavior executed: {name}")
+        return object.__getattribute__(self, name)
+
+
 class TwentyFourThenTrap:
     """Yield forever, but fail loudly if a consumer asks for token 25."""
 
@@ -214,6 +226,98 @@ class PrecommitArgvCardinalityTests(unittest.TestCase):
                     terminal["reason"],
                     "argv must contain at most 23 tokens",
                 )
+
+
+    def test_non_string_token_one_fails_closed_before_scanner_or_io(self) -> None:
+        for token in (object(), b"--manifest", HostileToken()):
+            for module in (record_contract, recovery):
+                with self.subTest(
+                    token_type=type(token).__name__,
+                    module=module.__name__,
+                ):
+                    terminal = self.run_cli(module, [token])
+                    self.assertEqual(
+                        terminal["reason"],
+                        "argv token 1 must be an exact built-in string",
+                    )
+
+    def test_hostile_token_twenty_four_is_never_inspected(self) -> None:
+        argv: list[object] = [*self.maximum_shape(), HostileToken()]
+        for module in (record_contract, recovery):
+            with self.subTest(module=module.__name__):
+                terminal = self.run_cli(module, argv)
+                self.assertEqual(
+                    terminal["reason"],
+                    "argv must contain at most 23 tokens",
+                )
+
+    def test_over_character_domain_rejects_every_token_role_before_io(self) -> None:
+        over = "x" * (record_contract.MAX_ARGV_TOKEN_CHARS + 1)
+        cases = {
+            "option": [f"--{over}"],
+            "positional": [over],
+            "manifest_path": ["validate", "--manifest", over],
+            "record_path": ["validate", "--record", over],
+            "value": ["record", "--record-id", over],
+        }
+        for role, argv in cases.items():
+            for module in (record_contract, recovery):
+                with self.subTest(role=role, module=module.__name__):
+                    terminal = self.run_cli(module, argv)
+                    token_number = next(
+                        index
+                        for index, token in enumerate(argv, start=1)
+                        if len(token) > record_contract.MAX_ARGV_TOKEN_CHARS
+                    )
+                    self.assertEqual(
+                        terminal["reason"],
+                        f"argv token {token_number} must contain at most "
+                        f"{record_contract.MAX_ARGV_TOKEN_CHARS} characters",
+                    )
+
+    def test_multibyte_token_rejects_at_utf8_byte_wall(self) -> None:
+        token = "é" * ((record_contract.MAX_ARGV_TOKEN_UTF8_BYTES // 2) + 1)
+        self.assertLessEqual(len(token), record_contract.MAX_ARGV_TOKEN_CHARS)
+        for module in (record_contract, recovery):
+            with self.subTest(module=module.__name__):
+                terminal = self.run_cli(module, [token])
+                self.assertEqual(
+                    terminal["reason"],
+                    f"argv token 1 must contain at most "
+                    f"{record_contract.MAX_ARGV_TOKEN_UTF8_BYTES} UTF-8 bytes",
+                )
+
+    def test_nul_and_non_utf8_text_fail_closed_before_io(self) -> None:
+        cases = (
+            ("nul", "validate\x00"),
+            ("surrogate", "\ud800"),
+        )
+        for label, token in cases:
+            for module in (record_contract, recovery):
+                with self.subTest(label=label, module=module.__name__):
+                    terminal = self.run_cli(module, [token])
+                    if label == "nul":
+                        self.assertEqual(
+                            terminal["reason"],
+                            "argv token 1 must not contain NUL",
+                        )
+                    else:
+                        self.assertEqual(
+                            terminal["reason"],
+                            "argv token 1 must be valid UTF-8 text",
+                        )
+
+    def test_exact_character_and_utf8_byte_boundaries_are_admitted(self) -> None:
+        ascii_boundary = "x" * record_contract.MAX_ARGV_TOKEN_CHARS
+        utf8_boundary = "é" * (record_contract.MAX_ARGV_TOKEN_UTF8_BYTES // 2)
+        self.assertEqual(
+            record_contract._bounded_argv_tokens([ascii_boundary]),
+            [ascii_boundary],
+        )
+        self.assertEqual(
+            record_contract._bounded_argv_tokens([utf8_boundary]),
+            [utf8_boundary],
+        )
 
 
 if __name__ == "__main__":

@@ -39,6 +39,11 @@ CSV_MAX_ITEMS_BY_LABEL = {
 }
 # The largest admitted invocation is "record" plus eleven option/value pairs.
 MAX_ARGV_TOKENS = 23
+# Every programmatic or process argv token is admitted only inside this exact,
+# platform-independent resource envelope.  The byte wall is separate because
+# one Unicode code point may require multiple UTF-8 bytes.
+MAX_ARGV_TOKEN_CHARS = 8_192
+MAX_ARGV_TOKEN_UTF8_BYTES = 8_192
 
 
 class RecordError(ValueError):
@@ -66,16 +71,46 @@ class StableArgumentParser(argparse.ArgumentParser):
         raise ArgumentContractError(message)
 
 
+def _validated_argv_token(token_number: int, token: object) -> str:
+    """Admit one exact built-in string inside the global token resource wall."""
+    # Cardinality is checked before touching the yielded object.  Token 24 may
+    # be hostile, but it can never invoke equality, prefix, split, length, or
+    # encoding behavior before the 23-token terminal.
+    if token_number > MAX_ARGV_TOKENS:
+        raise ArgumentContractError(
+            f"argv must contain at most {MAX_ARGV_TOKENS} tokens"
+        )
+    if type(token) is not str:
+        raise ArgumentContractError(
+            f"argv token {token_number} must be an exact built-in string"
+        )
+    if len(token) > MAX_ARGV_TOKEN_CHARS:
+        raise ArgumentContractError(
+            f"argv token {token_number} must contain at most "
+            f"{MAX_ARGV_TOKEN_CHARS} characters"
+        )
+    if "\x00" in token:
+        raise ArgumentContractError(f"argv token {token_number} must not contain NUL")
+    try:
+        encoded_length = len(token.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise ArgumentContractError(
+            f"argv token {token_number} must be valid UTF-8 text"
+        ) from exc
+    if encoded_length > MAX_ARGV_TOKEN_UTF8_BYTES:
+        raise ArgumentContractError(
+            f"argv token {token_number} must contain at most "
+            f"{MAX_ARGV_TOKEN_UTF8_BYTES} UTF-8 bytes"
+        )
+    return token
+
+
 def _bounded_argv_tokens(argv: Iterable[str] | None) -> list[str]:
-    """Collect at most one complete CLI grammar without consuming token 25."""
+    """Collect one bounded CLI grammar without inspecting token 24."""
     source = sys.argv[1:] if argv is None else argv
     tokens: list[str] = []
     for token_number, token in enumerate(source, start=1):
-        if token_number > MAX_ARGV_TOKENS:
-            raise ArgumentContractError(
-                f"argv must contain at most {MAX_ARGV_TOKENS} tokens"
-            )
-        tokens.append(token)
+        tokens.append(_validated_argv_token(token_number, token))
     return tokens
 
 
@@ -89,6 +124,7 @@ def parse_unique_args(
     seen: set[str] = set()
     scan_options = True
     for token_number, token in enumerate(source, start=1):
+        token = _validated_argv_token(token_number, token)
         if scan_options:
             if token == "--":
                 scan_options = False
@@ -97,8 +133,6 @@ def parse_unique_args(
                 if option in seen:
                     parser.error(f"argument {option}: may not be repeated")
                 seen.add(option)
-        if token_number > MAX_ARGV_TOKENS:
-            parser.error(f"argv must contain at most {MAX_ARGV_TOKENS} tokens")
         tokens.append(token)
     return parser.parse_args(tokens)
 

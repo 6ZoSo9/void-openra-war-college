@@ -117,8 +117,11 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
         )
         for option, value in record_cases:
             with self.subTest(command="record", option=option):
+                argv = self.record_args()
+                removable = argv.index("--held-out-base-seed")
+                del argv[removable:removable + 2]
                 self.assert_duplicate_rejected_before_io(
-                    [*self.record_args(), option, value],
+                    [*argv, option, value],
                     option,
                 )
 
@@ -142,11 +145,14 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
                     )
 
     def test_duplicate_equals_form_is_one_machine_hold_terminal(self) -> None:
+        argv = self.record_args()
+        removable = argv.index("--held-out-base-seed")
+        del argv[removable:removable + 2]
         attempt = subprocess.run(
             [
                 sys.executable,
                 str(CLI),
-                *self.record_args(),
+                *argv,
                 "--record-id=eval-recovery-002",
             ],
             cwd=Path(__file__).parent,
