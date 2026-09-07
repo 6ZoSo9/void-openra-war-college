@@ -215,12 +215,17 @@ def run_documented_receipt_shell(root: Path, slot: str) -> subprocess.CompletedP
     )
     environment = dict(os.environ)
     receipt_bin = root / "receipt-bin"
-    receipt_bin.mkdir()
+    receipt_bin.mkdir(exist_ok=True)
     for command in ("dirname", "python3", "ln", "sha256sum", "stat", "sync"):
         resolved = shutil.which(command)
         if resolved is None:
             raise RuntimeError(f"proof host lacks receipt command: {command}")
-        (receipt_bin / command).symlink_to(resolved)
+        target = receipt_bin / command
+        try:
+            target.symlink_to(resolved)
+        except FileExistsError:
+            if target.resolve(strict=True) != Path(resolved).resolve(strict=True):
+                raise RuntimeError(f"receipt command fixture changed: {command}")
     if (receipt_bin / "python").exists():
         raise RuntimeError("python alias unexpectedly entered receipt-only PATH")
     environment["PATH"] = str(receipt_bin)
