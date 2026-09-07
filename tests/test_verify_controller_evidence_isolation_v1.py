@@ -17,22 +17,40 @@ assert SPEC is not None and SPEC.loader is not None
 contract = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(contract)
 
+ATTEMPT_ID = "attempt-001"
+SESSION_GENERATION = 1
 
-def make_record(player_id: str, controller_id: str, world_tick: int) -> dict[str, object]:
+
+def make_record(
+    player_id: str,
+    controller_id: str,
+    world_tick: int,
+    attempt_id: str,
+    controller_session_generation: int,
+) -> dict[str, object]:
     observation_payload = {
+        "attempt_id": attempt_id,
+        "controller_session_generation": controller_session_generation,
         "player_id": player_id,
         "visible_actor_ids": [f"{player_id}-actor"],
         "world_tick": world_tick,
     }
     observation_sha = contract.sha256_hex(observation_payload)
     observation_binding_sha = contract.observation_binding(
+        attempt_id=attempt_id,
+        controller_session_generation=controller_session_generation,
         player_id=player_id,
         controller_id=controller_id,
         world_tick=world_tick,
         observation_sha256=observation_sha,
     )
-    action_request_id = f"decision-{world_tick}-{player_id}"
+    action_request_id = (
+        f"decision-{attempt_id}-{controller_session_generation}-"
+        f"{world_tick}-{player_id}"
+    )
     action_payload = {
+        "attempt_id": attempt_id,
+        "controller_session_generation": controller_session_generation,
         "commands": [{"actor_id": f"{player_id}-actor", "command": "hold"}],
         "controller_id": controller_id,
         "decision_observation_binding_sha256": observation_binding_sha,
@@ -44,6 +62,8 @@ def make_record(player_id: str, controller_id: str, world_tick: int) -> dict[str
     return {
         "action_actor_player_id": player_id,
         "action_binding_sha256": contract.action_binding(
+            attempt_id=attempt_id,
+            controller_session_generation=controller_session_generation,
             player_id=player_id,
             controller_id=controller_id,
             world_tick=world_tick,
@@ -77,19 +97,40 @@ def finalize(evidence: dict[str, object]) -> dict[str, object]:
         for record in controllers
     ]
     evidence["joint_evidence_sha256"] = contract.joint_evidence_binding(
+        attempt_id=str(evidence["attempt_id"]),
+        controller_session_generation=int(
+            evidence["controller_session_generation"]
+        ),
         world_tick=int(evidence["world_tick"]),
         bindings=bindings,
     )
     return evidence
 
 
-def make_evidence() -> dict[str, object]:
+def make_evidence(
+    attempt_id: str = ATTEMPT_ID,
+    controller_session_generation: int = SESSION_GENERATION,
+) -> dict[str, object]:
     tick = 420
     return finalize(
         {
+            "attempt_id": attempt_id,
+            "controller_session_generation": controller_session_generation,
             "controllers": [
-                make_record("player-1", "controller-a", tick),
-                make_record("player-2", "controller-b", tick),
+                make_record(
+                    "player-1",
+                    "controller-a",
+                    tick,
+                    attempt_id,
+                    controller_session_generation,
+                ),
+                make_record(
+                    "player-2",
+                    "controller-b",
+                    tick,
+                    attempt_id,
+                    controller_session_generation,
+                ),
             ],
             "engine_frozen_commit": contract.ENGINE_FROZEN_COMMIT,
             "generation": contract.GENERATION,
@@ -107,6 +148,10 @@ def refresh_action(record: dict[str, object], world_tick: int) -> None:
     assert isinstance(payload, dict)
     record["action_sha256"] = contract.sha256_hex(payload)
     record["action_binding_sha256"] = contract.action_binding(
+        attempt_id=payload["attempt_id"],
+        controller_session_generation=payload[
+            "controller_session_generation"
+        ],
         player_id=record["player_id"],
         controller_id=record["controller_id"],
         world_tick=world_tick,
@@ -118,15 +163,31 @@ def refresh_action(record: dict[str, object], world_tick: int) -> None:
     )
 
 
+
+def verify(
+    evidence: dict[str, object],
+    *,
+    expected_attempt_id: str = ATTEMPT_ID,
+    expected_controller_session_generation: int = SESSION_GENERATION,
+) -> dict[str, object]:
+    return contract.verify_evidence(
+        evidence,
+        expected_attempt_id=expected_attempt_id,
+        expected_controller_session_generation=(
+            expected_controller_session_generation
+        ),
+    )
+
+
 class ControllerEvidenceIsolationTests(unittest.TestCase):
     def assert_hold(self, evidence: dict[str, object], code: str) -> None:
-        report = contract.verify_evidence(evidence)
+        report = verify(evidence)
         self.assertEqual(report["contract"], "HOLD")
         self.assertIn(code, report["holds"])
         self.assertEqual(report["runtime_evidence"], "PENDING_DESIGNATED_HOST")
 
     def test_accepts_exact_two_controller_binding(self) -> None:
-        report = contract.verify_evidence(make_evidence())
+        report = verify(make_evidence())
         self.assertEqual(report["contract"], "GREEN")
         self.assertEqual(report["holds"], [])
         self.assertEqual(report["checked_players"], ["player-1", "player-2"])
@@ -170,6 +231,10 @@ class ControllerEvidenceIsolationTests(unittest.TestCase):
         record["observation_payload"]["visible_actor_ids"] = ["alternate-visible-actor"]
         record["observation_sha256"] = contract.sha256_hex(record["observation_payload"])
         record["observation_binding_sha256"] = contract.observation_binding(
+            attempt_id=evidence["attempt_id"],
+            controller_session_generation=evidence[
+                "controller_session_generation"
+            ],
             player_id=record["player_id"],
             controller_id=record["controller_id"],
             world_tick=evidence["world_tick"],
@@ -228,7 +293,12 @@ class ControllerEvidenceIsolationTests(unittest.TestCase):
             for record in evidence["controllers"]
         ]
         evidence["joint_evidence_sha256"] = contract.joint_evidence_binding(
-            world_tick=evidence["world_tick"], bindings=bindings
+            attempt_id=evidence["attempt_id"],
+            controller_session_generation=evidence[
+                "controller_session_generation"
+            ],
+            world_tick=evidence["world_tick"],
+            bindings=bindings,
         )
         self.assert_hold(evidence, "HOLD_JOINT_EVIDENCE_DIGEST_MISMATCH")
 
@@ -240,6 +310,51 @@ class ControllerEvidenceIsolationTests(unittest.TestCase):
         record["action_sha256"] = contract.sha256_hex(record["action_payload"])
         self.assert_hold(evidence, "HOLD_SCHEMA_VERSION_MISMATCH")
         self.assert_hold(evidence, "HOLD_ACTION_PAYLOAD_SCHEMA_DRIFT")
+
+    def test_green_report_returns_admitted_attempt_session_and_joint_digest(self) -> None:
+        evidence = make_evidence()
+        report = verify(evidence)
+        self.assertEqual(report["admitted_attempt_id"], ATTEMPT_ID)
+        self.assertEqual(
+            report["admitted_controller_session_generation"],
+            SESSION_GENERATION,
+        )
+        self.assertEqual(
+            report["admitted_joint_evidence_sha256"],
+            evidence["joint_evidence_sha256"],
+        )
+
+    def test_identical_bundle_replay_under_other_attempt_fails_closed(self) -> None:
+        evidence = make_evidence()
+        report = verify(evidence, expected_attempt_id="attempt-002")
+        self.assertEqual(report["contract"], "HOLD")
+        self.assertIn("HOLD_EXPECTED_ATTEMPT_ID_MISMATCH", report["holds"])
+
+    def test_stale_session_after_reconnect_fails_closed(self) -> None:
+        evidence = make_evidence()
+        report = verify(
+            evidence,
+            expected_controller_session_generation=2,
+        )
+        self.assertEqual(report["contract"], "HOLD")
+        self.assertIn(
+            "HOLD_EXPECTED_CONTROLLER_SESSION_GENERATION_MISMATCH",
+            report["holds"],
+        )
+
+    def test_cross_attempt_controller_record_swap_fails_closed(self) -> None:
+        evidence = make_evidence()
+        other = make_evidence(attempt_id="attempt-002")
+        evidence["controllers"][0] = other["controllers"][0]
+        finalize(evidence)
+        self.assert_hold(evidence, "HOLD_PAYLOAD_ATTEMPT_BINDING")
+
+    def test_mixed_session_two_controller_bundle_fails_closed(self) -> None:
+        evidence = make_evidence()
+        other = make_evidence(controller_session_generation=2)
+        evidence["controllers"][1] = other["controllers"][1]
+        finalize(evidence)
+        self.assert_hold(evidence, "HOLD_PAYLOAD_SESSION_BINDING")
 
     def test_rejects_frozen_baseline_drift(self) -> None:
         evidence = make_evidence()
@@ -256,7 +371,15 @@ class ControllerEvidenceIsolationTests(unittest.TestCase):
             evidence_path = Path(temp_dir) / "evidence.json"
             evidence_path.write_text(json.dumps(make_evidence()), encoding="utf-8")
             green = subprocess.run(
-                [sys.executable, str(SCRIPT), str(evidence_path)],
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(evidence_path),
+                    "--expected-attempt-id",
+                    ATTEMPT_ID,
+                    "--expected-controller-session-generation",
+                    str(SESSION_GENERATION),
+                ],
                 check=False, capture_output=True, text=True,
             )
             self.assertEqual(green.returncode, 0, green.stderr)
@@ -265,7 +388,15 @@ class ControllerEvidenceIsolationTests(unittest.TestCase):
 
             evidence_path.write_text("{", encoding="utf-8")
             hold = subprocess.run(
-                [sys.executable, str(SCRIPT), str(evidence_path)],
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(evidence_path),
+                    "--expected-attempt-id",
+                    ATTEMPT_ID,
+                    "--expected-controller-session-generation",
+                    str(SESSION_GENERATION),
+                ],
                 check=False, capture_output=True, text=True,
             )
             self.assertEqual(hold.returncode, 1)
