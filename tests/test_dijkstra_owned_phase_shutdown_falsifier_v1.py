@@ -17,6 +17,7 @@ import multiprocessing
 import socket
 import time
 import unittest
+from unittest import mock
 
 import bench_joint_advance as bench
 
@@ -82,6 +83,41 @@ def _shutdown_falsifier_child(connection: object) -> None:
 
 
 class OwnedPhaseShutdownContainmentTests(unittest.TestCase):
+    def test_spawn_failure_closes_both_unstarted_pipe_endpoints(self) -> None:
+        context = mock.Mock()
+        receiver = mock.Mock()
+        sender = mock.Mock()
+        process = mock.Mock()
+        process.start.side_effect = OSError("spawn refused")
+        context.Pipe.return_value = (receiver, sender)
+        context.Process.return_value = process
+
+        with mock.patch.object(
+            bench._BootstrapMultiprocessing,
+            "get_context",
+            return_value=context,
+        ):
+            with self.assertRaisesRegex(OSError, "spawn refused"):
+                bench._execute_runtime_contained(
+                    argparse.Namespace(),
+                    {
+                        "concurrency": [1],
+                        "tick_batches": [1],
+                        "rpc_timeout_s": 0.1,
+                        "cell_timeout_s": 0.1,
+                        "teardown_timeout_s": 0.1,
+                        "ready_timeout_s": 0.1,
+                    },
+                    {},
+                )
+
+        context.Pipe.assert_called_once_with(duplex=False)
+        process.start.assert_called_once_with()
+        receiver.close.assert_called_once_with()
+        sender.close.assert_called_once_with()
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
+
     def test_production_spawn_entrypoint_transfers_pre_runtime_host_rejection(self) -> None:
         designated_hostname = f"not-{socket.gethostname()}"
         args = argparse.Namespace(designated_hostname=designated_hostname)
