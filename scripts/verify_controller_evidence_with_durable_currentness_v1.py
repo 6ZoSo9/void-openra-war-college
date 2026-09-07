@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind controller evidence to durable currentness and VOID-node producer authentication."""
+"""Bind controller evidence to durable currentness and trusted VOID-node producer authentication."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 
 from scripts import verify_controller_evidence_isolation_v1 as structural
 from scripts import verify_controller_evidence_producer_auth_v1 as producer_auth
+from scripts import war_college_designated_producer_trust_root_v1 as designated_root
 from scripts.controller_attempt_admission_store_v1 import (
     AdmissionHold,
     AttemptIdentity,
@@ -68,10 +69,15 @@ def _report(
     consumption_sha256: str | None = None,
     structural_report: dict[str, Any] | None = None,
     producer_auth_report: dict[str, Any] | None = None,
+    designated_root_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     producer_signature_green = (
         isinstance(producer_auth_report, dict)
         and producer_auth_report.get("contract") == "GREEN"
+    )
+    trust_root_green = (
+        isinstance(designated_root_report, dict)
+        and designated_root_report.get("contract") == "GREEN"
     )
     return {
         "attempt_id": identity.attempt_id if identity is not None else None,
@@ -79,6 +85,17 @@ def _report(
         "consumption_sha256": consumption_sha256,
         "contract": contract,
         "controller_player_bindings": _identity_bindings(identity),
+        "designated_host_label": (
+            designated_root_report.get("designated_host_label")
+            if isinstance(designated_root_report, dict)
+            else None
+        ),
+        "designated_producer_trust_root_green": trust_root_green,
+        "designated_producer_trust_root_id": (
+            designated_root_report.get("trust_root_id")
+            if isinstance(designated_root_report, dict)
+            else designated_root.PRODUCTION_TRUST_ROOT.root_id
+        ),
         "holds": sorted(set(holds)),
         "joint_evidence_sha256": joint_evidence_sha256,
         "marker": MARKER,
@@ -105,7 +122,9 @@ def _report(
             if isinstance(structural_report, dict)
             else []
         ),
-        "trusted_producer_authentication_green": False,
+        "trusted_producer_authentication_green": (
+            producer_signature_green and trust_root_green
+        ),
     }
 
 
@@ -233,6 +252,23 @@ def verify_and_consume_evidence(
             producer_auth_report=auth_report,
         )
 
+    root_report = designated_root.verify_designated_producer_trust_v1(
+        identity=identity,
+        producer_auth_record=producer_auth_record,
+    )
+    if root_report.get("contract") != "GREEN":
+        return _report(
+            contract="HOLD",
+            holds=list(root_report.get("holds", [])),
+            phase="designated_producer_trust_root",
+            identity=identity,
+            session_generation=current_generation,
+            joint_evidence_sha256=joint_digest,
+            structural_report=structural_report,
+            producer_auth_report=auth_report,
+            designated_root_report=root_report,
+        )
+
     try:
         consumption = consume_joint_evidence(
             store_path,
@@ -250,6 +286,7 @@ def verify_and_consume_evidence(
             joint_evidence_sha256=joint_digest,
             structural_report=structural_report,
             producer_auth_report=auth_report,
+            designated_root_report=root_report,
         )
 
     return _report(
@@ -262,6 +299,7 @@ def verify_and_consume_evidence(
         consumption_sha256=str(consumption["consumption_sha256"]),
         structural_report=structural_report,
         producer_auth_report=auth_report,
+        designated_root_report=root_report,
     )
 
 

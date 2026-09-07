@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import subprocess
@@ -118,42 +119,65 @@ class DurableCurrentnessIntegrationTests(unittest.TestCase):
         self.assertEqual(report["contract"], "HOLD")
         self.assertIn(code, report["holds"])
 
-    def test_green_requires_store_currentness_and_valid_node_signature(self) -> None:
+    def mock_root_green(self):
+        original = integration.designated_root.verify_designated_producer_trust_v1
+
+        def green(**_kwargs):
+            return {
+                "contract": "GREEN",
+                "holds": [],
+                "trust_root_id": "voidwcdptr1_" + "f" * 64,
+                "designated_host_label": "test-only",
+                "source_commit": "0" * 40,
+                "producer_node_id": "0" * 32,
+            }
+
+        integration.designated_root.verify_designated_producer_trust_v1 = green
+        return original
+
+    def test_synthetic_signature_cannot_pass_production_trust_root(self) -> None:
         identity = self.create_attempt()
         evidence = make_evidence()
         report = integration.verify_and_consume_evidence(
             evidence,
             self.auth_for(evidence, identity),
         )
-        self.assertEqual(report["contract"], "GREEN")
+        self.assertEqual(report["phase"], "designated_producer_trust_root")
         self.assertTrue(report["producer_signature_authentication_green"])
-        self.assertEqual(report["session_generation"], 1)
+        self.assertFalse(report["designated_producer_trust_root_green"])
+        self.assertFalse(report["trusted_producer_authentication_green"])
+        self.assert_hold(report, "HOLD_DESIGNATED_PRODUCER_NODE_ID_MISMATCH")
 
-    def test_identical_full_bundle_replay_is_rejected(self) -> None:
+        direct = store.consume_joint_evidence(
+            self.store_path,
+            identity,
+            session_generation=1,
+            joint_evidence_sha256=str(evidence["joint_evidence_sha256"]),
+        )
+        self.assertEqual(direct["contract"], "GREEN")
+
+    def test_identical_bundle_replay_still_rejected_after_internal_root_green(self) -> None:
         identity = self.create_attempt()
         evidence = make_evidence()
         auth = self.auth_for(evidence, identity)
-        self.assertEqual(
-            integration.verify_and_consume_evidence(evidence, auth)["contract"],
-            "GREEN",
-        )
-        replay = integration.verify_and_consume_evidence(evidence, auth)
+        original = self.mock_root_green()
+        try:
+            first = integration.verify_and_consume_evidence(evidence, auth)
+            self.assertEqual(first["contract"], "GREEN")
+            replay = integration.verify_and_consume_evidence(evidence, auth)
+        finally:
+            integration.designated_root.verify_designated_producer_trust_v1 = original
         self.assert_hold(replay, "HOLD_EVIDENCE_ALREADY_CONSUMED")
 
-    def test_structural_green_without_authentication_does_not_consume(self) -> None:
-        identity = self.create_attempt()
+    def test_structural_green_without_signature_does_not_reach_root(self) -> None:
+        self.create_attempt()
         evidence = make_evidence()
         report = integration.verify_and_consume_evidence(evidence, {})
         self.assertEqual(report["phase"], "producer_authentication")
         self.assertEqual(report["contract"], "HOLD")
+        self.assertFalse(report["designated_producer_trust_root_green"])
 
-        clean = integration.verify_and_consume_evidence(
-            evidence,
-            self.auth_for(evidence, identity),
-        )
-        self.assertEqual(clean["contract"], "GREEN")
-
-    def test_wrong_signing_key_does_not_consume(self) -> None:
+    def test_wrong_signing_key_does_not_reach_root_or_consume(self) -> None:
         identity = self.create_attempt()
         evidence = make_evidence()
         wrong_key = Ed25519PrivateKey.generate()
@@ -163,14 +187,15 @@ class DurableCurrentnessIntegrationTests(unittest.TestCase):
             report,
             "HOLD_PRODUCER_AUTH_SIGNATURE_VERIFICATION_FAILED",
         )
-
-        good = integration.verify_and_consume_evidence(
-            evidence,
-            self.auth_for(evidence, identity),
+        direct = store.consume_joint_evidence(
+            self.store_path,
+            identity,
+            session_generation=1,
+            joint_evidence_sha256=str(evidence["joint_evidence_sha256"]),
         )
-        self.assertEqual(good["contract"], "GREEN")
+        self.assertEqual(direct["contract"], "GREEN")
 
-    def test_stale_predecessor_after_reconnect_is_rejected(self) -> None:
+    def test_stale_predecessor_rejected_before_root(self) -> None:
         identity = self.create_attempt()
         store.advance_session(
             self.store_path,
@@ -187,14 +212,7 @@ class DurableCurrentnessIntegrationTests(unittest.TestCase):
             "HOLD_EXPECTED_CONTROLLER_SESSION_GENERATION_MISMATCH",
         )
 
-        fresh_evidence = make_evidence(controller_session_generation=2)
-        fresh = integration.verify_and_consume_evidence(
-            fresh_evidence,
-            self.auth_for(fresh_evidence, identity),
-        )
-        self.assertEqual(fresh["contract"], "GREEN")
-
-    def test_controller_player_mapping_is_store_authoritative(self) -> None:
+    def test_controller_player_mapping_rejected_before_root(self) -> None:
         identity = self.create_attempt(self.identity(swapped_mapping=True))
         evidence = make_evidence()
         report = integration.verify_and_consume_evidence(
@@ -206,23 +224,16 @@ class DurableCurrentnessIntegrationTests(unittest.TestCase):
             "HOLD_DURABLE_CONTROLLER_PLAYER_MAPPING_MISMATCH",
         )
 
-    def test_structural_hold_does_not_consume_evidence(self) -> None:
+    def test_structural_hold_does_not_reach_root_or_consume(self) -> None:
         identity = self.create_attempt()
         invalid = make_evidence()
         invalid["controllers"][0]["action_payload"]["commands"][0]["actor_id"] = 201
-        first = integration.verify_and_consume_evidence(
+        report = integration.verify_and_consume_evidence(
             invalid,
             self.auth_for(invalid, identity),
         )
-        self.assertEqual(first["contract"], "HOLD")
-        self.assertEqual(first["phase"], "structural_verification")
-
-        clean_evidence = make_evidence()
-        clean = integration.verify_and_consume_evidence(
-            clean_evidence,
-            self.auth_for(clean_evidence, identity),
-        )
-        self.assertEqual(clean["contract"], "GREEN")
+        self.assertEqual(report["phase"], "structural_verification")
+        self.assertEqual(report["contract"], "HOLD")
 
     def test_store_source_generation_mismatch_fails_closed(self) -> None:
         identity = self.create_attempt(self.identity(source_generation="other-generation"))
@@ -251,10 +262,11 @@ class DurableCurrentnessIntegrationTests(unittest.TestCase):
         self.assert_hold(report, "HOLD_STORE_NOT_FOUND")
         self.assertFalse(self.store_path.exists())
 
-    def test_reconnect_race_after_auth_green_fails_at_consume(self) -> None:
+    def test_reconnect_race_after_internal_root_green_fails_at_consume(self) -> None:
         identity = self.create_attempt()
         evidence = make_evidence()
         auth = self.auth_for(evidence, identity)
+        original_root = self.mock_root_green()
         original_consume = integration.consume_joint_evidence
 
         def raced_consume(
@@ -281,17 +293,17 @@ class DurableCurrentnessIntegrationTests(unittest.TestCase):
             raced = integration.verify_and_consume_evidence(evidence, auth)
         finally:
             integration.consume_joint_evidence = original_consume
+            integration.designated_root.verify_designated_producer_trust_v1 = original_root
 
         self.assert_hold(raced, "HOLD_SESSION_NOT_CURRENT")
 
-        fresh_evidence = make_evidence(controller_session_generation=2)
-        fresh = integration.verify_and_consume_evidence(
-            fresh_evidence,
-            self.auth_for(fresh_evidence, identity),
-        )
-        self.assertEqual(fresh["contract"], "GREEN")
+    def test_public_api_has_no_trust_root_override(self) -> None:
+        parameters = tuple(inspect.signature(
+            integration.verify_and_consume_evidence
+        ).parameters)
+        self.assertEqual(parameters, ("evidence", "producer_auth_record"))
 
-    def test_cli_is_one_line_and_requires_auth_file(self) -> None:
+    def test_cli_synthetic_key_is_one_line_hold_and_has_no_root_argument(self) -> None:
         identity = self.create_attempt()
         evidence = make_evidence()
         auth = self.auth_for(evidence, identity)
@@ -319,12 +331,12 @@ class DurableCurrentnessIntegrationTests(unittest.TestCase):
             check=False,
             env=dict(os.environ),
         )
-        self.assertEqual(cp.returncode, 0)
+        self.assertEqual(cp.returncode, 1)
         self.assertEqual(cp.stderr, "")
         self.assertEqual(len(cp.stdout.splitlines()), 1)
         report = json.loads(cp.stdout)
-        self.assertEqual(report["contract"], "GREEN")
-        self.assertTrue(report["producer_signature_authentication_green"])
+        self.assertEqual(report["phase"], "designated_producer_trust_root")
+        self.assertFalse(report["trusted_producer_authentication_green"])
 
 
 if __name__ == "__main__":
