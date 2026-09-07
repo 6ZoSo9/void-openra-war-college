@@ -71,6 +71,12 @@ def startup_error_payload() -> bytes:
     return bench.stable_json(report).encode("utf-8")
 
 
+def impossible_startup_stage_payload() -> bytes:
+    report = json.loads(startup_error_payload())
+    report["run"]["stage"] = "matrix_complete"
+    return bench.stable_json(report).encode("utf-8")
+
+
 class ReadOnlyInspectionTests(unittest.TestCase):
     def assert_inspection_failure_terminal(self, report, reason_code):
         self.assertEqual(report, {
@@ -286,6 +292,32 @@ class ReadOnlyInspectionTests(unittest.TestCase):
             })
             self.assertTrue(report["commit_receipt_binds_final"])
             self.assertFalse(report["countable"])
+
+    def test_impossible_run_terminal_stage_pair_is_explicit_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = impossible_startup_stage_payload()
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(report["classification"], "CURRENT_SCHEMA_INVALID_HOLD")
+            self.assertFalse(final["report_schema_valid"])
+            self.assertEqual(
+                final["validation_error"],
+                "ContractError:run terminal/stage mismatch: "
+                "startup_error/matrix_complete",
+            )
+            self.assertIsNone(final["report_terminal"])
+            self.assertIsNone(final["report_run_stage"])
+            self.assertIsNone(final["report_attempt_failure"])
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_rewrite"])
 
     def test_matrix_summary_uses_planned_order_not_lexicographic_storage_order(self):
         report = {
