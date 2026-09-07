@@ -33,7 +33,13 @@ def fixture() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
         2,
         "noop_control",
     )
-    record = record_contract.build_record("darwin-audit-001", manifest, plan)
+    record = record_contract.build_record(
+        "darwin-audit-001",
+        manifest,
+        plan,
+        "attempt-001",
+        1,
+    )
     runs: dict[str, object] = {}
     for partition, base_seed in (("calibration", 100), ("held_out", 200)):
         rows: list[dict[str, object]] = []
@@ -49,6 +55,8 @@ def fixture() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
                             )
                             rows.append(
                                 {
+                                    "evaluation_attempt_id": "attempt-001",
+                                    "producer_session_generation": 1,
                                     "partition": partition,
                                     "concurrency": concurrency,
                                     "tick_batches": tick_batches,
@@ -58,6 +66,8 @@ def fixture() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
                                     "seed": seed,
                                     "outcome_digest": outcome_digest,
                                     "result_binding_sha256": audit.result_binding_sha256(
+                                        evaluation_attempt_id="attempt-001",
+                                        producer_session_generation=1,
                                         partition=partition,
                                         concurrency=concurrency,
                                         tick_batches=tick_batches,
@@ -91,6 +101,12 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
         self.assertEqual(result["status"], "GREEN")
         self.assertEqual(result["calibration_rows"], 24)
         self.assertEqual(result["held_out_rows"], 24)
+        self.assertEqual(result["evaluation_attempt_id"], "attempt-001")
+        self.assertEqual(result["producer_session_generation"], 1)
+        self.assertEqual(
+            result["bundle_replay_protection"],
+            "PENDING_CREATE_ONLY_ADMISSION_RECORD",
+        )
         self.assertEqual(result["runtime_evidence"], "PENDING_DESIGNATED_HOST")
         self.assertEqual(result["trusted_runtime_producer_authentication"], "UNPROVEN")
 
@@ -221,6 +237,34 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
         )
         self.assert_hold(bundle, record, manifest, "not bound")
 
+    def test_rows_from_another_attempt_fail_closed(self) -> None:
+        manifest, record, bundle = fixture()
+        row = bundle["runs"]["held_out"][0]
+        row["evaluation_attempt_id"] = "attempt-002"
+        self.assert_hold(bundle, record, manifest, "different execution attempt")
+
+    def test_stale_session_row_after_reconnect_fails_closed(self) -> None:
+        manifest, record, bundle = fixture()
+        row = bundle["runs"]["calibration"][0]
+        row["producer_session_generation"] = 2
+        self.assert_hold(bundle, record, manifest, "session generation")
+
+    def test_top_level_attempt_or_session_substitution_fails_before_rows(self) -> None:
+        manifest, record, bundle = fixture()
+        for field, value in (
+            ("evaluation_attempt_id", "attempt-002"),
+            ("producer_session_generation", 2),
+        ):
+            with self.subTest(field=field):
+                mutated = copy.deepcopy(bundle)
+                mutated[field] = value
+                with mock.patch.object(
+                    audit,
+                    "_validate_partition_rows",
+                    side_effect=AssertionError("attempt mismatch reached rows"),
+                ):
+                    self.assert_hold(mutated, record, manifest, "differs from precommit")
+
     def test_seed_outside_precommitted_window_fails_closed(self) -> None:
         manifest, record, bundle = fixture()
         bundle["runs"]["held_out"][0]["seed"] = 100
@@ -239,7 +283,13 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
             key: value for key, value in other_plan.items() if key != "plan_digest"
         }
         other_plan["plan_digest"] = plan_contract._sha256_json(other_plan_core)
-        other_record = record_contract.build_record("darwin-audit-002", manifest, other_plan)
+        other_record = record_contract.build_record(
+            "darwin-audit-002",
+            manifest,
+            other_plan,
+            "attempt-002",
+            1,
+        )
         self.assert_hold(bundle, other_record, manifest, "differs from precommit")
 
     def test_bundle_digest_mutation_fails_closed(self) -> None:
@@ -269,7 +319,13 @@ class EvaluationResultPartitionAuditTests(unittest.TestCase):
             10,
             "noop_control",
         )
-        record = record_contract.build_record("darwin-audit-max", manifest, plan)
+        record = record_contract.build_record(
+            "darwin-audit-max",
+            manifest,
+            plan,
+            "attempt-max",
+            1,
+        )
         self.assertEqual(
             audit.expected_result_row_count(record, manifest, "held_out"),
             2_400_000,

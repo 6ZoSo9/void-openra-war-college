@@ -23,6 +23,8 @@ BUNDLE_MARKER = "VOID_WAR_COLLEGE_EVALUATION_RESULT_BUNDLE_V1"
 SCHEMA_VERSION = 1
 SHA64_RE = re.compile(r"[0-9a-f]{64}\Z")
 ROW_KEYS = {
+    "evaluation_attempt_id",
+    "producer_session_generation",
     "partition",
     "concurrency",
     "tick_batches",
@@ -64,6 +66,8 @@ def _exact_int(value: object, label: str) -> int:
 
 def result_binding_sha256(
     *,
+    evaluation_attempt_id: str,
+    producer_session_generation: int,
     partition: str,
     concurrency: int,
     tick_batches: int,
@@ -76,8 +80,10 @@ def result_binding_sha256(
     return _sha256_json(
         {
             "concurrency": concurrency,
+            "evaluation_attempt_id": evaluation_attempt_id,
             "outcome_digest": outcome_digest,
             "partition": partition,
+            "producer_session_generation": producer_session_generation,
             "repetition_index": repetition_index,
             "sample_index": sample_index,
             "seed": seed,
@@ -156,6 +162,10 @@ def _validate_partition_rows(
     base_seed, samples, repetitions, offsets = _run_layout(
         verified_record, partition
     )
+    evaluation_attempt_id = verified_record["evaluation_attempt_id"]
+    producer_session_generation = verified_record["producer_session_generation"]
+    assert isinstance(evaluation_attempt_id, str)
+    assert type(producer_session_generation) is int
 
     # The precommit already defines one exact total row order.  Requiring the
     # producer to emit that order lets coverage be proved in one pass with
@@ -166,6 +176,15 @@ def _validate_partition_rows(
             raise ResultAuditError(f"{partition} row keys are not schema-exact")
         if row["partition"] != partition:
             raise ResultAuditError(f"{partition} container includes a cross-partition row")
+        if (
+            type(row["evaluation_attempt_id"]) is not str
+            or row["evaluation_attempt_id"] != evaluation_attempt_id
+            or type(row["producer_session_generation"]) is not int
+            or row["producer_session_generation"] != producer_session_generation
+        ):
+            raise ResultAuditError(
+                f"{partition} row belongs to a different execution attempt/session generation"
+            )
         concurrency = _exact_int(row["concurrency"], "concurrency")
         tick_batches = _exact_int(row["tick_batches"], "tick_batches")
         sample_index = _exact_int(row["sample_index"], "sample_index")
@@ -205,6 +224,8 @@ def _validate_partition_rows(
                 "result_binding_sha256 must be exactly 64 lowercase hex characters"
             )
         expected_binding = result_binding_sha256(
+            evaluation_attempt_id=evaluation_attempt_id,
+            producer_session_generation=producer_session_generation,
             partition=partition,
             concurrency=concurrency,
             tick_batches=tick_batches,
@@ -228,6 +249,8 @@ def _bundle_provenance(
         "marker": BUNDLE_MARKER,
         "schema_version": SCHEMA_VERSION,
         "record_digest": verified_record["record_digest"],
+        "evaluation_attempt_id": verified_record["evaluation_attempt_id"],
+        "producer_session_generation": verified_record["producer_session_generation"],
         "plan_digest": verified_record["plan_digest"],
         "split_digest": verified_record["split_digest"],
         "benchmark_source_sha": verified_record["benchmark_source_sha"],
@@ -287,6 +310,8 @@ def audit_result_bundle(
         "marker",
         "schema_version",
         "record_digest",
+        "evaluation_attempt_id",
+        "producer_session_generation",
         "plan_digest",
         "split_digest",
         "benchmark_source_sha",
@@ -332,12 +357,15 @@ def audit_result_bundle(
         "schema_version": SCHEMA_VERSION,
         "status": "GREEN",
         "record_digest": core["record_digest"],
+        "evaluation_attempt_id": core["evaluation_attempt_id"],
+        "producer_session_generation": core["producer_session_generation"],
         "result_digest": expected_result_digest,
         "calibration_rows": len(runs["calibration"]),
         "held_out_rows": len(runs["held_out"]),
         "calibration_generalization_claim_authority": "NONE",
         "held_out_generalization_claim_authority": "HELD_OUT_EVIDENCE_ONLY",
         "trusted_runtime_producer_authentication": "UNPROVEN",
+        "bundle_replay_protection": "PENDING_CREATE_ONLY_ADMISSION_RECORD",
         "runtime_evidence": "PENDING_DESIGNATED_HOST",
         "runtime_execution_authority": "NONE",
         "model_weight_mutation_authority": "NONE",

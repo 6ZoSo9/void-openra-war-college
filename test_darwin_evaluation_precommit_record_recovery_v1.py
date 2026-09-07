@@ -46,7 +46,13 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
             2,
             "noop_control",
         )
-        self.record = record_contract.build_record("eval-recovery-001", self.manifest, self.plan)
+        self.record = record_contract.build_record(
+            "eval-recovery-001",
+            self.manifest,
+            self.plan,
+            "attempt-recovery-001",
+            1,
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -60,6 +66,10 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
             str(self.path),
             "--record-id",
             "eval-recovery-001",
+            "--evaluation-attempt-id",
+            "attempt-recovery-001",
+            "--producer-session-generation",
+            "1",
             "--benchmark-source-sha",
             "b" * 40,
             "--calibration-base-seed",
@@ -415,6 +425,8 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
             "foreign-valid-001",
             self.manifest,
             self.plan,
+            "attempt-foreign-001",
+            2,
         )
         expected_foreign_bytes = (
             record_contract.canonical_json(foreign_record) + "\n"
@@ -424,6 +436,8 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
             manifest=str(manifest_path),
             record=str(self.path),
             record_id="eval-recovery-001",
+            evaluation_attempt_id="attempt-recovery-001",
+            producer_session_generation="1",
             benchmark_source_sha="b" * 40,
             calibration_base_seed="1000",
             held_out_base_seed="2000",

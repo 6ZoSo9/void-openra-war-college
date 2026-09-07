@@ -31,14 +31,16 @@ HANDOFF_MARKER = "VOID_WAR_COLLEGE_PRECOMMIT_OPERATOR_HANDOFF_V1"
 SCHEMA_VERSION = 1
 MAX_JSON_BYTES = 1_048_576
 RECORD_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}\Z")
+EVALUATION_ATTEMPT_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}\Z")
 SHA64_RE = re.compile(r"[0-9a-f]{64}\Z")
 POSITIVE_DECIMAL_RE = re.compile(r"[1-9][0-9]*\Z")
+MAX_PRODUCER_SESSION_GENERATION = 4_294_967_295
 CSV_MAX_ITEMS_BY_LABEL = {
     "concurrency": len(window_binding.ALLOWED_JOINT_ADVANCE_CONCURRENCY),
     "tick_batches": plan_contract.MAX_MATRIX_CELLS,
 }
-# The largest admitted invocation is "record" plus eleven option/value pairs.
-MAX_ARGV_TOKENS = 23
+# The largest admitted invocation is "record" plus thirteen option/value pairs.
+MAX_ARGV_TOKENS = 27
 # Every programmatic or process argv token is admitted only inside this exact,
 # platform-independent resource envelope.  The byte wall is separate because
 # one Unicode code point may require multiple UTF-8 bytes.
@@ -73,7 +75,7 @@ class StableArgumentParser(argparse.ArgumentParser):
 
 def _validated_argv_token(token_number: int, token: object) -> str:
     """Admit one exact built-in string inside the global token resource wall."""
-    # Cardinality is checked before touching the yielded object.  Token 24 may
+    # Cardinality is checked before touching the yielded object.  Token 28 may
     # be hostile, but it can never invoke equality, prefix, split, length, or
     # encoding behavior before the 23-token terminal.
     if token_number > MAX_ARGV_TOKENS:
@@ -106,7 +108,7 @@ def _validated_argv_token(token_number: int, token: object) -> str:
 
 
 def _bounded_argv_tokens(argv: Iterable[str] | None) -> list[str]:
-    """Collect one bounded CLI grammar without inspecting token 24."""
+    """Collect one bounded CLI grammar without inspecting token 28."""
     source = sys.argv[1:] if argv is None else argv
     tokens: list[str] = []
     for token_number, token in enumerate(source, start=1):
@@ -154,6 +156,28 @@ def _validate_record_id(value: object) -> str:
     if not isinstance(value, str) or not RECORD_ID_RE.fullmatch(value):
         raise RecordError(
             "record_id must be 1..64 lowercase [a-z0-9._-] characters and start alphanumeric"
+        )
+    return value
+
+
+def _validate_evaluation_attempt_id(value: object) -> str:
+    if type(value) is not str or not EVALUATION_ATTEMPT_ID_RE.fullmatch(value):
+        raise RecordError(
+            "evaluation_attempt_id must be 1..64 lowercase [a-z0-9._-] characters "
+            "and start alphanumeric"
+        )
+    return value
+
+
+def _validate_producer_session_generation(value: object) -> int:
+    if (
+        type(value) is not int
+        or value < 1
+        or value > MAX_PRODUCER_SESSION_GENERATION
+    ):
+        raise RecordError(
+            "producer_session_generation must be an exact integer in "
+            f"1..{MAX_PRODUCER_SESSION_GENERATION}"
         )
     return value
 
@@ -264,8 +288,14 @@ def build_record(
     record_id: object,
     manifest: Mapping[str, object],
     evaluation_plan: Mapping[str, object],
+    evaluation_attempt_id: object,
+    producer_session_generation: object,
 ) -> dict[str, object]:
     rid = _validate_record_id(record_id)
+    attempt_id = _validate_evaluation_attempt_id(evaluation_attempt_id)
+    session_generation = _validate_producer_session_generation(
+        producer_session_generation
+    )
     verified_manifest = split.validate_manifest(manifest)
     if not isinstance(evaluation_plan, Mapping):
         raise RecordError("evaluation_plan must be an object")
@@ -282,6 +312,8 @@ def build_record(
         "marker": MARKER,
         "schema_version": SCHEMA_VERSION,
         "record_id": rid,
+        "evaluation_attempt_id": attempt_id,
+        "producer_session_generation": session_generation,
         "plan_digest": verified_plan["plan_digest"],
         "split_digest": verified_plan["split_digest"],
         "benchmark_source_sha": verified_plan["shared_parameters"]["benchmark_source_sha"],
@@ -291,6 +323,8 @@ def build_record(
         "plan": verified_plan,
         "record_policy": {
             "recorded_before_calibration_required": True,
+            "partitions_share_exact_attempt_and_session": True,
+            "reconnect_requires_new_precommit_generation": True,
             "create_only_publication": True,
             "overwrite_authority": "NONE",
             "delete_replace_authority": "NONE",
@@ -316,6 +350,8 @@ def validate_record(
         "marker",
         "schema_version",
         "record_id",
+        "evaluation_attempt_id",
+        "producer_session_generation",
         "plan_digest",
         "split_digest",
         "benchmark_source_sha",
@@ -331,6 +367,10 @@ def validate_record(
     if record["marker"] != MARKER or record["schema_version"] != SCHEMA_VERSION:
         raise RecordError("record marker/schema mismatch")
     rid = _validate_record_id(record["record_id"])
+    attempt_id = _validate_evaluation_attempt_id(record["evaluation_attempt_id"])
+    session_generation = _validate_producer_session_generation(
+        record["producer_session_generation"]
+    )
     if not isinstance(record["plan_digest"], str) or not SHA64_RE.fullmatch(record["plan_digest"]):
         raise RecordError("record plan_digest is invalid")
     if not isinstance(record["record_digest"], str) or not SHA64_RE.fullmatch(record["record_digest"]):
@@ -342,7 +382,13 @@ def validate_record(
         verified_manifest,
         record["plan_digest"],
     )
-    rebuilt = build_record(rid, verified_manifest, verified_plan)
+    rebuilt = build_record(
+        rid,
+        verified_manifest,
+        verified_plan,
+        attempt_id,
+        session_generation,
+    )
     if canonical_json(rebuilt) != canonical_json(dict(record)):
         raise RecordError("record content is not canonical for the precommitted plan")
     return rebuilt
@@ -417,6 +463,8 @@ def _summary(status: str, record: Mapping[str, object]) -> str:
             "marker": HANDOFF_MARKER,
             "status": status,
             "record_id": record["record_id"],
+            "evaluation_attempt_id": record["evaluation_attempt_id"],
+            "producer_session_generation": record["producer_session_generation"],
             "record_digest": record["record_digest"],
             "plan_digest": record["plan_digest"],
             "split_digest": record["split_digest"],
@@ -460,6 +508,8 @@ def _build_parser() -> StableArgumentParser:
     record.add_argument("--manifest", required=True)
     record.add_argument("--record", required=True)
     record.add_argument("--record-id", required=True)
+    record.add_argument("--evaluation-attempt-id", required=True)
+    record.add_argument("--producer-session-generation", required=True)
     record.add_argument("--benchmark-source-sha", required=True)
     record.add_argument("--calibration-base-seed", required=True)
     record.add_argument("--held-out-base-seed", required=True)
@@ -504,7 +554,17 @@ def _record_command(args: argparse.Namespace) -> dict[str, object]:
         ),
         args.workload_profile,
     )
-    record = build_record(args.record_id, manifest, evaluation_plan)
+    record = build_record(
+        args.record_id,
+        manifest,
+        evaluation_plan,
+        args.evaluation_attempt_id,
+        _parse_positive_decimal(
+            args.producer_session_generation,
+            "producer_session_generation",
+            MAX_PRODUCER_SESSION_GENERATION,
+        ),
+    )
     record_path = Path(args.record)
     write_record_create_only(record_path, record)
     return load_and_validate_record(record_path, manifest)

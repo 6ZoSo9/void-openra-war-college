@@ -48,6 +48,8 @@ class EvaluationPrecommitRecordTests(unittest.TestCase):
     def record_args(self, **overrides: str) -> list[str]:
         values = {
             "record_id": "eval-001",
+            "evaluation_attempt_id": "attempt-001",
+            "producer_session_generation": "1",
             "benchmark_source_sha": "a" * 40,
             "calibration_base_seed": "1000",
             "held_out_base_seed": "2000",
@@ -66,6 +68,10 @@ class EvaluationPrecommitRecordTests(unittest.TestCase):
             str(self.record_path),
             "--record-id",
             values["record_id"],
+            "--evaluation-attempt-id",
+            values["evaluation_attempt_id"],
+            "--producer-session-generation",
+            values["producer_session_generation"],
             "--benchmark-source-sha",
             values["benchmark_source_sha"],
             "--calibration-base-seed",
@@ -111,6 +117,8 @@ class EvaluationPrecommitRecordTests(unittest.TestCase):
         self.assertEqual(created.returncode, 0, created.stderr)
         created_summary = json.loads(created.stdout)
         self.assertEqual(created_summary["status"], "PRECOMMIT_RECORDED")
+        self.assertEqual(created_summary["evaluation_attempt_id"], "attempt-001")
+        self.assertEqual(created_summary["producer_session_generation"], 1)
         self.assertEqual(created_summary["runtime_execution_authority"], "NONE")
         self.assertEqual(created_summary["automatic_promotion_authority"], "NONE")
 
@@ -131,7 +139,43 @@ class EvaluationPrecommitRecordTests(unittest.TestCase):
         self.assertEqual(resumed_summary["status"], "PRECOMMIT_REVALIDATED")
         self.assertEqual(resumed_summary["record_digest"], created_summary["record_digest"])
         self.assertEqual(resumed_summary["plan_digest"], created_summary["plan_digest"])
+        self.assertEqual(
+            resumed_summary["evaluation_attempt_id"],
+            created_summary["evaluation_attempt_id"],
+        )
+        self.assertEqual(
+            resumed_summary["producer_session_generation"],
+            created_summary["producer_session_generation"],
+        )
         self.assertEqual(self.record_path.read_bytes(), before)
+
+    def test_attempt_and_session_are_precommitted_and_tamper_evident(self) -> None:
+        created = self.run_cli(*self.record_args())
+        self.assertEqual(created.returncode, 0, created.stderr)
+        original = self.record_path.read_bytes()
+        for field, value in (
+            ("evaluation_attempt_id", "attempt-002"),
+            ("producer_session_generation", 2),
+        ):
+            with self.subTest(field=field):
+                obj = json.loads(original)
+                obj[field] = value
+                self.record_path.write_text(
+                    record_contract.canonical_json(obj) + "\n",
+                    encoding="utf-8",
+                )
+                os.chmod(self.record_path, 0o600)
+                resumed = self.run_cli(
+                    "validate",
+                    "--manifest",
+                    str(self.manifest_path),
+                    "--record",
+                    str(self.record_path),
+                )
+                self.assertEqual(resumed.returncode, 2)
+                self.assertIn("HOLD", resumed.stderr)
+                self.record_path.write_bytes(original)
+                os.chmod(self.record_path, 0o600)
 
     def test_existing_record_collision_cannot_be_overwritten_by_posthoc_plan(self) -> None:
         created = self.run_cli(*self.record_args())

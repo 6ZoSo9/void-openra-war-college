@@ -216,6 +216,8 @@ def _summary(
             "marker": HANDOFF_MARKER,
             "status": status,
             "record_id": record["record_id"],
+            "evaluation_attempt_id": record["evaluation_attempt_id"],
+            "producer_session_generation": record["producer_session_generation"],
             "record_digest": record["record_digest"],
             "plan_digest": record["plan_digest"],
             "split_digest": record["split_digest"],
@@ -277,6 +279,8 @@ def _build_parser() -> record_contract.StableArgumentParser:
     record.add_argument("--manifest", required=True)
     record.add_argument("--record", required=True)
     record.add_argument("--record-id", required=True)
+    record.add_argument("--evaluation-attempt-id", required=True)
+    record.add_argument("--producer-session-generation", required=True)
     record.add_argument("--benchmark-source-sha", required=True)
     record.add_argument("--calibration-base-seed", required=True)
     record.add_argument("--held-out-base-seed", required=True)
@@ -337,7 +341,17 @@ def _record_command(args: argparse.Namespace) -> dict[str, object]:
         ),
         args.workload_profile,
     )
-    record = record_contract.build_record(args.record_id, manifest, evaluation_plan)
+    record = record_contract.build_record(
+        args.record_id,
+        manifest,
+        evaluation_plan,
+        args.evaluation_attempt_id,
+        record_contract._parse_positive_decimal(
+            args.producer_session_generation,
+            "producer_session_generation",
+            record_contract.MAX_PRODUCER_SESSION_GENERATION,
+        ),
+    )
     path = Path(args.record)
     write_record_create_only_with_terminal(path, record)
 

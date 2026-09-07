@@ -147,19 +147,19 @@ class HostileToken:
         return object.__getattribute__(self, name)
 
 
-class TwentyFourThenTrap:
-    """Yield forever, but fail loudly if a consumer asks for token 25."""
+class OverflowThenTrap:
+    """Yield forever, but fail loudly after the first over-bound token."""
 
     def __init__(self) -> None:
         self.consumed = 0
 
-    def __iter__(self) -> "TwentyFourThenTrap":
+    def __iter__(self) -> "OverflowThenTrap":
         return self
 
     def __next__(self) -> str:
         self.consumed += 1
         if self.consumed > record_contract.MAX_ARGV_TOKENS + 1:
-            raise AssertionError("argv collector consumed token 25")
+            raise AssertionError("argv collector consumed beyond the first overflow token")
         return f"--future-{self.consumed}"
 
 
@@ -167,7 +167,7 @@ class PrecommitArgvCardinalityTests(unittest.TestCase):
     @staticmethod
     def maximum_shape() -> list[str]:
         tokens = ["record"]
-        for index in range(11):
+        for index in range(13):
             tokens.extend((f"--future-{index}", "value"))
         if len(tokens) != record_contract.MAX_ARGV_TOKENS:
             raise AssertionError("test fixture no longer matches the maximum CLI grammar")
@@ -197,15 +197,18 @@ class PrecommitArgvCardinalityTests(unittest.TestCase):
         fsync_file.assert_not_called()
         return terminal
 
-    def test_exact_twenty_three_token_control_reaches_parser_in_both_clis(self) -> None:
+    def test_exact_maximum_token_control_reaches_parser_in_both_clis(self) -> None:
         argv = self.maximum_shape()
         self.assertEqual(record_contract._bounded_argv_tokens(iter(argv)), argv)
         for module in (record_contract, recovery):
             with self.subTest(module=module.__name__):
                 terminal = self.run_cli(module, iter(argv))
-                self.assertNotIn("at most 23 tokens", terminal["reason"])
+                self.assertNotIn(
+                    f"at most {record_contract.MAX_ARGV_TOKENS} tokens",
+                    terminal["reason"],
+                )
 
-    def test_token_twenty_four_rejects_before_parser_or_io_in_both_clis(self) -> None:
+    def test_first_overflow_token_rejects_before_parser_or_io_in_both_clis(self) -> None:
         argv = [*self.maximum_shape(), "--overflow"]
         self.assertEqual(len(argv), record_contract.MAX_ARGV_TOKENS + 1)
         for module in (record_contract, recovery):
@@ -213,18 +216,21 @@ class PrecommitArgvCardinalityTests(unittest.TestCase):
                 terminal = self.run_cli(module, iter(argv))
                 self.assertEqual(
                     terminal["reason"],
-                    "argv must contain at most 23 tokens",
+                    f"argv must contain at most {record_contract.MAX_ARGV_TOKENS} tokens",
                 )
 
-    def test_infinite_iterable_stops_at_twenty_four_in_both_clis(self) -> None:
+    def test_infinite_iterable_stops_at_first_overflow_in_both_clis(self) -> None:
         for module in (record_contract, recovery):
             with self.subTest(module=module.__name__):
-                stream = TwentyFourThenTrap()
+                stream = OverflowThenTrap()
                 terminal = self.run_cli(module, stream)
-                self.assertEqual(stream.consumed, 24)
+                self.assertEqual(
+                    stream.consumed,
+                    record_contract.MAX_ARGV_TOKENS + 1,
+                )
                 self.assertEqual(
                     terminal["reason"],
-                    "argv must contain at most 23 tokens",
+                    f"argv must contain at most {record_contract.MAX_ARGV_TOKENS} tokens",
                 )
 
 
@@ -241,14 +247,14 @@ class PrecommitArgvCardinalityTests(unittest.TestCase):
                         "argv token 1 must be an exact built-in string",
                     )
 
-    def test_hostile_token_twenty_four_is_never_inspected(self) -> None:
+    def test_hostile_first_overflow_token_is_never_inspected(self) -> None:
         argv: list[object] = [*self.maximum_shape(), HostileToken()]
         for module in (record_contract, recovery):
             with self.subTest(module=module.__name__):
                 terminal = self.run_cli(module, argv)
                 self.assertEqual(
                     terminal["reason"],
-                    "argv must contain at most 23 tokens",
+                    f"argv must contain at most {record_contract.MAX_ARGV_TOKENS} tokens",
                 )
 
     def test_over_character_domain_rejects_every_token_role_before_io(self) -> None:
