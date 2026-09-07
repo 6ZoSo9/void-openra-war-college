@@ -83,6 +83,19 @@ def impossible_pre_matrix_cells_payload() -> bytes:
     return bench.stable_json(report).encode("utf-8")
 
 
+def channel_error_at_first_cell_payload(*, include_current_cell: bool) -> bytes:
+    report = json.loads(valid_report_payload())
+    if not include_current_cell:
+        report["cells"] = []
+    report["run"].update({
+        "terminal": "channel_error",
+        "stage": "cell:c1-t1",
+        "error_type": "ContractError",
+        "error": "synthetic channel failure",
+    })
+    return bench.stable_json(report).encode("utf-8")
+
+
 class ReadOnlyInspectionTests(unittest.TestCase):
     def assert_inspection_failure_terminal(self, report, reason_code):
         self.assertEqual(report, {
@@ -346,6 +359,67 @@ class ReadOnlyInspectionTests(unittest.TestCase):
                 final["validation_error"],
                 "ContractError:pre-matrix run terminal carries matrix cells: "
                 "startup_error/host_attestation",
+            )
+            self.assertIsNone(final["report_terminal"])
+            self.assertIsNone(final["report_run_stage"])
+            self.assertIsNone(final["report_attempt_failure"])
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+            self.assertFalse(report["automatic_recovery"])
+            self.assertFalse(report["automatic_rewrite"])
+
+    def test_channel_error_at_first_cell_accepts_exact_empty_predecessor_prefix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = channel_error_at_first_cell_payload(
+                include_current_cell=False,
+            )
+            validated = bench._validate_recoverable_evidence(payload)
+            self.assertEqual(validated["cells"], [])
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(report["classification"], "COMMITTED_LOCAL_UNTRUSTED")
+            self.assertTrue(final["report_schema_valid"])
+            self.assertEqual(final["report_terminal"], "channel_error")
+            self.assertEqual(final["report_run_stage"], "cell:c1-t1")
+            self.assertEqual(final["report_matrix_summary"]["cell_count"], 0)
+            self.assertEqual(final["report_matrix_summary"]["missing_cell_count"], 1)
+            self.assertEqual(final["report_attempt_failure"], {
+                "scope": "run",
+                "terminal": "channel_error",
+                "stage": "cell:c1-t1",
+            })
+            self.assertTrue(report["commit_receipt_binds_final"])
+            self.assertFalse(report["countable"])
+
+    def test_channel_error_at_first_cell_cannot_carry_that_cell_as_completed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = channel_error_at_first_cell_payload(
+                include_current_cell=True,
+            )
+            self.assertEqual(
+                bench._validate_recoverable_evidence(payload)["cells"][0]["terminal"],
+                "success",
+            )
+            write_0400(output, payload)
+            receipt = bench._commit_receipt_path(output)
+            write_0400(receipt, bench._commit_receipt_payload(output, payload))
+
+            report = INSPECT.inspect_namespace(output)
+
+            final = report["final"]
+            self.assertEqual(report["classification"], "CURRENT_SCHEMA_INVALID_HOLD")
+            self.assertFalse(final["report_schema_valid"])
+            self.assertEqual(
+                final["validation_error"],
+                "ContractError:channel-error stage does not bind exact successful "
+                "predecessor prefix: cell:c1-t1",
             )
             self.assertIsNone(final["report_terminal"])
             self.assertIsNone(final["report_run_stage"])
