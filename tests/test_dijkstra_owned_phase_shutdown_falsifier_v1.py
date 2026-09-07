@@ -11,8 +11,10 @@ fresh-interpreter startup are inside the tested state machine.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import multiprocessing
+import socket
 import time
 import unittest
 
@@ -80,6 +82,39 @@ def _shutdown_falsifier_child(connection: object) -> None:
 
 
 class OwnedPhaseShutdownContainmentTests(unittest.TestCase):
+    def test_production_spawn_entrypoint_transfers_pre_runtime_host_rejection(self) -> None:
+        designated_hostname = f"not-{socket.gethostname()}"
+        args = argparse.Namespace(designated_hostname=designated_hostname)
+        parameters = {
+            "concurrency": [1],
+            "tick_batches": [1],
+            "rpc_timeout_s": 0.1,
+            "cell_timeout_s": 0.1,
+            "teardown_timeout_s": 0.1,
+            "ready_timeout_s": 0.1,
+        }
+
+        outcome = bench._execute_runtime_contained(args, parameters, {})
+
+        self.assertEqual(outcome["cells"], [])
+        self.assertEqual(outcome["host"]["designated_hostname"], designated_hostname)
+        self.assertEqual(outcome["run"]["terminal"], "startup_error")
+        self.assertEqual(outcome["run"]["stage"], "host_attestation")
+        self.assertEqual(outcome["run"]["error_type"], "ContractError")
+        self.assertEqual(
+            outcome["run"]["error"],
+            "designated hostname does not match this host",
+        )
+        self.assertEqual(outcome["run"]["cleanup"], {"failures": []})
+        self.assertEqual(
+            outcome["run"]["containment"],
+            {
+                "required_by_cell": False,
+                "boundary": "not_required",
+                "daemon_retired": False,
+            },
+        )
+
     def test_detached_task_shutdown_hang_is_force_retired_by_outer_process_owner(self) -> None:
         context = multiprocessing.get_context("spawn")
         self.assertEqual(context.get_start_method(), "spawn")
