@@ -251,6 +251,23 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
                 "cleanup-error evidence does not close the planned matrix"
             )
         bench._validate_completed_matrix_causality(report["cells"], planned)
+    if terminal == "output_error":
+        cells_by_key = {cell["key"]: cell for cell in report["cells"]}
+        if len(cells_by_key) == len(planned_keys):
+            bench._validate_completed_matrix_causality(report["cells"], planned)
+        else:
+            predecessor_keys = planned_keys[:len(cells_by_key)]
+            if (
+                set(cells_by_key) != set(predecessor_keys)
+                or any(
+                    cells_by_key[key]["terminal"] != "success"
+                    for key in predecessor_keys
+                )
+            ):
+                raise bench.ContractError(
+                    "output-error evidence does not bind a valid "
+                    "pre-publication matrix state"
+                )
 
 
 def _artifact(
