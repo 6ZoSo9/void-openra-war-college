@@ -155,6 +155,50 @@ class OwnedPhaseShutdownContainmentTests(unittest.TestCase):
         process.terminate.assert_not_called()
         process.kill.assert_not_called()
 
+    def test_parent_sender_handoff_failure_retires_started_child(self) -> None:
+        context = mock.Mock()
+        receiver = mock.Mock()
+        sender = mock.Mock()
+        process = mock.Mock()
+        sender.close.side_effect = OSError("sender handoff close refused")
+        process.is_alive.side_effect = (True, False)
+        context.Pipe.return_value = (receiver, sender)
+        context.Process.return_value = process
+
+        with mock.patch.object(
+            bench._BootstrapMultiprocessing,
+            "get_context",
+            return_value=context,
+        ):
+            with self.assertRaisesRegex(
+                OSError, "sender handoff close refused",
+            ):
+                bench._execute_runtime_contained(
+                    argparse.Namespace(),
+                    {
+                        "concurrency": [1],
+                        "tick_batches": [1],
+                        "rpc_timeout_s": 0.1,
+                        "cell_timeout_s": 0.1,
+                        "teardown_timeout_s": 0.1,
+                        "ready_timeout_s": 0.1,
+                    },
+                    {},
+                )
+
+        process.start.assert_called_once_with()
+        sender.close.assert_called_once_with()
+        receiver.close.assert_called_once_with()
+        self.assertEqual(
+            process.join.call_args_list,
+            [
+                mock.call(0),
+                mock.call(bench._RUNTIME_CHILD_SIGNAL_GRACE_S),
+            ],
+        )
+        process.terminate.assert_called_once_with()
+        process.kill.assert_not_called()
+
     def test_production_spawn_entrypoint_transfers_pre_runtime_host_rejection(self) -> None:
         designated_hostname = f"not-{socket.gethostname()}"
         args = argparse.Namespace(designated_hostname=designated_hostname)
