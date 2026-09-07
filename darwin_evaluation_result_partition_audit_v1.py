@@ -23,9 +23,6 @@ BUNDLE_MARKER = "VOID_WAR_COLLEGE_EVALUATION_RESULT_BUNDLE_V1"
 SCHEMA_VERSION = 1
 SHA64_RE = re.compile(r"[0-9a-f]{64}\Z")
 ROW_KEYS = {
-    "record_digest",
-    "evaluation_attempt_id",
-    "producer_session_generation",
     "partition",
     "concurrency",
     "tick_batches",
@@ -185,18 +182,10 @@ def _validate_partition_rows(
             raise ResultAuditError(f"{partition} row keys are not schema-exact")
         if row["partition"] != partition:
             raise ResultAuditError(f"{partition} container includes a cross-partition row")
-        if (
-            type(row["record_digest"]) is not str
-            or row["record_digest"] != record_digest
-            or type(row["evaluation_attempt_id"]) is not str
-            or row["evaluation_attempt_id"] != evaluation_attempt_id
-            or type(row["producer_session_generation"]) is not int
-            or row["producer_session_generation"] != producer_session_generation
-        ):
-            raise ResultAuditError(
-                f"{partition} row belongs to a different execution attempt/session "
-                "generation or a different precommit record"
-            )
+        # Attempt, session, and record provenance are bundle-level scalars. They
+        # remain inputs to every row binding, but are intentionally not copied
+        # into every row: the maximum valid 4.8-million-row bundle would
+        # otherwise repeat 1,032,000,000 canonical bytes.
         concurrency = _exact_int(row["concurrency"], "concurrency")
         tick_batches = _exact_int(row["tick_batches"], "tick_batches")
         sample_index = _exact_int(row["sample_index"], "sample_index")
