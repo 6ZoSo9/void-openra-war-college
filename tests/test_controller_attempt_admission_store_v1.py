@@ -27,7 +27,9 @@ def identity(attempt_id: str = "attempt-001") -> AttemptIdentity:
         attempt_id=attempt_id,
         producer_id="designated-host-1",
         controller_a_id="controller-a",
+        controller_a_player_id="player-1",
         controller_b_id="controller-b",
+        controller_b_player_id="player-2",
         source_generation="ad1926569b12466c",
         war_college_commit=WAR_COLLEGE_COMMIT,
         engine_commit=ENGINE_COMMIT,
@@ -195,7 +197,9 @@ class ControllerAttemptAdmissionStoreTests(unittest.TestCase):
                 attempt_id=original.attempt_id,
                 producer_id="other-producer",
                 controller_a_id=original.controller_a_id,
+                controller_a_player_id=original.controller_a_player_id,
                 controller_b_id=original.controller_b_id,
+                controller_b_player_id=original.controller_b_player_id,
                 source_generation=original.source_generation,
                 war_college_commit=original.war_college_commit,
                 engine_commit=original.engine_commit,
@@ -220,6 +224,33 @@ class ControllerAttemptAdmissionStoreTests(unittest.TestCase):
                     wrong,
                     session_generation=1,
                     joint_evidence_sha256=JOINT_A,
+                )
+
+    def test_controller_player_mapping_cannot_swap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "ledger.sqlite3"
+            original = identity()
+            create_attempt(path, original)
+
+            swapped = AttemptIdentity(
+                attempt_id=original.attempt_id,
+                producer_id=original.producer_id,
+                controller_a_id=original.controller_a_id,
+                controller_a_player_id=original.controller_b_player_id,
+                controller_b_id=original.controller_b_id,
+                controller_b_player_id=original.controller_a_player_id,
+                source_generation=original.source_generation,
+                war_college_commit=original.war_college_commit,
+                engine_commit=original.engine_commit,
+            )
+            with self.assertRaisesRegex(
+                AdmissionHold,
+                "HOLD_ATTEMPT_IDENTITY_MISMATCH",
+            ):
+                advance_session(
+                    path,
+                    swapped,
+                    expected_current_generation=1,
                 )
 
     def test_stale_predecessor_cannot_reappear_after_multiple_successors(self) -> None:
@@ -283,6 +314,8 @@ class ControllerAttemptAdmissionStoreTests(unittest.TestCase):
             self.assertEqual(receipt["contract"], "GREEN")
             self.assertEqual(receipt["session_generation"], 2)
             self.assertEqual(receipt["joint_evidence_sha256"], JOINT_B)
+            self.assertEqual(receipt["controller_a_player_id"], "player-1")
+            self.assertEqual(receipt["controller_b_player_id"], "player-2")
 
 
 if __name__ == "__main__":
