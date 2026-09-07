@@ -300,7 +300,8 @@ class EvaluationPrecommitRecoveryTests(unittest.TestCase):
                 self.assertEqual(terminal["marker"], record_contract.HANDOFF_MARKER)
                 self.assertEqual(terminal["status"], "HOLD")
                 self.assertEqual(terminal["reason_code"], "ARGUMENT_ERROR")
-                self.assertIn("unrecognized arguments:", terminal["reason"])
+                self.assertIn("required", terminal["reason"])
+                self.assertIn("--manifest", terminal["reason"])
                 self.assertFalse(self.path.exists())
                 self.assertFalse(shadow_manifest.exists())
 
