@@ -224,6 +224,11 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
         raise bench.ContractError(
             f"run terminal/stage mismatch: {terminal}/{stage}"
         )
+    pre_matrix_stages = startup_stages | {"readiness"}
+    if stage in pre_matrix_stages and report["cells"]:
+        raise bench.ContractError(
+            f"pre-matrix run terminal carries matrix cells: {terminal}/{stage}"
+        )
 
 
 def _artifact(
