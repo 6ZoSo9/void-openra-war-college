@@ -13,6 +13,7 @@ from scripts.controller_attempt_admission_store_v1 import (
     consume_joint_evidence,
     create_attempt,
     inspect_attempt,
+    load_attempt,
 )
 
 WAR_COLLEGE_COMMIT = "f57c561f3a4c742e34d820933be40dd7d4253951"
@@ -49,6 +50,26 @@ class ControllerAttemptAdmissionStoreTests(unittest.TestCase):
                 "HOLD_ATTEMPT_ALREADY_EXISTS",
             ):
                 create_attempt(path, identity())
+
+    def test_load_attempt_reads_store_authoritative_identity_and_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "ledger.sqlite3"
+            original = identity()
+            create_attempt(path, original)
+            advance_session(path, original, expected_current_generation=1)
+
+            loaded_identity, loaded_generation = load_attempt(
+                path,
+                original.attempt_id,
+            )
+            self.assertEqual(loaded_identity, original)
+            self.assertEqual(loaded_generation, 2)
+
+            with self.assertRaisesRegex(
+                AdmissionHold,
+                "HOLD_ATTEMPT_NOT_FOUND",
+            ):
+                load_attempt(path, "attempt-missing")
 
     def test_reconnect_advances_monotonically_and_stales_predecessor(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
