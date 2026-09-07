@@ -195,7 +195,7 @@ def prove_documented_receipt_shell_syntax() -> None:
 def run_documented_receipt_shell(root: Path, slot: str) -> subprocess.CompletedProcess[str]:
     repository = root / "checkout"
     scripts = repository / "scripts"
-    scripts.mkdir(parents=True)
+    scripts.mkdir(parents=True, exist_ok=True)
     verifier = scripts / "verify_void_lab_checkout_v1.py"
     verifier.write_text(
         "print('{\"schema_version\":6,\"generation\":\"ad1926569b12466c\","
