@@ -125,11 +125,12 @@ baseline ref, or continue to build or benchmark.
 ## Exact checkout receipt
 
 The default verifier checks both worktrees, including ordinary untracked files,
-reviewed ignored runtime/build inputs, and stable initial/final snapshots. Give
-each verification attempt a new explicit identifier and publish its single JSON
-record create-only. Attempt identifiers are non-secret lowercase labels, not
-timestamps or inferred mutable state. A pre-existing receipt for the selected
-identifier is a terminal HOLD and must remain byte-for-byte untouched:
+reviewed ignored runtime/build inputs, and stable initial/final snapshots. Each
+checkout has exactly 16 create-only verification slots: `slot-01` through
+`slot-16`. A slot identifier is non-secret and carries no mutable authority.
+Its fixed staging path and final receipt path are both single-use. A pre-existing
+path for the selected slot is a terminal HOLD and must remain byte-for-byte
+untouched:
 
 ```bash
 void_publish_lab_receipt() (
@@ -137,23 +138,26 @@ void_publish_lab_receipt() (
   umask 077
   test "$#" -eq 1
   VOID_LAB_RECEIPT_ID="$1"
-  python -c 'import re,sys; raise SystemExit(0 if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", sys.argv[1]) else 2)' "$VOID_LAB_RECEIPT_ID"
+  python3 -c 'import re,sys; raise SystemExit(0 if re.fullmatch(r"slot-(?:0[1-9]|1[0-6])", sys.argv[1]) else 2)' "$VOID_LAB_RECEIPT_ID"
   VOID_LAB_RECEIPT="$VOID_WAR_COLLEGE_DIR/../void-lab-checkout-c164a7d2-$VOID_LAB_RECEIPT_ID.json"
   VOID_LAB_RECEIPT_DIR="$(dirname -- "$VOID_LAB_RECEIPT")"
+  VOID_LAB_RECEIPT_TEMP="$VOID_LAB_RECEIPT_DIR/.void-lab-checkout-$VOID_LAB_RECEIPT_ID.pending"
   test -d "$VOID_LAB_RECEIPT_DIR"
   test ! -e "$VOID_LAB_RECEIPT"
   test ! -L "$VOID_LAB_RECEIPT"
-  VOID_LAB_RECEIPT_TEMP="$(mktemp "$VOID_LAB_RECEIPT_DIR/.void-lab-checkout-$VOID_LAB_RECEIPT_ID.XXXXXX.pending")"
-  VOID_LAB_RECEIPT_TEMP_ID="$(stat -c '%d:%i' "$VOID_LAB_RECEIPT_TEMP")"
+  test ! -e "$VOID_LAB_RECEIPT_TEMP"
+  test ! -L "$VOID_LAB_RECEIPT_TEMP"
   report_retained_temp() {
-    if [ -n "${VOID_LAB_RECEIPT_TEMP:-}" ]; then
+    if [ -e "${VOID_LAB_RECEIPT_TEMP:-}" ] || [ -L "${VOID_LAB_RECEIPT_TEMP:-}" ]; then
       printf 'receipt_staging_path=%s\npending_retired=false\nstaging_cleanup=DEFERRED_NO_PATHNAME_DELETE\n' \
         "$VOID_LAB_RECEIPT_TEMP" >&2
     fi
   }
   trap report_retained_temp EXIT
-  python "$VOID_WAR_COLLEGE_DIR/scripts/verify_void_lab_checkout_v1.py" \
+  set -C
+  python3 "$VOID_WAR_COLLEGE_DIR/scripts/verify_void_lab_checkout_v1.py" \
     --repo-root "$VOID_WAR_COLLEGE_DIR" > "$VOID_LAB_RECEIPT_TEMP"
+  VOID_LAB_RECEIPT_TEMP_ID="$(stat -c '%d:%i' "$VOID_LAB_RECEIPT_TEMP")"
   test -f "$VOID_LAB_RECEIPT_TEMP"
   test ! -L "$VOID_LAB_RECEIPT_TEMP"
   test "$(stat -c '%a' "$VOID_LAB_RECEIPT_TEMP")" = '600'
@@ -167,7 +171,7 @@ void_publish_lab_receipt() (
   printf 'receipt_id=%s\nreceipt_path=%s\n' "$VOID_LAB_RECEIPT_ID" "$VOID_LAB_RECEIPT"
   sha256sum "$VOID_LAB_RECEIPT"
 )
-void_publish_lab_receipt setup-001
+void_publish_lab_receipt slot-01
 ```
 
 Keep the receipt outside the repository so it does not make the exact worktree
@@ -180,31 +184,32 @@ after staging creation. This removes check-then-unlink authority: a same-UID
 replacement at the staging pathname cannot be deleted by this workflow, and
 staging retirement cannot reverse the validated final receipt.
 
-One attempt creates at most one discoverable staging alias whose name includes
-the explicit attempt identifier. Preserve it for bounded reconciliation; do not
-delete, rename, chmod, or reuse it through this evidence-creation function.
-Staging retirement requires a separately reviewed generation-conditional
-primitive or explicit operator reconciliation outside this contract. A verifier
-or validation failure cannot truncate an earlier receipt. Record the receipt
-identifier, final path, staging path, `pending_retired=false`, and final SHA-256
-with any later designated-host evidence. Retain earlier receipts; never delete,
-rename, chmod, or replace one to reuse its identifier. Do not treat
-`--source-only` GREEN, unit tests, or hosted CI as exact designated-host checkout
-evidence.
+A checkout admits exactly 16 fixed staging aliases and 16 final receipt paths.
+Every invocation consumes one previously unused slot, including a verifier or
+validation failure after staging creation. The fixed slot namespace therefore
+bounds retained aliases without any pathname deletion or cleanup authority.
+Preserve every consumed slot for reconciliation; do not delete, rename, chmod,
+replace, or reuse it through this evidence-creation function. After `slot-16`
+is consumed, stop with `HOLD_VOID_LAB_RECEIPT_SLOTS_EXHAUSTED`: provision a new
+empty checkout, repeat the identity wall, and start a new 16-slot evidence set.
+A verifier failure cannot truncate an earlier receipt. Record the slot, final
+path, staging path, `pending_retired=false`, and final SHA-256 with any later
+designated-host evidence. Do not treat `--source-only` GREEN, unit tests, or
+hosted CI as exact designated-host checkout evidence.
 
 ## Handoff boundary
 
 A GREEN checkout receipt proves only the sampled pre-runtime composition. Before
 any later build or benchmark, the designated operator must re-run the default
-verifier against the same detached checkout with a new identifier, for example:
+verifier against the same detached checkout with a new identifier, using the next unused slot, for example:
 
 ```bash
-void_publish_lab_receipt prebuild-001
+void_publish_lab_receipt slot-02
 ```
 
 Bind that exact new receipt identifier, path, and digest to the exact command and
-resulting evidence. The earlier `setup-001` receipt remains immutable evidence;
-the later command is authorized only by its named `prebuild-001` receipt. If
+resulting evidence. The earlier `slot-01` receipt remains immutable evidence; the later command is
+authorized only by its named `slot-02` receipt. If
 either worktree changes, repeat the entire identity wall and verifier with
 another new identifier; never reuse or remove an earlier GREEN receipt.
 
