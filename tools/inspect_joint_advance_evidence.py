@@ -216,8 +216,10 @@ def _artifact(
         "report_schema_compatible": None,
         "report_schema_version": None,
         "report_terminal": None,
+        "report_run_stage": None,
         "report_cell_terminals": None,
         "report_matrix_summary": None,
+        "report_attempt_failure": None,
         "validation_error": None,
     }
     if not generation["regular_file"] or generation["symlink"]:
@@ -255,10 +257,22 @@ def _artifact(
                 row["report_schema_compatible"] = True
                 row["report_schema_version"] = report["schema_version"]
                 row["report_terminal"] = report["run"]["terminal"]
+                row["report_run_stage"] = report["run"]["stage"]
                 (
                     row["report_cell_terminals"],
                     row["report_matrix_summary"],
                 ) = _matrix_summary(report)
+                if report["run"]["terminal"] != "completed":
+                    row["report_attempt_failure"] = {
+                        "scope": "run",
+                        "terminal": report["run"]["terminal"],
+                        "stage": report["run"]["stage"],
+                    }
+                elif row["report_matrix_summary"]["first_failure"] is not None:
+                    row["report_attempt_failure"] = {
+                        "scope": "matrix",
+                        **row["report_matrix_summary"]["first_failure"],
+                    }
     return row, payload, descriptor
 
 
