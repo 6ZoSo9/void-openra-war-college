@@ -138,7 +138,10 @@ void_publish_lab_receipt() (
   umask 077
   test "$#" -eq 1
   VOID_LAB_RECEIPT_ID="$1"
-  python3 -c 'import re,sys; raise SystemExit(0 if re.fullmatch(r"slot-(?:0[1-9]|1[0-6])", sys.argv[1]) else 2)' "$VOID_LAB_RECEIPT_ID"
+  python3 -c 'import re,sys; raise SystemExit(0 if re.fullmatch(r"slot-(?:0[1-9]|1[0-6])", sys.argv[1]) else 2)' "$VOID_LAB_RECEIPT_ID" || {
+    printf '%s\n' 'HOLD_VOID_LAB_RECEIPT_SLOTS_EXHAUSTED' >&2
+    exit 72
+  }
   VOID_LAB_RECEIPT="$VOID_WAR_COLLEGE_DIR/../void-lab-checkout-c164a7d2-$VOID_LAB_RECEIPT_ID.json"
   VOID_LAB_RECEIPT_DIR="$(dirname -- "$VOID_LAB_RECEIPT")"
   VOID_LAB_RECEIPT_TEMP="$VOID_LAB_RECEIPT_DIR/.void-lab-checkout-$VOID_LAB_RECEIPT_ID.pending"
