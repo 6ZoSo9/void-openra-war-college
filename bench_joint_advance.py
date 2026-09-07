@@ -411,7 +411,14 @@ def _execute_runtime_contained(
         receiver.close()
         sender.close()
         raise
-    sender.close()
+    try:
+        sender.close()
+    except BaseException:
+        try:
+            receiver.close()
+        finally:
+            _retire_unbound_runtime_child(process)
+        raise
 
     pgid: int | None = None
     outcome: dict[str, Any] | None = None
