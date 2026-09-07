@@ -229,6 +229,29 @@ def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
         raise bench.ContractError(
             f"pre-matrix run terminal carries matrix cells: {terminal}/{stage}"
         )
+    if terminal == "channel_error" and stage in planned_cell_stages:
+        planned_keys = [
+            f"c{planned['concurrency']}-t{planned['ticks_per_joint_advance']}"
+            for planned in bench.build_matrix(
+                tuple(report["parameters"]["concurrency"]),
+                tuple(report["parameters"]["tick_batches"]),
+            )
+        ]
+        current_key = stage.removeprefix("cell:")
+        current_index = planned_keys.index(current_key)
+        predecessor_keys = planned_keys[:current_index]
+        cells_by_key = {cell["key"]: cell for cell in report["cells"]}
+        if (
+            set(cells_by_key) != set(predecessor_keys)
+            or any(
+                cells_by_key[key]["terminal"] != "success"
+                for key in predecessor_keys
+            )
+        ):
+            raise bench.ContractError(
+                "channel-error stage does not bind exact successful "
+                f"predecessor prefix: {stage}"
+            )
 
 
 def _artifact(
