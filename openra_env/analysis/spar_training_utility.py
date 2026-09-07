@@ -15,7 +15,11 @@ from ._spar_conditional_v2 import validate_conditional_v2_evidence
 from ._spar_conditional_v2_1 import validate_conditional_v21_evidence
 from ._spar_conditional_v2_2 import validate_conditional_v22_evidence
 from ._spar_contract import ContractError
-from ._spar_metrics import contact_episodes, trade_ratio, visible_count
+from ._spar_metrics import (
+    contact_episodes as contact_episodes,
+    trade_ratio as trade_ratio,
+    visible_count as visible_count,
+)
 from .spar_v22_conversion_utility import analyze_conversion_productivity
 
 

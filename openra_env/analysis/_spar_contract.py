@@ -87,9 +87,13 @@ def _read(path: Path, label: str, ceiling: int) -> bytes:
         with os.fdopen(fd, "rb", closefd=False) as handle:
             raw = handle.read(ceiling + 1)
         after = os.fstat(fd)
-        identity = lambda value: (
-            value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns,
-        )
+        def identity(value: os.stat_result) -> tuple[int, int, int, int]:
+            return (
+                value.st_dev,
+                value.st_ino,
+                value.st_size,
+                value.st_mtime_ns,
+            )
         if identity(before) != identity(after) or len(raw) != before.st_size:
             raise ContractError(f"{label} changed while being read")
         return raw

@@ -7,6 +7,7 @@ version-agnostic helpers **and** a pytest autouse fixture that patches
 """
 
 import asyncio
+from pathlib import Path
 import types
 import pytest
 
@@ -110,6 +111,40 @@ def get_tools_dict(mcp) -> dict:
 
 
 # ── Autouse fixtures ──────────────────────────────────────────────────────────
+
+# These tests exercise command-line composition only. They do not execute the
+# engine, but OpenRAProcessManager refuses to build a command when neither
+# OpenRA.dll nor launch-rl.sh exists. Virtualize only the exact client existence
+# check for those tests. This never creates, follows, replaces, or removes any
+# path in the real/private OpenRA namespace.
+_COMMAND_BUILD_TESTS = {
+    "tests/test_config.py::TestBotTypeMapping::test_build_command_maps_hard",
+    "tests/test_config.py::TestBotTypeMapping::test_build_command_maps_brutal",
+    "tests/test_config.py::TestBotTypeMapping::test_build_command_no_enemy_with_empty_slot",
+    "tests/test_config.py::TestBotTypeMapping::test_default_config_spawns_enemy",
+    "tests/test_mcp_tools.py::TestReplayConfig::test_record_replays_in_command",
+    "tests/test_mcp_tools.py::TestReplayConfig::test_no_replay_arg_when_disabled",
+}
+
+
+@pytest.fixture(autouse=True)
+def _source_only_fake_openra_client(request, monkeypatch):
+    """Virtualize one client-presence probe without filesystem mutation."""
+    if request.node.nodeid not in _COMMAND_BUILD_TESTS:
+        yield
+        return
+
+    fake_client = Path(__file__).resolve().parents[1] / "OpenRA" / "OpenRA.dll"
+    original_exists = Path.exists
+
+    def source_only_exists(path):
+        if path == fake_client:
+            return True
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", source_only_exists)
+    yield
+
 
 # Monkey-patch FastMCP so that mcp._tool_manager._tools works on 3.x
 # This is done via a module-level patch applied when conftest is imported.

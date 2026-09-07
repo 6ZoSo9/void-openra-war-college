@@ -6,27 +6,64 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          submodules: recursive
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Bind pull-request integration generation
+        if: github.event_name == 'pull_request'
+        env:
+          EXPECTED_INTEGRATION_SHA: ${{ github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          actual_integration_sha="$(git rev-parse HEAD)"
+          test "$actual_integration_sha" = "$EXPECTED_INTEGRATION_SHA"
+
+          read -r actual_base_sha actual_head_sha extra_parent <<<"$(git show -s --format='%P' HEAD)"
+          test -n "$actual_base_sha"
+          test -n "$actual_head_sha"
+          test -z "${extra_parent:-}"
+          test "$actual_base_sha" = "$EXPECTED_BASE_SHA"
+          test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"
+
+          git cat-file -e "${actual_base_sha}^{commit}"
+          git cat-file -e "${actual_head_sha}^{commit}"
+          git diff --check "$actual_base_sha" "$actual_head_sha"
+
+          printf 'integration_sha=%s\nbase_sha=%s\nsource_head_sha=%s\n' \
+            "$actual_integration_sha" "$actual_base_sha" "$actual_head_sha"
+
+      - name: Prove Python CI does not require private engine checkout
+        run: |
+          test -f .gitmodules
+          test ! -e OpenRA/.git
+          git submodule status OpenRA || true
+
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: python -m pip install --disable-pip-version-check -e ".[dev]"
 
       - name: Run tests
-        run: pytest tests/ -v
+        run: python -m pytest tests/ -v
 
       - name: Lint
-        run: ruff check openra_env/
+        run: python -m ruff check openra_env/
