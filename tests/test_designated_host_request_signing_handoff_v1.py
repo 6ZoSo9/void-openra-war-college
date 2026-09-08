@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import sqlite3
+import subprocess
 import stat
 import tempfile
 import unittest
@@ -163,30 +164,123 @@ def make_test_root(public_pem):
 
 
 class SourceBindingTests(unittest.TestCase):
+    @staticmethod
+    def _run_git(repo, *args):
+        completed = subprocess.run(
+            [tool.GIT, "-C", str(repo), *args],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            env={
+                "HOME": str(Path.home()),
+                "LANG": "C",
+                "LC_ALL": "C",
+                "PATH": "/usr/bin:/bin",
+            },
+        )
+        if completed.returncode != 0:
+            raise AssertionError(
+                f"git command failed: {args!r}: {completed.stderr}"
+            )
+        return completed.stdout.strip()
+
+    def _synthetic_binding_generation(self):
+        temp = tempfile.TemporaryDirectory()
+        repo = Path(temp.name)
+
+        self._run_git(repo, "init")
+        self._run_git(repo, "config", "user.name", "War College Test")
+        self._run_git(
+            repo,
+            "config",
+            "user.email",
+            "war-college@example.invalid",
+        )
+
+        runtime_rel = "scripts/runtime-evidence-module.py"
+        wrapper_rel = (
+            "scripts/war_college_designated_host_verify_request_v1.py"
+        )
+
+        runtime_path = repo / runtime_rel
+        runtime_path.parent.mkdir(parents=True)
+        runtime_path.write_text(
+            "RUNTIME_EVIDENCE = 'v1'\n",
+            encoding="utf-8",
+        )
+        self._run_git(repo, "add", runtime_rel)
+        self._run_git(repo, "commit", "-m", "frozen runtime")
+        runtime_commit = self._run_git(repo, "rev-parse", "HEAD")
+        runtime_blob = self._run_git(
+            repo,
+            "rev-parse",
+            f"HEAD:{runtime_rel}",
+        )
+
+        wrapper_path = repo / wrapper_rel
+        wrapper_path.write_text(
+            "REQUEST_MARKER = 'synthetic-v1'\n",
+            encoding="utf-8",
+        )
+        self._run_git(repo, "add", wrapper_rel)
+        self._run_git(repo, "commit", "-m", "add request wrapper")
+        semantic_parent = self._run_git(repo, "rev-parse", "HEAD")
+        wrapper_blob = self._run_git(
+            repo,
+            "rev-parse",
+            f"HEAD:{wrapper_rel}",
+        )
+
+        contract = {
+            "runtime_source_commit": runtime_commit,
+            "runtime_artifact_git_blobs": {
+                runtime_rel: runtime_blob,
+            },
+            "request_wrapper_path": wrapper_rel,
+            "request_wrapper_git_blob": wrapper_blob,
+            "request_wrapper_source_commit": semantic_parent,
+            "semantic_parent_head": semantic_parent,
+        }
+        return temp, repo, contract
+
     def test_declared_runtime_and_wrapper_source_bindings_exist(self):
-        contract = tool.load_contract()
-        tool.verify_source_bindings(contract)
-        self.assertEqual(
-            contract["request_wrapper_source_commit"],
-            contract["semantic_parent_head"],
+        production = json.loads(
+            tool.CONTRACT_PATH.read_text(encoding="utf-8")
         )
         self.assertEqual(
-            contract["request_wrapper_path"],
+            production["request_wrapper_source_commit"],
+            production["semantic_parent_head"],
+        )
+        self.assertEqual(
+            production["request_wrapper_path"],
             "scripts/war_college_designated_host_verify_request_v1.py",
         )
         self.assertNotIn(
-            contract["request_wrapper_path"],
-            contract["runtime_artifact_git_blobs"],
+            production["request_wrapper_path"],
+            production["runtime_artifact_git_blobs"],
         )
 
+        temp, repo, contract = self._synthetic_binding_generation()
+        try:
+            tool.verify_source_bindings(contract, source_repo=repo)
+        finally:
+            temp.cleanup()
+
     def test_impossible_wrapper_in_frozen_runtime_is_rejected(self):
-        contract = tool.load_contract()
-        broken = json.loads(json.dumps(contract))
-        broken["runtime_artifact_git_blobs"][
-            broken["request_wrapper_path"]
-        ] = broken["request_wrapper_git_blob"]
-        with self.assertRaises(tool.HandoffHold):
-            tool.verify_source_bindings(broken)
+        temp, repo, contract = self._synthetic_binding_generation()
+        try:
+            broken = json.loads(json.dumps(contract))
+            broken["runtime_artifact_git_blobs"][
+                broken["request_wrapper_path"]
+            ] = broken["request_wrapper_git_blob"]
+            with self.assertRaises(tool.HandoffHold):
+                tool.verify_source_bindings(
+                    broken,
+                    source_repo=repo,
+                )
+        finally:
+            temp.cleanup()
 
 
 class SigningHandoffTests(unittest.TestCase):
