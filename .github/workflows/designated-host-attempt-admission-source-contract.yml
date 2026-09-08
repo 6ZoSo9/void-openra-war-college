@@ -92,7 +92,17 @@ jobs:
           assert "AT_EMPTY_PATH" in source
           assert "linkat" in source
           assert "/proc/self/fd/" in source
-          assert "HOLD_WAR_COLLEGE_DIRECTORY_PATH_IDENTITY" in source
+          tests = Path(
+              "tests/test_designated_host_attempt_admission_v1.py"
+          ).read_text()
+          assert "HOLD_{label}_PATH_IDENTITY" in source
+          assert (
+              "HOLD_WAR_COLLEGE_DIRECTORY_PATH_IDENTITY" in tests
+          )
+          assert (
+              "test_war_college_directory_substitution_fails_after_publication"
+              in tests
+          )
           assert source.count("_require_fd_path_identity(") >= 5
           print("VOID_WAR_COLLEGE_ATTEMPT_ADMISSION_SOURCE_GREEN")
           PY
