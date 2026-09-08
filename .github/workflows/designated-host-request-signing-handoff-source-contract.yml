@@ -1,0 +1,79 @@
+name: designated-host-request-signing-handoff-source-contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - config/war-college/designated-host-request-signing-handoff-v1.json
+      - scripts/prepare_designated_host_request_signing_handoff_v1.py
+      - tests/test_designated_host_request_signing_handoff_v1.py
+      - .github/workflows/designated-host-request-signing-handoff-source-contract.yml
+      - scripts/controller_attempt_admission_store_v1.py
+      - scripts/verify_controller_evidence_isolation_v1.py
+      - scripts/verify_controller_evidence_producer_auth_v1.py
+      - scripts/war_college_designated_producer_trust_root_v1.py
+      - scripts/war_college_designated_host_verify_request_v1.py
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install focused dependency
+        run: python -m pip install 'cryptography>=41.0.0,<51.0.0'
+
+      - name: Compile handoff lane
+        run: |
+          python -m py_compile \
+            scripts/prepare_designated_host_request_signing_handoff_v1.py \
+            tests/test_designated_host_request_signing_handoff_v1.py
+
+      - name: Run handoff falsifiers
+        run: |
+          python -m unittest -v \
+            tests/test_designated_host_request_signing_handoff_v1.py
+
+      - name: Prove non-custodial staging-only authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          contract = json.loads(
+              Path("config/war-college/designated-host-request-signing-handoff-v1.json")
+              .read_text()
+          )
+          authority = contract["authority"]
+          assert authority == {
+              "private_key_access": False,
+              "store_mutation_authorized": False,
+              "live_bundle_materialization_authorized": False,
+              "service_start_authorized": False,
+              "runtime_execution_authorized": False,
+          }
+          source = Path(
+              "scripts/prepare_designated_host_request_signing_handoff_v1.py"
+          ).read_text()
+          assert "BEGIN PRIVATE KEY" not in source
+          assert "consume_joint_evidence(" not in source
+          assert "verify_and_consume_evidence(" not in source
+          assert "systemctl" not in source
+          print("VOID_WAR_COLLEGE_SIGNING_HANDOFF_SOURCE_GREEN")
+          PY
