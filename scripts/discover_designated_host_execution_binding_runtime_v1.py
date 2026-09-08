@@ -25,6 +25,8 @@ MARKER = "VOID_WAR_COLLEGE_DESIGNATED_HOST_RUNTIME_PREFLIGHT_V1"
 SCHEMA_VERSION = 1
 SYSTEMCTL = "/usr/bin/systemctl"
 GIT = "/usr/bin/git"
+SYSTEMD_PROBE_REQUEST_ID = "wcrq1_00000000000000000000000000000000"
+SYSTEMD_PROBE_REQUEST_RE = re.compile(r"wcrq1_[0-9a-f]{32}\Z")
 
 
 class RuntimePreflightError(ValueError):
@@ -194,6 +196,28 @@ def artifact_record(path: Path) -> dict[str, Any]:
     return record
 
 
+def _systemd_probe_unit_name(service_template_name: str) -> str:
+    if type(service_template_name) is not str or service_template_name.count("@.") != 1:
+        raise RuntimePreflightError("service template name is not instantiable")
+    if SYSTEMD_PROBE_REQUEST_RE.fullmatch(SYSTEMD_PROBE_REQUEST_ID) is None:
+        raise RuntimePreflightError("systemd probe request id is invalid")
+    return service_template_name.replace(
+        "@.", f"@{SYSTEMD_PROBE_REQUEST_ID}.", 1
+    )
+
+def _systemd_user_bus_environment() -> dict[str, str]:
+    uid = os.getuid()
+    runtime_dir = Path("/run/user") / str(uid)
+    return {
+        "HOME": str(Path.home()),
+        "LANG": "C",
+        "LC_ALL": "C",
+        "PATH": "/usr/bin:/bin",
+        "XDG_RUNTIME_DIR": str(runtime_dir),
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime_dir / 'bus'}",
+    }
+
+
 def _run_systemctl(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [SYSTEMCTL, *args],
@@ -201,13 +225,9 @@ def _run_systemctl(args: list[str]) -> subprocess.CompletedProcess[str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
-        env={
-            "HOME": str(Path.home()),
-            "LANG": "C",
-            "LC_ALL": "C",
-            "PATH": "/usr/bin:/bin",
-        },
+        env=_systemd_user_bus_environment(),
     )
+
 
 
 def systemd_snapshot(
@@ -215,10 +235,11 @@ def systemd_snapshot(
     *,
     run_command: Callable[[list[str]], subprocess.CompletedProcess[str]] = _run_systemctl,
 ) -> dict[str, Any]:
+    probe_unit_name = _systemd_probe_unit_name(service_template_name)
     args = [
         "--user",
         "show",
-        service_template_name,
+        probe_unit_name,
         "--property=LoadState",
         "--property=FragmentPath",
         "--property=DropInPaths",
@@ -228,6 +249,7 @@ def systemd_snapshot(
     completed = run_command(args)
     if completed.returncode != 0:
         return {
+            "probe_unit_name": probe_unit_name,
             "load_state": None,
             "fragment_path": None,
             "dropin_paths": None,
@@ -251,12 +273,14 @@ def systemd_snapshot(
     raw_reload = properties.get("NeedDaemonReload")
     need_reload = False if raw_reload == "no" else True if raw_reload == "yes" else None
     return {
+        "probe_unit_name": probe_unit_name,
         "load_state": properties.get("LoadState"),
         "fragment_path": properties.get("FragmentPath") or None,
         "dropin_paths": dropins,
         "need_daemon_reload": need_reload,
         "query_error": None,
     }
+
 
 
 def _run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -341,6 +365,7 @@ def collect_discovery(
         "marker": execution.DISCOVERY_MARKER,
         "schema_version": 1,
         "service_template_name": binding["service_template_name"],
+        "systemd_probe_unit_name": systemd.get("probe_unit_name"),
         "systemd_load_state": systemd.get("load_state"),
         "systemd_fragment_path": systemd.get("fragment_path"),
         "systemd_query_error": systemd.get("query_error"),

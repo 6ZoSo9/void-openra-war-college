@@ -81,8 +81,8 @@ class RuntimePreflightTests(unittest.TestCase):
             return SimpleNamespace(
                 returncode=0,
                 stdout=(
-                    "LoadState=loaded\n"
-                    "FragmentPath=/tmp/unit.service\n"
+                    "LoadState=not-found\n"
+                    "FragmentPath=\n"
                     "DropInPaths=\n"
                     "NeedDaemonReload=no\n"
                 ),
@@ -93,12 +93,33 @@ class RuntimePreflightTests(unittest.TestCase):
             "void-war-college-evidence-verifier@.service",
             run_command=fake_run,
         )
-        self.assertEqual(record["dropin_paths"], [])
-        self.assertFalse(record["need_daemon_reload"])
         self.assertEqual(len(calls), 1)
         self.assertIn("show", calls[0])
+        self.assertIn("void-war-college-evidence-verifier@wcrq1_00000000000000000000000000000000.service", calls[0])
+        self.assertNotIn("void-war-college-evidence-verifier@.service", calls[0])
+        self.assertEqual(record["probe_unit_name"], "void-war-college-evidence-verifier@wcrq1_00000000000000000000000000000000.service")
+        self.assertEqual(record["load_state"], "not-found")
+        self.assertEqual(record["dropin_paths"], [])
+        self.assertFalse(record["need_daemon_reload"])
+        self.assertIsNone(record["query_error"])
         for forbidden in ("start", "restart", "reload", "enable", "disable", "stop"):
             self.assertNotIn(forbidden, calls[0])
+
+        with self.assertRaises(PREFLIGHT.RuntimePreflightError):
+            PREFLIGHT._systemd_probe_unit_name(
+                "void-war-college-evidence-verifier.service"
+            )
+
+    def test_systemd_user_bus_environment_is_local_user_scoped(self):
+        env = PREFLIGHT._systemd_user_bus_environment()
+        uid = __import__("os").getuid()
+        runtime = f"/run/user/{uid}"
+        self.assertEqual(env["XDG_RUNTIME_DIR"], runtime)
+        self.assertEqual(
+            env["DBUS_SESSION_BUS_ADDRESS"],
+            f"unix:path={runtime}/bus",
+        )
+
 
     def test_missing_install_fails_closed_without_mutation(self):
         with tempfile.TemporaryDirectory() as directory:
