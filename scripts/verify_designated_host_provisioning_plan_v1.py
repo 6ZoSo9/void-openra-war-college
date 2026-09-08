@@ -103,13 +103,19 @@ def verify_plan(plan: Any, binding: Any) -> dict[str, Any]:
             holds.append("HOLD_PROVISIONING_RUNTIME_CLEAN_REQUIREMENT")
 
         source_commit = runtime.get("source_commit")
-        if type(source_commit) is str:
-            for rel, expected in sorted(
-                binding.get("runtime_artifact_git_blobs", {}).items()
-            ):
-                if _git_blob(rel, source_commit) != expected:
-                    holds.append("HOLD_PROVISIONING_HISTORICAL_RUNTIME_BLOB")
-                    break
+        if (
+            type(source_commit) is str
+            and source_commit == binding.get("runtime_source_commit")
+        ):
+            try:
+                for rel, expected in sorted(
+                    binding.get("runtime_artifact_git_blobs", {}).items()
+                ):
+                    if _git_blob(rel, source_commit) != expected:
+                        holds.append("HOLD_PROVISIONING_HISTORICAL_RUNTIME_BLOB")
+                        break
+            except ProvisioningPlanError:
+                holds.append("HOLD_PROVISIONING_HISTORICAL_RUNTIME_BLOB")
 
     expected_artifacts = {
         "systemd_user_unit": (
