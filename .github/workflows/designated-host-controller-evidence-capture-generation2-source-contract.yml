@@ -1,0 +1,185 @@
+name: designated-host-controller-evidence-capture-generation2-source-contract
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/designated-host-controller-evidence-capture-generation2-source-contract.yml
+      - config/war-college/designated-host-controller-evidence-capture-generation2-v1.json
+      - scripts/capture_designated_host_controller_evidence_generation2_v1.py
+      - tests/test_designated_host_controller_evidence_capture_generation2_v1.py
+      - scripts/capture_designated_host_controller_evidence_v1.py
+      - bench_joint_advance.py
+      - bench_joint_advance_core.py
+      - proto/rl_bridge.proto
+      - scripts/controller_attempt_admission_store_v1.py
+      - scripts/verify_controller_evidence_isolation_v1.py
+      - OpenRA
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/designated-host-controller-evidence-capture-generation2-source-contract.yml
+      - config/war-college/designated-host-controller-evidence-capture-generation2-v1.json
+      - scripts/capture_designated_host_controller_evidence_generation2_v1.py
+      - tests/test_designated_host_controller_evidence_capture_generation2_v1.py
+      - scripts/capture_designated_host_controller_evidence_v1.py
+      - bench_joint_advance.py
+      - bench_joint_advance_core.py
+      - proto/rl_bridge.proto
+      - scripts/controller_attempt_admission_store_v1.py
+      - scripts/verify_controller_evidence_isolation_v1.py
+      - OpenRA
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    name: Python ${{ matrix.python-version }} generation-2 source contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile generation-2 source
+        run: |
+          python -m py_compile \
+            scripts/capture_designated_host_controller_evidence_generation2_v1.py \
+            tests/test_designated_host_controller_evidence_capture_generation2_v1.py
+      - name: Run generation-2 falsifiers
+        run: |
+          python \
+            -W error::ResourceWarning \
+            -W error::RuntimeWarning \
+            -m unittest -v \
+            tests.test_designated_host_controller_evidence_capture_generation2_v1
+      - name: Verify generation-2 source authority and predecessor wall
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          contract_path = Path(
+              "config/war-college/"
+              "designated-host-controller-evidence-capture-generation2-v1.json"
+          )
+          source_path = Path(
+              "scripts/capture_designated_host_controller_evidence_generation2_v1.py"
+          )
+          tests_path = Path(
+              "tests/test_designated_host_controller_evidence_capture_generation2_v1.py"
+          )
+          workflow_path = Path(
+              ".github/workflows/"
+              "designated-host-controller-evidence-capture-generation2-source-contract.yml"
+          )
+          contract = json.loads(contract_path.read_text())
+          source = source_path.read_text()
+          tests = tests_path.read_text()
+          workflow = workflow_path.read_text()
+
+          assert contract["marker"] == (
+              "VOID_WAR_COLLEGE_DESIGNATED_HOST_CONTROLLER_EVIDENCE_CAPTURE_GENERATION2_V1"
+          )
+          assert contract["version"] == 1
+          assert contract["semantic_parent_pr"] == 38
+          assert (
+              contract["semantic_parent_head"]
+              == "eadc0b15876fdfe6cf021860f1d4b7b8697fb64e"
+          )
+          assert contract["predecessor_session_generation"] == 1
+          assert contract["controller_session_generation"] == 2
+          assert (
+              contract["predecessor_joint_evidence_sha256"]
+              == "486cb7e5ba1fe0718f1d418802f7c8a39540d36f233aa88c6b21da66bdd45d4a"
+          )
+          assert (
+              contract["predecessor_consumption_sha256"]
+              == "a36298e79acc689fcbea3bbf9bd4626c5bf3c0ee270b36caa3809bda56130e16"
+          )
+          assert (
+              contract["expected_session_advance_receipt_sha256"]
+              == "5159b314633903133d82c2a21720108ec80e1a1c3d8d482675cac4e6a030e7d7"
+          )
+          assert (
+              contract["explicit_capture_confirmation"]
+              == "CAPTURE_GENERATION2_CONTROLLER_EVIDENCE"
+          )
+          assert contract["source_lane_authority"] == {
+              "canonical_store_mutation": False,
+              "controller_model_execution": False,
+              "evidence_consumption": False,
+              "live_request_materialization": False,
+              "private_key_access": False,
+              "runtime_execution": False,
+              "service_action": False,
+              "session_advance": False,
+              "signing": False,
+          }
+          assert contract["capture_operation"]["requires_generation2_current"] is True
+          assert (
+              contract["capture_operation"][
+                  "requires_predecessor_consumed_exactly_once"
+              ]
+              is True
+          )
+          assert contract["capture_operation"]["session_advance"] is False
+          assert contract["capture_operation"]["evidence_consumption"] is False
+          assert contract["capture_operation"]["service_action"] is False
+
+          parent_blob = subprocess.run(
+              [
+                  "git",
+                  "rev-parse",
+                  "HEAD:scripts/capture_designated_host_controller_evidence_v1.py",
+              ],
+              check=True,
+              text=True,
+              stdout=subprocess.PIPE,
+          ).stdout.strip()
+          assert parent_blob == "99aa213459652959f2c1f5852659aa3a63b7cb59"
+          assert contract["parent_capture_source_git_blob"] == parent_blob
+
+          assert "base._read_attempt_ro = _read_attempt_generation2_ro" in source
+          assert "base._runtime_child_command = _generation2_runtime_child_command" in source
+          assert "HOLD_CAPTURE_G2_PREDECESSOR_CONSUMPTION_COUNT" in source
+          assert "HOLD_CAPTURE_G2_SUCCESSOR_LINK_DRIFT" in source
+          assert "CAPTURE_GENERATION2_CONTROLLER_EVIDENCE" in source
+          assert "expected_session_advance_receipt_sha256" in source
+
+          for forbidden in (
+              "BEGIN PRIVATE KEY",
+              "consume_joint_evidence(",
+              "advance_session(",
+              "systemctl",
+              ".sign(",
+          ):
+              assert forbidden not in source
+
+          assert "test_read_only_store_gate_accepts_exact_successor_and_predecessor_receipt" in tests
+          assert "test_read_only_store_gate_rejects_missing_predecessor_consumption" in tests
+          assert "test_builds_structurally_green_generation2_evidence" in tests
+
+          for bound in (
+              "scripts/capture_designated_host_controller_evidence_v1.py",
+              "bench_joint_advance.py",
+              "bench_joint_advance_core.py",
+              "proto/rl_bridge.proto",
+              "scripts/controller_attempt_admission_store_v1.py",
+              "scripts/verify_controller_evidence_isolation_v1.py",
+              "OpenRA",
+          ):
+              assert f"- {bound}" in workflow
+
+          print("VOID_WAR_COLLEGE_CONTROLLER_EVIDENCE_CAPTURE_GENERATION2_SOURCE_V1_GREEN")
+          PY
