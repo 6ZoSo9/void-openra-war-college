@@ -8,6 +8,7 @@ on:
       - scripts/capture_designated_host_controller_evidence_generation2_v1.py
       - tests/test_designated_host_controller_evidence_capture_generation2_v1.py
       - scripts/capture_designated_host_controller_evidence_v1.py
+      - pyproject.toml
       - bench_joint_advance.py
       - bench_joint_advance_core.py
       - proto/rl_bridge.proto
@@ -23,6 +24,7 @@ on:
       - scripts/capture_designated_host_controller_evidence_generation2_v1.py
       - tests/test_designated_host_controller_evidence_capture_generation2_v1.py
       - scripts/capture_designated_host_controller_evidence_v1.py
+      - pyproject.toml
       - bench_joint_advance.py
       - bench_joint_advance_core.py
       - proto/rl_bridge.proto
@@ -87,6 +89,7 @@ jobs:
           source = source_path.read_text()
           tests = tests_path.read_text()
           workflow = workflow_path.read_text()
+          pyproject = Path("pyproject.toml").read_text()
 
           assert contract["marker"] == (
               "VOID_WAR_COLLEGE_DESIGNATED_HOST_CONTROLLER_EVIDENCE_CAPTURE_GENERATION2_V1"
@@ -115,6 +118,18 @@ jobs:
               contract["explicit_capture_confirmation"]
               == "CAPTURE_GENERATION2_CONTROLLER_EVIDENCE"
           )
+          assert (
+              contract["capture_python_path"]
+              == "/home/zoso/Downloads/void-war-college-capture-runtime-v1/bin/python"
+          )
+          assert (
+              contract["capture_python_prefix"]
+              == "/home/zoso/Downloads/void-war-college-capture-runtime-v1"
+          )
+          assert contract["capture_grpc_version"] == "1.75.1"
+          assert contract["capture_protobuf_version"] == "6.31.1"
+          assert '"grpcio>=1.60.0"' in pyproject
+          assert '"protobuf>=4.25.0"' in pyproject
           assert contract["source_lane_authority"] == {
               "canonical_store_mutation": False,
               "controller_model_execution": False,
@@ -156,6 +171,9 @@ jobs:
           assert "HOLD_CAPTURE_G2_SUCCESSOR_LINK_DRIFT" in source
           assert "CAPTURE_GENERATION2_CONTROLLER_EVIDENCE" in source
           assert "expected_session_advance_receipt_sha256" in source
+          assert "verify_capture_python" in source
+          assert 'contract["capture_python_path"]' in source
+          assert "HOLD_CAPTURE_G2_CAPTURE_PYTHON_RUNTIME_IMPORTS" in source
 
           for forbidden in (
               "BEGIN PRIVATE KEY",
@@ -169,9 +187,11 @@ jobs:
           assert "test_read_only_store_gate_accepts_exact_successor_and_predecessor_receipt" in tests
           assert "test_read_only_store_gate_rejects_missing_predecessor_consumption" in tests
           assert "test_builds_structurally_green_generation2_evidence" in tests
+          assert "test_capture_runtime_probes_dedicated_python_before_parent_runtime" in tests
 
           for bound in (
               "scripts/capture_designated_host_controller_evidence_v1.py",
+              "pyproject.toml",
               "bench_joint_advance.py",
               "bench_joint_advance_core.py",
               "proto/rl_bridge.proto",
@@ -181,5 +201,5 @@ jobs:
           ):
               assert f"- {bound}" in workflow
 
-          print("VOID_WAR_COLLEGE_CONTROLLER_EVIDENCE_CAPTURE_GENERATION2_SOURCE_V1_GREEN")
+          print("VOID_WAR_COLLEGE_CONTROLLER_EVIDENCE_CAPTURE_GENERATION2_SOURCE_V2_GREEN")
           PY

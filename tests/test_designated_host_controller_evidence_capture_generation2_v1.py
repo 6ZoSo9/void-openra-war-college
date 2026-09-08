@@ -171,6 +171,16 @@ class Generation2CaptureTests(unittest.TestCase):
             "CAPTURE_GENERATION2_CONTROLLER_EVIDENCE",
         )
         self.assertEqual(
+            self.contract["capture_python_path"],
+            "/home/zoso/Downloads/void-war-college-capture-runtime-v1/bin/python",
+        )
+        self.assertEqual(
+            self.contract["capture_python_prefix"],
+            "/home/zoso/Downloads/void-war-college-capture-runtime-v1",
+        )
+        self.assertEqual(self.contract["capture_grpc_version"], "1.75.1")
+        self.assertEqual(self.contract["capture_protobuf_version"], "6.31.1")
+        self.assertEqual(
             self.contract["source_lane_authority"],
             {
                 "canonical_store_mutation": False,
@@ -212,6 +222,7 @@ class Generation2CaptureTests(unittest.TestCase):
             self.contract,
             self.contract["explicit_capture_confirmation"],
         )
+        self.assertEqual(command[0], self.contract["capture_python_path"])
         self.assertEqual(command[1:3], ["-I", "-B"])
         self.assertEqual(Path(command[3]).resolve(), SCRIPT.resolve())
         self.assertEqual(command[4], "_capture-child")
@@ -275,6 +286,28 @@ class Generation2CaptureTests(unittest.TestCase):
                     "HOLD_CAPTURE_G2_PREDECESSOR_CONSUMPTION_COUNT",
                 ):
                     tool._read_attempt_generation2_ro(contract)
+
+
+    def test_capture_runtime_probes_dedicated_python_before_parent_runtime(self):
+        with mock.patch.object(
+            tool,
+            "verify_capture_python",
+            side_effect=tool.Generation2CaptureHold(
+                "HOLD_CAPTURE_G2_CAPTURE_PYTHON_RUNTIME_IMPORTS"
+            ),
+        ), mock.patch.object(
+            tool.base,
+            "capture_runtime",
+            side_effect=AssertionError("must not run parent capture"),
+        ):
+            with self.assertRaisesRegex(
+                tool.Generation2CaptureHold,
+                "HOLD_CAPTURE_G2_CAPTURE_PYTHON_RUNTIME_IMPORTS",
+            ):
+                tool.capture_runtime(
+                    self.contract,
+                    confirmation=self.contract["explicit_capture_confirmation"],
+                )
 
     def test_wrong_capture_confirmation_fails_before_runtime_verification(self):
         with mock.patch.object(

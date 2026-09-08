@@ -15,6 +15,7 @@ import json
 import os
 import sqlite3
 import stat
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,7 @@ EXPECTED_UID = 1000
 EXPECTED_GID = 1000
 EXPECTED_PARENT_HEAD = "eadc0b15876fdfe6cf021860f1d4b7b8697fb64e"
 EXPECTED_PARENT_CAPTURE_BLOB = "99aa213459652959f2c1f5852659aa3a63b7cb59"
+EXPECTED_PYPROJECT_BLOB = "6a32df4cab3e4198cee6ca426bea1e6ccb36533f"
 EXPECTED_PREDECESSOR_GENERATION = 1
 EXPECTED_GENERATION = 2
 EXPECTED_PREDECESSOR_JOINT_SHA256 = (
@@ -65,6 +67,78 @@ def canonical_sha256(value: Any) -> str:
         separators=(",", ":"),
     ).encode("ascii")
     return hashlib.sha256(raw).hexdigest()
+
+
+
+def verify_capture_python(contract: dict[str, Any]) -> dict[str, str]:
+    path = Path(contract["capture_python_path"])
+    prefix = Path(contract["capture_python_prefix"])
+    if (
+        not path.exists()
+        or not path.is_file()
+        or not os.access(path, os.X_OK)
+    ):
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_CAPTURE_PYTHON_UNAVAILABLE")
+    if path.parent.parent != prefix:
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_CAPTURE_PYTHON_PREFIX_PATH")
+
+    cp = subprocess.run(
+        [
+            str(path),
+            "-I",
+            "-B",
+            "-c",
+            (
+                "import json,sys;"
+                f"sys.path.insert(0,{str(ROOT)!r});"
+                "import grpc,google.protobuf;"
+                "from openra_env.generated import rl_bridge_pb2,rl_bridge_pb2_grpc;"
+                "import bench_joint_advance_core as bench;"
+                "bench._runtime_modules();"
+                "print(json.dumps({"
+                "'python':sys.executable,"
+                "'prefix':sys.prefix,"
+                "'grpc':grpc.__version__,"
+                "'protobuf':google.protobuf.__version__"
+                "},sort_keys=True))"
+            ),
+        ],
+        cwd=str(ROOT),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env={
+            "HOME": str(Path.home()),
+            "LANG": "C",
+            "LC_ALL": "C",
+            "PATH": f"{path.parent}:/usr/bin:/bin",
+        },
+    )
+    if cp.returncode != 0:
+        raise Generation2CaptureHold(
+            "HOLD_CAPTURE_G2_CAPTURE_PYTHON_RUNTIME_IMPORTS:"
+            + cp.stderr.strip()
+        )
+    try:
+        payload = json.loads(cp.stdout)
+    except json.JSONDecodeError as error:
+        raise Generation2CaptureHold(
+            "HOLD_CAPTURE_G2_CAPTURE_PYTHON_PROBE_JSON"
+        ) from error
+
+    expected = {
+        "python": str(path),
+        "prefix": str(prefix),
+        "grpc": contract["capture_grpc_version"],
+        "protobuf": contract["capture_protobuf_version"],
+    }
+    if payload != expected:
+        raise Generation2CaptureHold(
+            "HOLD_CAPTURE_G2_CAPTURE_PYTHON_IDENTITY:"
+            + json.dumps(payload, sort_keys=True)
+        )
+    return payload
 
 
 def load_contract() -> dict[str, Any]:
@@ -148,6 +222,20 @@ def load_contract() -> dict[str, Any]:
         raise Generation2CaptureHold("HOLD_CAPTURE_G2_TICK_SHAPE")
     if value.get("dotnet_version") != "8.0.424":
         raise Generation2CaptureHold("HOLD_CAPTURE_G2_DOTNET_VERSION")
+    if value.get("capture_python_strategy") != "dedicated_capture_runtime_v1":
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_CAPTURE_PYTHON_STRATEGY")
+    if value.get("capture_python_path") != (
+        "/home/zoso/Downloads/void-war-college-capture-runtime-v1/bin/python"
+    ):
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_CAPTURE_PYTHON_PATH")
+    if value.get("capture_python_prefix") != (
+        "/home/zoso/Downloads/void-war-college-capture-runtime-v1"
+    ):
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_CAPTURE_PYTHON_PREFIX")
+    if value.get("capture_grpc_version") != "1.75.1":
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_GRPC_VERSION")
+    if value.get("capture_protobuf_version") != "6.31.1":
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_PROTOBUF_VERSION")
     for field in (
         "ready_timeout_s",
         "rpc_timeout_s",
@@ -165,6 +253,8 @@ def load_contract() -> dict[str, Any]:
         != EXPECTED_PARENT_CAPTURE_BLOB
     ):
         raise Generation2CaptureHold("HOLD_CAPTURE_G2_BOUND_PARENT_CAPTURE_BLOB")
+    if bound.get("pyproject.toml") != EXPECTED_PYPROJECT_BLOB:
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_BOUND_PYPROJECT_BLOB")
 
     expected_source_authority = {
         "canonical_store_mutation": False,
@@ -341,7 +431,7 @@ def _generation2_runtime_child_command(
     confirmation: str,
 ) -> list[str]:
     return [
-        sys.executable,
+        contract["capture_python_path"],
         "-I",
         "-B",
         str(Path(__file__).resolve()),
@@ -363,6 +453,9 @@ def plan_capture(contract: dict[str, Any]) -> dict[str, Any]:
         **report,
         "marker": MARKER,
         "capture_generation": EXPECTED_GENERATION,
+        "capture_python_path": contract["capture_python_path"],
+        "capture_grpc_version": contract["capture_grpc_version"],
+        "capture_protobuf_version": contract["capture_protobuf_version"],
         "predecessor_session_generation": EXPECTED_PREDECESSOR_GENERATION,
         "predecessor_consumption_bound": True,
         "expected_session_advance_receipt_sha256":
@@ -375,6 +468,9 @@ def capture_child(
     *,
     confirmation: str,
 ) -> dict[str, Any]:
+    if confirmation != contract["explicit_capture_confirmation"]:
+        return base.capture_child(contract, confirmation=confirmation)
+    verify_capture_python(contract)
     return base.capture_child(contract, confirmation=confirmation)
 
 
@@ -383,6 +479,9 @@ def capture_runtime(
     *,
     confirmation: str,
 ) -> dict[str, Any]:
+    if confirmation != contract["explicit_capture_confirmation"]:
+        return base.capture_runtime(contract, confirmation=confirmation)
+    verify_capture_python(contract)
     return base.capture_runtime(contract, confirmation=confirmation)
 
 
