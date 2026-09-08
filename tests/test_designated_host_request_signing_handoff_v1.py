@@ -136,7 +136,7 @@ def make_evidence(attempt_id="attempt-001", generation=1):
     }
 
 
-def test_root(public_pem):
+def make_test_root(public_pem):
     derived = producer_auth.derive_void_node_identity_from_public_pem(public_pem)
     assert derived is not None
     node_id, _pem_sha, _key = derived
@@ -197,7 +197,7 @@ class SigningHandoffTests(unittest.TestCase):
             "request_id_derivation_domain": "VOID_WAR_COLLEGE_REQUEST_ID_V1",
             "store_path": str(self.store_path),
         }
-        self.trust_root = test_root(self.public_pem)
+        self.trust_root = make_test_root(self.public_pem)
 
     def tearDown(self):
         self.temp.cleanup()
