@@ -260,6 +260,7 @@ class AttemptAdmissionTests(unittest.TestCase):
                     with self.assertRaises(tool.AdmissionToolHold):
                         tool._open_or_create_wc_directory(
                             data_fd,
+                            expected_path=data_dir / "war_college",
                             uid=os.getuid(),
                             gid=os.getgid(),
                             mutation=mutation,
@@ -292,6 +293,56 @@ class AttemptAdmissionTests(unittest.TestCase):
                 self.assertTrue((root / "staging").is_file())
             finally:
                 os.close(dir_fd)
+
+    def test_war_college_directory_substitution_fails_after_publication(self):
+        identity, _trust = self.identity()
+        with tempfile.TemporaryDirectory() as temp:
+            data_dir = Path(temp) / "data_a"
+            data_dir.mkdir(mode=0o700)
+            wc = data_dir / "war_college"
+            moved = data_dir / "war_college-moved"
+            store_path = wc / "controller_attempt_admission_v3.sqlite3"
+            staging_path = wc / ".controller_attempt_admission_v3.sqlite3.staging-v1"
+
+            real_link = tool._link_fd_create_only
+
+            def substitute_then_link(source_fd, destination_dir_fd, name):
+                os.rename(wc, moved)
+                wc.mkdir(mode=0o700)
+                real_link(source_fd, destination_dir_fd, name)
+
+            with mock.patch.object(
+                tool,
+                "_link_fd_create_only",
+                side_effect=substitute_then_link,
+            ):
+                with self.assertRaises(tool.ApplyAdmissionHold) as caught:
+                    tool.apply_admission(
+                        contract=self.contract,
+                        modules=self.modules,
+                        identity=identity,
+                        confirmation=self.contract["explicit_apply_confirmation"],
+                        store_path=store_path,
+                        data_dir=data_dir,
+                        staging_path=staging_path,
+                        enforce_host=False,
+                    )
+
+            hold = caught.exception
+            self.assertTrue(hold.mutation_performed)
+            self.assertTrue(hold.staging_alias_created)
+            self.assertTrue(hold.canonical_store_created)
+            self.assertIn("HOLD_WAR_COLLEGE_DIRECTORY_PATH_IDENTITY", str(hold))
+            self.assertFalse(store_path.exists())
+            self.assertTrue(
+                (moved / "controller_attempt_admission_v3.sqlite3").is_file()
+            )
+            self.assertTrue(
+                (
+                    moved
+                    / ".controller_attempt_admission_v3.sqlite3.staging-v1"
+                ).is_file()
+            )
 
     def test_second_apply_never_reuses_existing_staging_or_canonical(self):
         identity, _trust = self.identity()

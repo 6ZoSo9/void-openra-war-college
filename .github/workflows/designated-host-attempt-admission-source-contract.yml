@@ -92,5 +92,7 @@ jobs:
           assert "AT_EMPTY_PATH" in source
           assert "linkat" in source
           assert "/proc/self/fd/" in source
+          assert "HOLD_WAR_COLLEGE_DIRECTORY_PATH_IDENTITY" in source
+          assert source.count("_require_fd_path_identity(") >= 5
           print("VOID_WAR_COLLEGE_ATTEMPT_ADMISSION_SOURCE_GREEN")
           PY

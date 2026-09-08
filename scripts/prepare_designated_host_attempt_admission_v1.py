@@ -334,6 +334,15 @@ def _require_fd_directory(fd: int, *, uid: int, gid: int, mode: int, label: str)
         raise AdmissionToolHold(f"HOLD_{label}_MODE")
 
 
+def _require_fd_path_identity(fd: int, expected: Path, *, label: str) -> None:
+    try:
+        resolved = Path(f"/proc/self/fd/{fd}").resolve(strict=True)
+    except OSError as error:
+        raise AdmissionToolHold(f"HOLD_{label}_PATH_IDENTITY_UNAVAILABLE") from error
+    if resolved != expected:
+        raise AdmissionToolHold(f"HOLD_{label}_PATH_IDENTITY")
+
+
 def _open_data_directory(path: Path, *, uid: int, gid: int) -> int:
     flags = (
         os.O_RDONLY
@@ -347,9 +356,7 @@ def _open_data_directory(path: Path, *, uid: int, gid: int) -> int:
         raise AdmissionToolHold("HOLD_DATA_DIRECTORY_OPEN") from error
     try:
         _require_fd_directory(fd, uid=uid, gid=gid, mode=0o700, label="DATA_DIRECTORY")
-        resolved = Path(f"/proc/self/fd/{fd}").resolve(strict=True)
-        if resolved != path:
-            raise AdmissionToolHold("HOLD_DATA_DIRECTORY_PATH_IDENTITY")
+        _require_fd_path_identity(fd, path, label="DATA_DIRECTORY")
         return fd
     except Exception:
         os.close(fd)
@@ -359,6 +366,7 @@ def _open_data_directory(path: Path, *, uid: int, gid: int) -> int:
 def _open_or_create_wc_directory(
     data_fd: int,
     *,
+    expected_path: Path,
     uid: int,
     gid: int,
     mutation: MutationState,
@@ -391,6 +399,7 @@ def _open_or_create_wc_directory(
             mode=0o700,
             label="WAR_COLLEGE_DIRECTORY",
         )
+        _require_fd_path_identity(fd, expected_path, label="WAR_COLLEGE_DIRECTORY")
         return fd
     except Exception:
         os.close(fd)
@@ -604,6 +613,7 @@ def apply_admission(
         )
         wc_fd = _open_or_create_wc_directory(
             data_fd,
+            expected_path=store_path.parent,
             uid=expected_uid,
             gid=expected_gid,
             mutation=mutation,
@@ -633,9 +643,21 @@ def apply_admission(
             identity.attempt_id,
         )
 
+        _require_fd_path_identity(data_fd, data_dir, label="DATA_DIRECTORY")
+        _require_fd_path_identity(
+            wc_fd,
+            store_path.parent,
+            label="WAR_COLLEGE_DIRECTORY",
+        )
         _link_fd_create_only(staging_fd, wc_fd, store_path.name)
         mutation.canonical_store_created = True
         os.fsync(wc_fd)
+        _require_fd_path_identity(data_fd, data_dir, label="DATA_DIRECTORY")
+        _require_fd_path_identity(
+            wc_fd,
+            store_path.parent,
+            label="WAR_COLLEGE_DIRECTORY",
+        )
 
         _require_aliases_same_inode(
             wc_fd=wc_fd,
@@ -651,8 +673,12 @@ def apply_admission(
             identity.attempt_id,
         )
 
-        if Path(f"/proc/self/fd/{data_fd}").resolve(strict=True) != data_dir:
-            raise AdmissionToolHold("HOLD_DATA_DIRECTORY_CHANGED_DURING_APPLY")
+        _require_fd_path_identity(data_fd, data_dir, label="DATA_DIRECTORY")
+        _require_fd_path_identity(
+            wc_fd,
+            store_path.parent,
+            label="WAR_COLLEGE_DIRECTORY",
+        )
 
         return {
             "marker": MARKER,
