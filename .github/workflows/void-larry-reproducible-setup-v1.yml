@@ -5,6 +5,7 @@ on:
     paths:
       - VOID_LAB_REPRODUCIBLE_SETUP_V1.md
       - scripts/prove_void_lab_reproducible_setup_v1.py
+      - scripts/publish_void_lab_receipt_v1.py
       - .github/workflows/void-larry-reproducible-setup-v1.yml
 
 permissions:
@@ -27,6 +28,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Compile receipt publication proof
-        run: python -m py_compile scripts/prove_void_lab_reproducible_setup_v1.py
+        run: python -m py_compile scripts/prove_void_lab_reproducible_setup_v1.py scripts/publish_void_lab_receipt_v1.py
       - name: Falsify destructive receipt publication
         run: python scripts/prove_void_lab_reproducible_setup_v1.py

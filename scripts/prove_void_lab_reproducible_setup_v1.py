@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+import io
 import os
 import re
 import shutil
@@ -15,6 +17,7 @@ from pathlib import Path
 
 MARKER = "VOID_LAB_REPRODUCIBLE_SETUP_PROOF_V1"
 DOCUMENT = Path(__file__).parents[1] / "VOID_LAB_REPRODUCIBLE_SETUP_V1.md"
+PUBLISHER = Path(__file__).parent / "publish_void_lab_receipt_v1.py"
 KNOWN_BYTES = b"preserved-prior-receipt\n"
 ATTEMPT_ID = re.compile(r"slot-(?:0[1-9]|1[0-6])")
 RUNTIME_PATH_EXECUTED = False
@@ -108,25 +111,13 @@ def prove_document_contract() -> None:
         'HOLD_VOID_LAB_SETUP_HOST_PREREQUISITES',
         '# VOID_LAB_HOST_PREFLIGHT_V1_END',
         'void_publish_lab_receipt() (',
-        'VOID_LAB_RECEIPT_ID="$1"',
-        'slot-(?:0[1-9]|1[0-6])',
-        'HOLD_VOID_LAB_RECEIPT_SLOTS_EXHAUSTED',
-        'void-lab-checkout-c164a7d2-$VOID_LAB_RECEIPT_ID.json',
-        'test ! -e "$VOID_LAB_RECEIPT"',
-        'test ! -L "$VOID_LAB_RECEIPT"',
-        'VOID_LAB_RECEIPT_TEMP="$VOID_LAB_RECEIPT_DIR/.void-lab-checkout-$VOID_LAB_RECEIPT_ID.pending"',
-        'test ! -e "$VOID_LAB_RECEIPT_TEMP"',
-        'set -C',
-        'VOID_LAB_RECEIPT_TEMP_ID="$(stat -c \'%d:%i\' "$VOID_LAB_RECEIPT_TEMP")"',
-        'report_retained_temp() {',
+        'scripts/publish_void_lab_receipt_v1.py',
+        '--repo-root "$VOID_WAR_COLLEGE_DIR"',
+        '--slot "$1"',
         'pending_retired=false',
         'staging_cleanup=DEFERRED_NO_PATHNAME_DELETE',
-        'trap report_retained_temp EXIT',
-        'python3 -c \'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8"))',
-        'stat -c \'%a\' "$VOID_LAB_RECEIPT_TEMP"',
-        'ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"',
-        'stat -c \'%d:%i\' "$VOID_LAB_RECEIPT"',
-        'sync -f "$VOID_LAB_RECEIPT_DIR"',
+        'retained-descriptor publisher',
+        'linkat(AT_EMPTY_PATH)',
         'void_publish_lab_receipt slot-01',
         'void_publish_lab_receipt slot-02',
     )
@@ -207,6 +198,8 @@ def run_documented_receipt_shell(root: Path, slot: str) -> subprocess.CompletedP
         "\"runtime_evidence\":\"PENDING_DESIGNATED_HOST\"}')\n",
         encoding="utf-8",
     )
+    publisher = scripts / "publish_void_lab_receipt_v1.py"
+    publisher.write_bytes(PUBLISHER.read_bytes())
     source = documented_receipt_shell()
     source = source.replace(
         "void_publish_lab_receipt slot-01",
@@ -216,7 +209,7 @@ def run_documented_receipt_shell(root: Path, slot: str) -> subprocess.CompletedP
     environment = dict(os.environ)
     receipt_bin = root / "receipt-bin"
     receipt_bin.mkdir(exist_ok=True)
-    for command in ("dirname", "python3", "ln", "sha256sum", "stat", "sync"):
+    for command in ("python3",):
         resolved = shutil.which(command)
         if resolved is None:
             raise RuntimeError(f"proof host lacks receipt command: {command}")
@@ -587,6 +580,85 @@ def prove_postpublication_staging_retention_has_no_delete_authority() -> None:
             raise RuntimeError("missing staging alias changed committed terminal")
 
 
+
+def load_retained_descriptor_publisher():
+    spec = importlib.util.spec_from_file_location(
+        "publish_void_lab_receipt_v1",
+        PUBLISHER,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("could not load retained-descriptor publisher")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def prove_verifier_exit_to_publication_substitutions_hold() -> None:
+    publisher = load_retained_descriptor_publisher()
+    cuts = (
+        "after_verifier_exit",
+        "before_identity_admission",
+        "before_json_validation",
+        "before_publication",
+    )
+    for cut in cuts:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "checkout"
+            scripts = repository / "scripts"
+            scripts.mkdir(parents=True)
+            verifier = scripts / "verify_void_lab_checkout_v1.py"
+            verifier.write_text(
+                "print('{\"schema_version\":6,\"generation\":\"ad1926569b12466c\","
+                "\"source_contract\":\"GREEN\",\"checkout_contract\":\"GREEN\","
+                "\"exact_checkout_evidence\":true,"
+                "\"runtime_evidence\":\"PENDING_DESIGNATED_HOST\"}')\n",
+                encoding="utf-8",
+            )
+            staging = root / ".void-lab-checkout-slot-01.pending"
+            original = root / f".verified-output-{cut}"
+            foreign_bytes = (
+                b'{"schema_version":6,"generation":"ad1926569b12466c",'
+                b'"source_contract":"GREEN","checkout_contract":"GREEN",'
+                b'"exact_checkout_evidence":true,'
+                b'"runtime_evidence":"PENDING_DESIGNATED_HOST",'
+                b'"foreign_generation":true}\n'
+            )
+            substituted = False
+
+            def replace_at_stage(stage: str, _descriptor: int) -> None:
+                nonlocal substituted
+                if stage != cut or substituted:
+                    return
+                staging.rename(original)
+                staging.write_bytes(foreign_bytes)
+                staging.chmod(0o600)
+                substituted = True
+
+            output = io.StringIO()
+            errors = io.StringIO()
+            status = publisher.publish_receipt(
+                repository,
+                "slot-01",
+                cut_hook=replace_at_stage,
+                output=output,
+                errors=errors,
+            )
+            final = root / "void-lab-checkout-c164a7d2-slot-01.json"
+            if status == 0:
+                raise RuntimeError(f"{cut} substitution was accepted")
+            if not substituted:
+                raise RuntimeError(f"{cut} substitution hook did not execute")
+            if final.exists() or final.is_symlink():
+                raise RuntimeError(f"{cut} substitution published a final receipt")
+            if not original.is_file() or b'"foreign_generation"' in original.read_bytes():
+                raise RuntimeError(f"{cut} did not retain verifier generation A")
+            if staging.read_bytes() != foreign_bytes:
+                raise RuntimeError(f"{cut} changed foreign generation B")
+            if "HOLD_VOID_LAB_RECEIPT_STAGING_IDENTITY" not in errors.getvalue():
+                raise RuntimeError(f"{cut} omitted staging-identity HOLD")
+
+
 def main() -> int:
     prove_document_contract()
     prove_documented_receipt_shell_syntax()
@@ -597,6 +669,7 @@ def main() -> int:
     prove_fixed_slots_bound_staging_aliases()
     prove_repeat_verification_preserves_both_receipts()
     prove_postpublication_staging_retention_has_no_delete_authority()
+    prove_verifier_exit_to_publication_substitutions_hold()
     print(f"{MARKER} PASS")
     print("receipt_shell_dash_syntax=true")
     print("receipt_shell_syntax_mutant_rejected=true")
@@ -619,6 +692,9 @@ def main() -> int:
     print("staging_alias_retained=true")
     print("replacement_at_retirement_boundary_preserved=true")
     print("staging_cleanup_authority=false")
+    print("verifier_output_descriptor_retained=true")
+    print("prepublication_substitution_cuts=4")
+    print("foreign_prepublication_generations_committed=0")
     print("receipt_commit_terminal=COMMITTED")
     print("runtime_path_executed=false")
     print("runtime_evidence=PENDING_DESIGNATED_HOST")

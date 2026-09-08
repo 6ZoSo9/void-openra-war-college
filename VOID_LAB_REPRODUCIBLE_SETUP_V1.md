@@ -135,57 +135,23 @@ untouched:
 ```bash
 void_publish_lab_receipt() (
   set -eu
-  umask 077
   test "$#" -eq 1
-  VOID_LAB_RECEIPT_ID="$1"
-  python3 -c 'import re,sys; raise SystemExit(0 if re.fullmatch(r"slot-(?:0[1-9]|1[0-6])", sys.argv[1]) else 2)' "$VOID_LAB_RECEIPT_ID" || {
-    printf '%s\n' 'HOLD_VOID_LAB_RECEIPT_SLOTS_EXHAUSTED' >&2
-    exit 72
-  }
-  VOID_LAB_RECEIPT="$VOID_WAR_COLLEGE_DIR/../void-lab-checkout-c164a7d2-$VOID_LAB_RECEIPT_ID.json"
-  VOID_LAB_RECEIPT_DIR="$(dirname -- "$VOID_LAB_RECEIPT")"
-  VOID_LAB_RECEIPT_TEMP="$VOID_LAB_RECEIPT_DIR/.void-lab-checkout-$VOID_LAB_RECEIPT_ID.pending"
-  test -d "$VOID_LAB_RECEIPT_DIR"
-  test ! -e "$VOID_LAB_RECEIPT"
-  test ! -L "$VOID_LAB_RECEIPT"
-  test ! -e "$VOID_LAB_RECEIPT_TEMP"
-  test ! -L "$VOID_LAB_RECEIPT_TEMP"
-  report_retained_temp() {
-    if [ -e "${VOID_LAB_RECEIPT_TEMP:-}" ] || [ -L "${VOID_LAB_RECEIPT_TEMP:-}" ]; then
-      printf 'receipt_staging_path=%s\npending_retired=false\nstaging_cleanup=DEFERRED_NO_PATHNAME_DELETE\n' \
-        "$VOID_LAB_RECEIPT_TEMP" >&2
-    fi
-  }
-  trap report_retained_temp EXIT
-  set -C
-  python3 "$VOID_WAR_COLLEGE_DIR/scripts/verify_void_lab_checkout_v1.py" \
-    --repo-root "$VOID_WAR_COLLEGE_DIR" > "$VOID_LAB_RECEIPT_TEMP"
-  VOID_LAB_RECEIPT_TEMP_ID="$(stat -c '%d:%i' "$VOID_LAB_RECEIPT_TEMP")"
-  test -f "$VOID_LAB_RECEIPT_TEMP"
-  test ! -L "$VOID_LAB_RECEIPT_TEMP"
-  test "$(stat -c '%a' "$VOID_LAB_RECEIPT_TEMP")" = '600'
-  python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert d["schema_version"] == 6; assert d["generation"] == "ad1926569b12466c"; assert d["source_contract"] == "GREEN"; assert d["checkout_contract"] == "GREEN"; assert d["exact_checkout_evidence"] is True; assert d["runtime_evidence"] == "PENDING_DESIGNATED_HOST"' "$VOID_LAB_RECEIPT_TEMP"
-  ln -- "$VOID_LAB_RECEIPT_TEMP" "$VOID_LAB_RECEIPT"
-  test -f "$VOID_LAB_RECEIPT"
-  test ! -L "$VOID_LAB_RECEIPT"
-  test "$(stat -c '%a' "$VOID_LAB_RECEIPT")" = '600'
-  test "$(stat -c '%d:%i' "$VOID_LAB_RECEIPT")" = "$VOID_LAB_RECEIPT_TEMP_ID"
-  sync -f "$VOID_LAB_RECEIPT_DIR"
-  printf 'receipt_id=%s\nreceipt_path=%s\n' "$VOID_LAB_RECEIPT_ID" "$VOID_LAB_RECEIPT"
-  sha256sum "$VOID_LAB_RECEIPT"
+  python3 "$VOID_WAR_COLLEGE_DIR/scripts/publish_void_lab_receipt_v1.py" \
+    --repo-root "$VOID_WAR_COLLEGE_DIR" \
+    --slot "$1"
 )
 void_publish_lab_receipt slot-01
 ```
 
 Keep the receipt outside the repository so it does not make the exact worktree
-dirty. The hard-link publication is create-only even if another process creates
-the destination after the initial preflight. This generation deliberately keeps
-the owner-only staging alias after publication and performs no pathname cleanup.
-The function reports `receipt_staging_path`, `pending_retired=false`, and
-`staging_cleanup=DEFERRED_NO_PATHNAME_DELETE` on success and on verifier exits
-after staging creation. This removes check-then-unlink authority: a same-UID
-replacement at the staging pathname cannot be deleted by this workflow, and
-staging retirement cannot reverse the validated final receipt.
+dirty. The retained-descriptor publisher creates the staging inode once, keeps its file
+descriptor open while the verifier writes, fsyncs and validates JSON through that
+same descriptor, and publishes that exact inode with Linux `linkat(AT_EMPTY_PATH)`.
+It checks that the staging pathname still names the retained inode before every
+admission boundary. A same-UID replacement is preserved but produces HOLD and no
+final receipt. The helper reports `receipt_staging_path`, `pending_retired=false`,
+and `staging_cleanup=DEFERRED_NO_PATHNAME_DELETE` after staging creation and never
+executes pathname cleanup.
 
 A checkout admits exactly 16 fixed staging aliases and 16 final receipt paths.
 Every invocation consumes one previously unused slot, including a verifier or
