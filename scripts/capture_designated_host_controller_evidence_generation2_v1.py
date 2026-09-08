@@ -113,6 +113,58 @@ def load_contract() -> dict[str, Any]:
         "generation2_wrapper_parent_capture_reuse_v1"
     ):
         raise Generation2CaptureHold("HOLD_CAPTURE_G2_IMPORT_STRATEGY")
+    if value.get("source_branch") != (
+        "ren/designated-host-controller-evidence-capture-generation2-v1-20260908"
+    ):
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_SOURCE_BRANCH")
+    if value.get("parent_capture_source_path") != (
+        "scripts/capture_designated_host_controller_evidence_v1.py"
+    ):
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_PARENT_CAPTURE_PATH")
+    if value.get("store_schema_version") != 3:
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_STORE_SCHEMA")
+    if value.get("controller_player_bindings") != [
+        {"controller_id": "apollyon", "player_id": "Multi0"},
+        {"controller_id": "abaddon", "player_id": "Multi1"},
+    ]:
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_CONTROLLER_BINDINGS")
+    if value.get("controller_decision_provenance") != (
+        "operator_bound_empty_action_profile_v1"
+    ):
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_DECISION_PROVENANCE")
+    if value.get("controller_model_execution") is not False:
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_MODEL_EXECUTION")
+    if value.get("runtime_containment_strategy") != (
+        "spawned_capture_child_private_process_group_v1"
+    ):
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_CONTAINMENT")
+    if value.get("private_publish_strategy") != (
+        "retained_output_directory_fd_o_excl_v1"
+    ):
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_PRIVATE_PUBLISH")
+    if value.get("action_profile") != "empty_joint_batches":
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_ACTION_PROFILE")
+    if value.get("bootstrap_ticks") != 1 or value.get("action_ticks") != 1:
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_TICK_SHAPE")
+    if value.get("dotnet_version") != "8.0.424":
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_DOTNET_VERSION")
+    for field in (
+        "ready_timeout_s",
+        "rpc_timeout_s",
+        "teardown_timeout_s",
+        "capture_outer_timeout_s",
+        "runtime_retirement_signal_grace_s",
+    ):
+        if type(value.get(field)) is not int or value[field] <= 0:
+            raise Generation2CaptureHold(f"HOLD_CAPTURE_G2_TIMEOUT:{field}")
+    bound = value.get("bound_source_git_blobs")
+    if type(bound) is not dict:
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_BOUND_SOURCE_BLOBS")
+    if (
+        bound.get("scripts/capture_designated_host_controller_evidence_v1.py")
+        != EXPECTED_PARENT_CAPTURE_BLOB
+    ):
+        raise Generation2CaptureHold("HOLD_CAPTURE_G2_BOUND_PARENT_CAPTURE_BLOB")
 
     expected_source_authority = {
         "canonical_store_mutation": False,
