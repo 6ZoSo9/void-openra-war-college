@@ -160,6 +160,12 @@ def verify_installed_binding(
         holds.append("HOLD_EXECUTION_BINDING_DISCOVERY_SCHEMA_MISMATCH")
     if report.get("service_template_name") != b["service_template_name"]:
         holds.append("HOLD_SERVICE_TEMPLATE_NAME_MISMATCH")
+    if report.get("systemd_query_error") is not None:
+        holds.append("HOLD_SERVICE_QUERY_ERROR")
+    if report.get("systemd_load_state") != "loaded":
+        holds.append("HOLD_SERVICE_NOT_LOADED")
+    if report.get("systemd_fragment_path") != b["installed_unit_path"]:
+        holds.append("HOLD_SERVICE_FRAGMENT_PATH_MISMATCH")
     if report.get("dropin_paths") != []:
         holds.append("HOLD_SERVICE_DROPINS_PRESENT")
     if report.get("need_daemon_reload") is not False:

@@ -1,0 +1,102 @@
+{
+  "artifacts": [
+    {
+      "collision_policy": "accept_exact_else_hold",
+      "kind": "systemd_user_unit",
+      "required_gid": 1000,
+      "required_mode": "0o600",
+      "required_uid": 1000,
+      "source_git_blob": "aeb467f581e71e21fd48bef970f72c2950d39419",
+      "source_path": "ops/war-college/void-war-college-evidence-verifier@.service",
+      "source_sha256": "0194c458dd3e4f484aa49c6975e6457a87de14b49e67b2d813fb53edbfd495f7",
+      "symlink_allowed": false,
+      "target_path": "/home/zoso/.config/systemd/user/void-war-college-evidence-verifier@.service"
+    },
+    {
+      "collision_policy": "accept_exact_else_hold",
+      "kind": "environment",
+      "required_gid": 1000,
+      "required_mode": "0o600",
+      "required_uid": 1000,
+      "source_git_blob": "3aa76da32e4349fd169fb66246d85eca48c38d98",
+      "source_path": "ops/war-college/void-war-college-evidence-verifier.env",
+      "source_sha256": "0c9d88a22bf97fa81e0e7e10e1732d85c748f2a259117b52028c1862afb5a3ef",
+      "symlink_allowed": false,
+      "target_path": "/home/zoso/.config/void-war-college/evidence-verifier.env"
+    },
+    {
+      "collision_policy": "accept_exact_else_hold",
+      "kind": "wrapper",
+      "required_gid": 1000,
+      "required_mode": "0o500",
+      "required_uid": 1000,
+      "source_git_blob": "816ffeb46c553c754a152a26d348d64433120162",
+      "source_path": "scripts/war_college_designated_host_verify_request_v1.py",
+      "source_sha256": "ff4abac79643c7611258c742fdb3fcafdaca099ee200791bb08b34182bfd5aae",
+      "symlink_allowed": false,
+      "target_path": "/home/zoso/.local/libexec/void-war-college-evidence-verifier-v1.py"
+    }
+  ],
+  "authority": {
+    "daemon_reload_authorized": false,
+    "materialization_authorized": false,
+    "plan_only": true,
+    "private_key_access": false,
+    "runtime_execution_authorized": false,
+    "service_start_authorized": false
+  },
+  "daemon_reload": {
+    "authorized": false,
+    "command": [
+      "/usr/bin/systemctl",
+      "--user",
+      "daemon-reload"
+    ],
+    "required_after_unit_materialization": true,
+    "service_start_after_reload": false
+  },
+  "execution_binding_git_blob": "db6944b7e53f6fbb7b1d8dfa2cd5a0766c4cc696",
+  "execution_binding_path": "config/war-college/designated-host-execution-binding-v1.json",
+  "marker": "VOID_WAR_COLLEGE_DESIGNATED_HOST_PROVISIONING_PLAN_V1",
+  "materialization": {
+    "atomic_same_directory_replace": true,
+    "follow_symlinks": false,
+    "overwrite_nonmatching_existing": false,
+    "preserve_exact_source_bytes": true
+  },
+  "operator_gid": 1000,
+  "operator_uid": 1000,
+  "post_provision_preflight": {
+    "collector_git_blob": "aadcc32fbba9a11d9f4d53f2410a7321c46c0131",
+    "collector_path": "scripts/discover_designated_host_execution_binding_runtime_v1.py",
+    "command": [
+      "/usr/bin/python3",
+      "scripts/discover_designated_host_execution_binding_runtime_v1.py"
+    ],
+    "required_dropin_paths": [],
+    "required_mutation_performed": false,
+    "required_need_daemon_reload": false,
+    "required_service_started": false,
+    "required_systemd_fragment_path": "/home/zoso/.config/systemd/user/void-war-college-evidence-verifier@.service",
+    "required_systemd_load_state": "loaded",
+    "required_verification_contract": "GREEN"
+  },
+  "runtime_worktree": {
+    "collision_policy": "accept_exact_clean_generation_else_hold",
+    "creation": "git_worktree_add_detach",
+    "repository": "/home/zoso/dev/openra-rl-war-college",
+    "require_clean": true,
+    "required_artifact_git_blobs": {
+      "scripts/controller_attempt_admission_store_v1.py": "5f03230bd8af50ccbb265a6173a3a7d52a6e09b8",
+      "scripts/verify_controller_evidence_isolation_v1.py": "3f3ca8ae70c3005dea45b153017f7e0e0caa1296",
+      "scripts/verify_controller_evidence_producer_auth_v1.py": "cce13a7ff4d36e21cc4719625e2b3c116e851889",
+      "scripts/verify_controller_evidence_with_durable_currentness_v1.py": "2d7a583e45df8d803b21b534c2d80ce9f1a787f7",
+      "scripts/war_college_designated_producer_trust_root_v1.py": "ac3394d03ecadb0112edd67c565d44c740e63d76"
+    },
+    "source_commit": "bae61935b956c5f7ebce005c0fef69ec86f69d09",
+    "target_path": "/home/zoso/dev/openra-rl-war-college-worktrees/designated-host-runtime-bae61935"
+  },
+  "semantic_parent_head": "b30df61bf75660f6f1dcb7240cf37a2a4788959a",
+  "semantic_parent_pr": 34,
+  "version": 1
+}

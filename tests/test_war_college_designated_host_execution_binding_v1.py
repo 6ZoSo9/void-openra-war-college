@@ -26,6 +26,9 @@ def clean_report():
         "marker": "VOID_WAR_COLLEGE_DESIGNATED_HOST_EXECUTION_BINDING_DISCOVERY_V1",
         "schema_version": 1,
         "service_template_name": b["service_template_name"],
+        "systemd_query_error": None,
+        "systemd_load_state": "loaded",
+        "systemd_fragment_path": b["installed_unit_path"],
         "dropin_paths": [],
         "need_daemon_reload": False,
         "unit_artifact": artifact(
@@ -101,6 +104,23 @@ class ExecutionBindingTests(unittest.TestCase):
         candidate["environment_artifact"]["mode"] = "0o640"
         report = verifier.verify_installed_binding(candidate)
         self.assert_hold(report, "HOLD_ENVIRONMENT_ARTIFACT_MODE_MISMATCH")
+
+    def test_service_must_be_loaded_from_exact_bound_fragment(self):
+        candidate = clean_report()
+        candidate["systemd_load_state"] = "not-found"
+        report = verifier.verify_installed_binding(candidate)
+        self.assert_hold(report, "HOLD_SERVICE_NOT_LOADED")
+
+        candidate = clean_report()
+        candidate["systemd_fragment_path"] = "/tmp/wrong.service"
+        report = verifier.verify_installed_binding(candidate)
+        self.assert_hold(report, "HOLD_SERVICE_FRAGMENT_PATH_MISMATCH")
+
+    def test_systemd_query_error_fails_closed(self):
+        candidate = clean_report()
+        candidate["systemd_query_error"] = "systemctl_show_failed"
+        report = verifier.verify_installed_binding(candidate)
+        self.assert_hold(report, "HOLD_SERVICE_QUERY_ERROR")
 
     def test_any_dropin_fails_closed(self):
         candidate = clean_report()
