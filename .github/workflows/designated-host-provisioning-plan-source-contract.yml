@@ -84,12 +84,12 @@ jobs:
             tests/test_war_college_designated_host_execution_binding_v1.py \
             tests/test_designated_host_provisioning_plan_v1.py
 
-      - name: Prove plan remains non-authorizing
+      - name: Prove strict historical runtime generation and non-authority
         shell: bash
         run: |
           set -euo pipefail
           cd exact-head
-          report="$(python scripts/verify_designated_host_provisioning_plan_v1.py)"
+          report="$(python scripts/verify_designated_host_provisioning_plan_v1.py --require-historical-runtime-commit)"
           printf '%s\n' "$report"
           python - "$report" <<'PY'
           import json
@@ -98,6 +98,7 @@ jobs:
           report = json.loads(sys.argv[1])
           assert report["contract"] == "GREEN"
           assert report["plan_only"] is True
+          assert report["historical_runtime_commit_verified"] is True
           for key in (
               "materialization_authorized",
               "daemon_reload_authorized",
@@ -106,5 +107,5 @@ jobs:
               "private_key_access",
           ):
               assert report[key] is False
-          print("VOID_WAR_COLLEGE_PROVISIONING_PLAN_SOURCE_GREEN")
+          print("VOID_WAR_COLLEGE_PROVISIONING_PLAN_STRICT_SOURCE_GREEN")
           PY

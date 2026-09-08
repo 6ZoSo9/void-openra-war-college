@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import unittest
+from unittest import mock
 
 from scripts import verify_designated_host_provisioning_plan_v1 as verifier
 
@@ -27,6 +28,26 @@ class ProvisioningPlanTests(unittest.TestCase):
         self.assertFalse(report["service_start_authorized"])
         self.assertFalse(report["runtime_execution_authorized"])
         self.assertFalse(report["private_key_access"])
+
+    def test_shallow_history_is_portable_but_strict_mode_holds(self):
+        with mock.patch.object(
+            verifier, "_git_commit_available", return_value=False
+        ):
+            portable = verifier.verify_plan(self.plan, self.binding)
+            self.assertEqual(portable["contract"], "GREEN")
+            self.assertFalse(portable["historical_runtime_commit_verified"])
+
+            strict = verifier.verify_plan(
+                self.plan,
+                self.binding,
+                require_historical_runtime_commit=True,
+            )
+            self.assertEqual(strict["contract"], "HOLD")
+            self.assertFalse(strict["historical_runtime_commit_verified"])
+            self.assertIn(
+                "HOLD_PROVISIONING_HISTORICAL_RUNTIME_COMMIT_UNAVAILABLE",
+                strict["holds"],
+            )
 
     def test_runtime_generation_substitution_fails_closed(self):
         candidate = copy.deepcopy(self.plan)

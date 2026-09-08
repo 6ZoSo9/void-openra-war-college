@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import subprocess
@@ -25,6 +26,15 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _git_environment() -> dict[str, str]:
+    return {
+        "HOME": str(Path.home()),
+        "LANG": "C",
+        "LC_ALL": "C",
+        "PATH": "/usr/bin:/bin",
+    }
+
+
 def _git_blob(path: str, ref: str = "HEAD") -> str:
     cp = subprocess.run(
         [GIT, "-C", str(ROOT), "rev-parse", f"{ref}:{path}"],
@@ -32,24 +42,44 @@ def _git_blob(path: str, ref: str = "HEAD") -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
-        env={
-            "HOME": str(Path.home()),
-            "LANG": "C",
-            "LC_ALL": "C",
-            "PATH": "/usr/bin:/bin",
-        },
+        env=_git_environment(),
     )
     if cp.returncode != 0:
         raise ProvisioningPlanError(f"Git blob query failed for {ref}:{path}")
     return cp.stdout.strip()
 
 
-def verify_plan(plan: Any, binding: Any) -> dict[str, Any]:
+def _git_commit_available(ref: str) -> bool:
+    cp = subprocess.run(
+        [GIT, "-C", str(ROOT), "cat-file", "-e", f"{ref}^{{commit}}"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env=_git_environment(),
+    )
+    return cp.returncode == 0
+
+
+def verify_plan(
+    plan: Any,
+    binding: Any,
+    *,
+    require_historical_runtime_commit: bool = False,
+) -> dict[str, Any]:
     holds: list[str] = []
+    historical_runtime_commit_verified = False
     if type(plan) is not dict:
-        return {"contract": "HOLD", "holds": ["HOLD_PROVISIONING_PLAN_NOT_OBJECT"]}
+        return {
+            "contract": "HOLD",
+            "holds": ["HOLD_PROVISIONING_PLAN_NOT_OBJECT"],
+            "historical_runtime_commit_verified": False,
+        }
     if type(binding) is not dict:
-        return {"contract": "HOLD", "holds": ["HOLD_EXECUTION_BINDING_NOT_OBJECT"]}
+        return {
+            "contract": "HOLD",
+            "holds": ["HOLD_EXECUTION_BINDING_NOT_OBJECT"],
+            "historical_runtime_commit_verified": False,
+        }
 
     if plan.get("marker") != MARKER or plan.get("version") != 1:
         holds.append("HOLD_PROVISIONING_PLAN_MARKER_VERSION")
@@ -107,15 +137,23 @@ def verify_plan(plan: Any, binding: Any) -> dict[str, Any]:
             type(source_commit) is str
             and source_commit == binding.get("runtime_source_commit")
         ):
-            try:
-                for rel, expected in sorted(
-                    binding.get("runtime_artifact_git_blobs", {}).items()
-                ):
-                    if _git_blob(rel, source_commit) != expected:
-                        holds.append("HOLD_PROVISIONING_HISTORICAL_RUNTIME_BLOB")
-                        break
-            except ProvisioningPlanError:
-                holds.append("HOLD_PROVISIONING_HISTORICAL_RUNTIME_BLOB")
+            if _git_commit_available(source_commit):
+                historical_runtime_commit_verified = True
+                try:
+                    for rel, expected in sorted(
+                        binding.get("runtime_artifact_git_blobs", {}).items()
+                    ):
+                        if _git_blob(rel, source_commit) != expected:
+                            historical_runtime_commit_verified = False
+                            holds.append("HOLD_PROVISIONING_HISTORICAL_RUNTIME_BLOB")
+                            break
+                except ProvisioningPlanError:
+                    historical_runtime_commit_verified = False
+                    holds.append("HOLD_PROVISIONING_HISTORICAL_RUNTIME_BLOB")
+            elif require_historical_runtime_commit:
+                holds.append(
+                    "HOLD_PROVISIONING_HISTORICAL_RUNTIME_COMMIT_UNAVAILABLE"
+                )
 
     expected_artifacts = {
         "systemd_user_unit": (
@@ -232,6 +270,7 @@ def verify_plan(plan: Any, binding: Any) -> dict[str, Any]:
         "contract": "GREEN" if green else "HOLD",
         "holds": sorted(set(holds)),
         "plan_only": True,
+        "historical_runtime_commit_verified": historical_runtime_commit_verified,
         "materialization_authorized": False,
         "daemon_reload_authorized": False,
         "service_start_authorized": False,
@@ -240,11 +279,22 @@ def verify_plan(plan: Any, binding: Any) -> dict[str, Any]:
     }
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--require-historical-runtime-commit",
+        action="store_true",
+        help="Fail closed unless the bound historical runtime commit is locally available and its bound blobs verify.",
+    )
+    args = parser.parse_args(argv)
     try:
         plan = json.loads(PLAN_PATH.read_text(encoding="utf-8"))
         binding = json.loads(BINDING_PATH.read_text(encoding="utf-8"))
-        result = verify_plan(plan, binding)
+        result = verify_plan(
+            plan,
+            binding,
+            require_historical_runtime_commit=args.require_historical_runtime_commit,
+        )
     except (OSError, json.JSONDecodeError, ProvisioningPlanError) as error:
         result = {
             "contract": "HOLD",
@@ -252,6 +302,7 @@ def main() -> int:
                 f"HOLD_PROVISIONING_PLAN_FAILURE:{type(error).__name__}"
             ],
             "plan_only": True,
+            "historical_runtime_commit_verified": False,
             "materialization_authorized": False,
             "daemon_reload_authorized": False,
             "service_start_authorized": False,
