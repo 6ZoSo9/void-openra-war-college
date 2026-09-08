@@ -1,0 +1,82 @@
+{
+  "marker": "VOID_WAR_COLLEGE_DESIGNATED_HOST_CONTROLLER_EVIDENCE_CAPTURE_V2",
+  "version": 2,
+  "semantic_parent_head": "d5899cbf5b05e75fdbfdd8236090a4ad56476af8",
+  "source_branch": "ren/designated-host-controller-evidence-capture-v1-20260908",
+  "designated_hostname": "zoso-Precision-Tower-7810",
+  "attempt_id": "war-college-ad1926569b12466c-001",
+  "controller_session_generation": 1,
+  "controller_player_bindings": [
+    {
+      "controller_id": "apollyon",
+      "player_id": "Multi0"
+    },
+    {
+      "controller_id": "abaddon",
+      "player_id": "Multi1"
+    }
+  ],
+  "controller_decision_provenance": "operator_bound_empty_action_profile_v1",
+  "controller_model_execution": false,
+  "producer_node_id": "9d89483769e469e0473b489dc50dba96",
+  "producer_public_key_sha256": "9d89483769e469e0473b489dc50dba964f4d3804d028871e3f680904d3615482",
+  "source_generation": "ad1926569b12466c",
+  "store_war_college_source_base": "f57c561f3a4c742e34d820933be40dd7d4253951",
+  "war_college_frozen_comparison": "973802ef0a614e5afa782ff20e231e18966ae3e5",
+  "engine_commit": "1607a7a6501d42a47638393ecef8b22831064932",
+  "runtime_repository": "/home/zoso/dev/openra-rl-war-college-worktrees/designated-host-runtime-bae61935",
+  "runtime_source_commit": "bae61935b956c5f7ebce005c0fef69ec86f69d09",
+  "openra_directory": "/home/zoso/dev/openra-rl-war-college-worktrees/designated-host-runtime-bae61935/OpenRA",
+  "dotnet_path": "/home/zoso/Downloads/void-dotnet-sdk-8.0.424-v1/dotnet",
+  "dotnet_version": "8.0.424",
+  "store_path": "/home/zoso/dev/void-node/data_a/war_college/controller_attempt_admission_v3.sqlite3",
+  "store_schema_version": 3,
+  "map_name": "singles.oramap",
+  "bots": "Multi1:rl-agent,Multi0:rl-agent",
+  "seed": 2050,
+  "port": 9999,
+  "bootstrap_ticks": 1,
+  "action_ticks": 1,
+  "action_profile": "empty_joint_batches",
+  "ready_timeout_s": 30,
+  "rpc_timeout_s": 60,
+  "teardown_timeout_s": 10,
+  "capture_outer_timeout_s": 240,
+  "runtime_retirement_signal_grace_s": 5,
+  "runtime_containment_strategy": "spawned_capture_child_private_process_group_v1",
+  "private_publish_strategy": "retained_output_directory_fd_o_excl_v1",
+  "source_import_strategy": "repo_root_insert_before_runtime_imports_v1",
+  "private_output_root": "/home/zoso/Downloads/void-war-college-controller-evidence-v1",
+  "evidence_filename": "war-college-ad1926569b12466c-001-s1-evidence.json",
+  "explicit_capture_confirmation": "CAPTURE_FIRST_CONTROLLER_EVIDENCE",
+  "bound_source_git_blobs": {
+    "bench_joint_advance.py": "29dbcf29ae1c2785158f6484727a6634240f69e3",
+    "bench_joint_advance_core.py": "8851866134a76b2d9a18ca437e54559fcbde9c55",
+    "proto/rl_bridge.proto": "a20e85cf7d9f3b4c1523b1916569942d7b74e694",
+    "scripts/controller_attempt_admission_store_v1.py": "5f03230bd8af50ccbb265a6173a3a7d52a6e09b8",
+    "scripts/verify_controller_evidence_isolation_v1.py": "3f3ca8ae70c3005dea45b153017f7e0e0caa1296"
+  },
+  "source_lane_authority": {
+    "canonical_store_mutation": false,
+    "controller_model_execution": false,
+    "evidence_consumption": false,
+    "live_request_materialization": false,
+    "private_key_access": false,
+    "runtime_execution": false,
+    "service_action": false,
+    "session_advance": false,
+    "signing": false
+  },
+  "capture_operation": {
+    "requires_separate_runtime_authorization": true,
+    "requires_exact_confirmation": true,
+    "creates_private_evidence_only": true,
+    "canonical_store_read_only": true,
+    "controller_model_execution": false,
+    "signing": false,
+    "evidence_consumption": false,
+    "session_advance": false,
+    "service_action": false,
+    "live_request_materialization": false
+  }
+}
