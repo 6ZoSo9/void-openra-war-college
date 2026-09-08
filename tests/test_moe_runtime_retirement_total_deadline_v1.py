@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Moe source-only falsifiers for bounded runtime process-group retirement."""
 
+import types
 import unittest
 from unittest import mock
 
@@ -196,7 +197,7 @@ class RuntimeRetirementTotalDeadlineTests(unittest.TestCase):
         ), mock.patch.object(
             bench, "_process_group_exists", side_effect=group_exists
         ):
-            bench._retire_runtime_process_group(
+            retirement_terminal = bench._retire_runtime_process_group(
                 process,
                 process.pid,
                 natural_grace_s=0.1,
@@ -207,6 +208,7 @@ class RuntimeRetirementTotalDeadlineTests(unittest.TestCase):
             signals,
             [bench._BootstrapSignal.SIGTERM, bench._BootstrapSignal.SIGKILL],
         )
+        self.assertEqual(retirement_terminal, "sigkill_retired")
         self.assertEqual(len(process.join_timeouts), 3)
         self.assertTrue(all(timeout >= 0 for timeout in process.join_timeouts))
         self.assertLessEqual(clock.now, 0.300001)
@@ -261,46 +263,59 @@ class RuntimeRetirementTotalDeadlineTests(unittest.TestCase):
             process.join.assert_not_called()
 
 
-    def test_production_containment_uses_spawn_and_exact_started_binding(self):
+    def test_production_containment_uses_spawn_and_parent_owned_supervisor(self):
         outcome = {"cells": [], "run": {}, "host": {}}
         context = _SpawnContext([
             ("STARTED", 5151, 5151),
             ("OUTCOME", outcome),
         ])
-        args = mock.sentinel.args
+        args = types.SimpleNamespace(
+            mode="run",
+            execute_designated_host=True,
+            designated_hostname="fixture",
+            openra_dir="/tmp/frozen-openra",
+        )
         parameters = {"samples": 1}
         provenance = {"generation": "test"}
 
         with mock.patch.object(
-            bench._BootstrapMultiprocessing,
-            "get_context",
-            return_value=context,
+            bench._BootstrapMultiprocessing, "get_context", return_value=context,
         ) as get_context, mock.patch.object(
-            bench,
-            "_runtime_process_deadline_s",
-            return_value=1.0,
+            bench, "_runtime_process_deadline_s", return_value=1.0,
         ), mock.patch.object(
-            bench.time,
-            "monotonic",
-            return_value=0.0,
+            bench.time, "monotonic", return_value=0.0,
         ), mock.patch.object(
-            bench,
-            "_retire_runtime_process_group",
+            bench, "_retire_runtime_process_group", return_value="natural_exit",
         ) as retire:
-            result = bench._execute_runtime_contained(
-                args,
-                parameters,
-                provenance,
-            )
+            result = bench._execute_runtime_contained(args, parameters, provenance)
 
-        self.assertIs(result, outcome)
+        self.assertEqual(result["cells"], outcome["cells"])
+        self.assertEqual(result["run"], outcome["run"])
+        self.assertEqual(result["host"], outcome["host"])
+        supervisor = result["supervisor"]
+        self.assertEqual(supervisor["schema"], bench.SUPERVISOR_SCHEMA)
+        self.assertEqual(supervisor["owner"], "parent_process")
+        self.assertEqual(supervisor["child_pid"], context.process.pid)
+        self.assertEqual(supervisor["child_pgid"], context.process.pid)
+        self.assertEqual(supervisor["outer_execution_timeout_s"], 1.0)
+        self.assertEqual(supervisor["terminal_source"], "child_outcome")
+        self.assertEqual(
+            supervisor["containment"]["retirement_terminal"], "natural_exit"
+        )
+        self.assertTrue(supervisor["authorization_boundary"]["execute_designated_host"])
+        self.assertEqual(
+            supervisor["authorization_boundary"]["designated_hostname"], "fixture"
+        )
+        self.assertRegex(
+            supervisor["authorization_boundary"]["operation_sha256"],
+            r"^[0-9a-f]{64}$",
+        )
         get_context.assert_called_once_with("spawn")
         self.assertFalse(context.pipe_duplex)
         self.assertTrue(context.process.started)
         self.assertIs(context.process.target, bench._runtime_child_entry)
         self.assertEqual(
-            context.process.args,
-            (context.sender, args, parameters, provenance),
+            context.process.args, (context.sender, args, parameters, provenance)
         )
         self.assertEqual(context.process.name, "void-war-college-runtime")
         self.assertTrue(context.sender.closed)
@@ -309,31 +324,71 @@ class RuntimeRetirementTotalDeadlineTests(unittest.TestCase):
 
     def test_production_containment_rejects_outcome_before_started_binding(self):
         context = _SpawnContext([("OUTCOME", {"cells": []})])
+        args = types.SimpleNamespace(
+            mode="run",
+            execute_designated_host=True,
+            designated_hostname="fixture",
+            openra_dir="/tmp/frozen-openra",
+        )
 
         with mock.patch.object(
-            bench._BootstrapMultiprocessing,
-            "get_context",
-            return_value=context,
+            bench._BootstrapMultiprocessing, "get_context", return_value=context,
         ), mock.patch.object(
-            bench.time,
-            "monotonic",
-            return_value=0.0,
+            bench.time, "monotonic", return_value=0.0,
         ), mock.patch.object(
-            bench,
-            "_retire_unbound_runtime_child",
+            bench, "_retire_unbound_runtime_child",
         ) as retire, self.assertRaisesRegex(
             bench.ContractError,
             "runtime child outcome arrived before process-group binding",
         ):
-            bench._execute_runtime_contained(
-                mock.sentinel.args,
-                {},
-                {},
-            )
+            bench._execute_runtime_contained(args, {}, {})
 
         self.assertTrue(context.sender.closed)
         self.assertTrue(context.receiver.closed)
         retire.assert_called_once_with(context.process)
+
+
+    def test_containment_requires_explicit_designated_host_authorization(self):
+        args = types.SimpleNamespace(
+            mode="run",
+            execute_designated_host=False,
+            designated_hostname="fixture",
+            openra_dir="/tmp/frozen-openra",
+        )
+        with mock.patch.object(
+            bench._BootstrapMultiprocessing, "get_context",
+        ) as get_context, self.assertRaisesRegex(
+            bench.ContractError, "explicit designated-host run authorization",
+        ):
+            bench._execute_runtime_contained(args, {}, {})
+        get_context.assert_not_called()
+
+    def test_child_cannot_inject_parent_supervisor_record(self):
+        context = _SpawnContext([
+            ("STARTED", 5151, 5151),
+            ("OUTCOME", {
+                "cells": [], "run": {}, "host": {},
+                "supervisor": {"owner": "child"},
+            }),
+        ])
+        args = types.SimpleNamespace(
+            mode="run",
+            execute_designated_host=True,
+            designated_hostname="fixture",
+            openra_dir="/tmp/frozen-openra",
+        )
+        with mock.patch.object(
+            bench._BootstrapMultiprocessing, "get_context", return_value=context,
+        ), mock.patch.object(
+            bench, "_runtime_process_deadline_s", return_value=1.0,
+        ), mock.patch.object(
+            bench.time, "monotonic", return_value=0.0,
+        ), mock.patch.object(
+            bench, "_retire_runtime_process_group", return_value="natural_exit",
+        ), self.assertRaisesRegex(
+            bench.ContractError, "runtime child outcome fields are not exact",
+        ):
+            bench._execute_runtime_contained(args, {}, {})
 
 
 if __name__ == "__main__":

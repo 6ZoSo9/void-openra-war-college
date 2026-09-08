@@ -30,7 +30,13 @@ from typing import Any, Awaitable, Callable, Iterable
 
 
 MARKER = "VOID_WAR_COLLEGE_JOINT_ADVANCE_BENCHMARK_V1"
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
+SUPERVISOR_SCHEMA = "void.war-college.joint-advance-parent-supervisor.v1"
+SUPERVISOR_START_TIMEOUT_S = 10.0
+SUPERVISOR_CONTAINMENT_MIN_MARGIN_S = 60.0
+SUPERVISOR_RETIREMENT_TERMINALS = {
+    "natural_exit", "sigterm_retired", "sigkill_retired",
+}
 PROTO_INT32_MIN = -(2**31)
 PROTO_INT32_MAX = 2**31 - 1
 PUBLICATION_RECEIPT_MARKER = "VOID_WAR_COLLEGE_EVIDENCE_COMMIT_RECEIPT_V1"
@@ -187,6 +193,24 @@ def build_matrix(concurrency: tuple[int, ...], tick_batches: tuple[int, ...]) ->
     if not cells or len(cells) > 64:
         raise ContractError("benchmark matrix must contain between 1 and 64 cells")
     return cells
+
+
+
+def _supervisor_outer_timeout_s(parameters: dict[str, Any]) -> float:
+    planned = build_matrix(
+        tuple(parameters["concurrency"]),
+        tuple(parameters["tick_batches"]),
+    )
+    per_cell = parameters["cell_timeout_s"] + parameters["teardown_timeout_s"]
+    margin = max(
+        SUPERVISOR_CONTAINMENT_MIN_MARGIN_S,
+        2 * parameters["rpc_timeout_s"],
+        2 * parameters["teardown_timeout_s"],
+    )
+    result = float(parameters["ready_timeout_s"] + len(planned) * per_cell + margin)
+    if not math.isfinite(result) or result <= 0:
+        raise ContractError("parent supervisor outer timeout must be finite and positive")
+    return result
 
 
 def matrix_may_continue(terminal: str) -> bool:
@@ -388,12 +412,15 @@ def build_report(
     run: dict[str, Any] | None = None,
     host: dict[str, Any] | None = None,
     operation: dict[str, Any] | None = None,
+    supervisor: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     runtime_evidence = "EXECUTED" if executed_designated_host else "PENDING_DESIGNATED_HOST"
     if not executed_designated_host and cells:
         raise ContractError("source-only evidence must not contain measured runtime cells")
     if not executed_designated_host and run is not None:
         raise ContractError("source-only evidence must not contain a runtime attempt terminal")
+    if not executed_designated_host and supervisor is not None:
+        raise ContractError("source-only evidence must not contain a parent supervisor record")
     if executed_designated_host:
         validate_operation(operation)
         if not isinstance(run, dict) or run.get("terminal") not in RUN_TERMINALS:
@@ -414,6 +441,7 @@ def build_report(
         "run": run if executed_designated_host else None,
         "parameters": parameters,
         "operation": operation if executed_designated_host else None,
+        "supervisor": supervisor if executed_designated_host else None,
         "cells": cells,
     }
     # The in-memory contract must equal the stable JSON contract. In particular,
@@ -1503,6 +1531,69 @@ def _validate_completed_matrix_causality(
             )
 
 
+
+def _validate_parent_supervisor(
+    value: Any,
+    operation: dict[str, Any],
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(operation, dict) or not isinstance(
+        operation.get("descriptor"), dict
+    ):
+        raise ContractError("parent supervisor operation binding is invalid")
+    descriptor = operation["descriptor"]
+
+    value = _require_exact_fields(
+        value,
+        {
+            "schema", "owner", "parent_pid", "child_pid", "child_pgid",
+            "authorization_boundary", "start_timeout_s",
+            "outer_execution_timeout_s", "terminal_source", "containment",
+        },
+        "parent supervisor",
+    )
+    if value["schema"] != SUPERVISOR_SCHEMA or value["owner"] != "parent_process":
+        raise ContractError("parent supervisor identity is invalid")
+    for field in ("parent_pid", "child_pid", "child_pgid"):
+        if type(value[field]) is not int or value[field] <= 0:
+            raise ContractError(f"parent supervisor {field} is invalid")
+    if value["child_pid"] != value["child_pgid"] or value["parent_pid"] == value["child_pid"]:
+        raise ContractError("parent supervisor child PID/PGID identity is invalid")
+
+    authorization = _require_exact_fields(
+        value["authorization_boundary"],
+        {"mode", "execute_designated_host", "designated_hostname", "operation_sha256"},
+        "parent supervisor authorization boundary",
+    )
+    if (
+        authorization["mode"] != "run"
+        or authorization["execute_designated_host"] is not True
+        or authorization["designated_hostname"] != descriptor.get("designated_hostname")
+        or authorization["operation_sha256"] != operation.get("sha256")
+    ):
+        raise ContractError("parent supervisor authorization boundary is not operation-bound")
+
+    if value["start_timeout_s"] != SUPERVISOR_START_TIMEOUT_S:
+        raise ContractError("parent supervisor start timeout is not source-bound")
+    if value["outer_execution_timeout_s"] != _supervisor_outer_timeout_s(parameters):
+        raise ContractError("parent supervisor outer timeout is not parameter-bound")
+    if value["terminal_source"] != "child_outcome":
+        raise ContractError("parent supervisor terminal source is invalid")
+
+    containment = _require_exact_fields(
+        value["containment"],
+        {"process_group_bound", "retirement_attempted", "retirement_terminal"},
+        "parent supervisor containment",
+    )
+    if (
+        containment["process_group_bound"] is not True
+        or containment["retirement_attempted"] is not True
+        or containment["retirement_terminal"] not in SUPERVISOR_RETIREMENT_TERMINALS
+    ):
+        raise ContractError("parent supervisor retirement terminal is invalid")
+    return value
+
+
 def _validate_recoverable_evidence(
     payload: bytes,
     expected_operation: dict[str, Any] | None = None,
@@ -1519,16 +1610,17 @@ def _validate_recoverable_evidence(
         raise ContractError(f"pending evidence is not stable canonical JSON: {error}") from error
     if canonical_payload != payload:
         raise ContractError("pending evidence is not stable canonical JSON")
-    expected_fields = {
-        "marker", "schema_version", "runtime_evidence", "generated_at_utc",
-        "provenance", "command", "host", "run", "parameters", "operation", "cells",
-    }
-    if set(report) != expected_fields:
-        raise ContractError("pending evidence report fields are not exact")
-    if type(report["schema_version"]) is not int:
+    if type(report.get("schema_version")) is not int:
         raise ContractError("pending evidence schema version is not an exact integer")
     if report["schema_version"] != SCHEMA_VERSION:
         raise IncompatibleEvidenceSchemaError(report["schema_version"], SCHEMA_VERSION)
+    expected_fields = {
+        "marker", "schema_version", "runtime_evidence", "generated_at_utc",
+        "provenance", "command", "host", "run", "parameters", "operation",
+        "supervisor", "cells",
+    }
+    if set(report) != expected_fields:
+        raise ContractError("pending evidence report fields are not exact")
     if report["runtime_evidence"] != "EXECUTED":
         raise ContractError("pending evidence is not an executed runtime attempt")
 
@@ -1588,6 +1680,10 @@ def _validate_recoverable_evidence(
     if run["terminal"] == "completed":
         _validate_completed_matrix_causality(cells, planned)
 
+    supervisor = _validate_parent_supervisor(
+        report["supervisor"], operation, parameters,
+    )
+
     rebuilt = build_report(
         provenance=provenance,
         parameters=parameters,
@@ -1598,6 +1694,7 @@ def _validate_recoverable_evidence(
         run=run,
         host=host,
         operation=operation,
+        supervisor=supervisor,
     )
     if rebuilt != report:
         raise ContractError("pending evidence report does not match the closed schema")

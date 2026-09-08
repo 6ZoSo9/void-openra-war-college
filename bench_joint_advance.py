@@ -250,25 +250,14 @@ def publish_evidence_create_only(
 # Preserve the exact reviewed coroutine for direct source-only tests. Runtime
 # entry through main() is wrapped below in a separate spawned process group.
 _CORE_EXECUTE_RUNTIME = execute_runtime
-_RUNTIME_CHILD_START_TIMEOUT_S = 10.0
+_RUNTIME_CHILD_START_TIMEOUT_S = SUPERVISOR_START_TIMEOUT_S
 _RUNTIME_CHILD_NATURAL_RETIREMENT_S = 5.0
 _RUNTIME_CHILD_SIGNAL_GRACE_S = 5.0
-_RUNTIME_CONTAINMENT_MIN_MARGIN_S = 60.0
+_RUNTIME_CONTAINMENT_MIN_MARGIN_S = SUPERVISOR_CONTAINMENT_MIN_MARGIN_S
 
 
 def _runtime_process_deadline_s(parameters: dict[str, Any]) -> float:
-    """Derive a finite outer deadline from the already-reviewed inner bounds."""
-    planned = build_matrix(
-        tuple(parameters["concurrency"]),
-        tuple(parameters["tick_batches"]),
-    )
-    per_cell = parameters["cell_timeout_s"] + parameters["teardown_timeout_s"]
-    margin = max(
-        _RUNTIME_CONTAINMENT_MIN_MARGIN_S,
-        2 * parameters["rpc_timeout_s"],
-        2 * parameters["teardown_timeout_s"],
-    )
-    return float(parameters["ready_timeout_s"] + len(planned) * per_cell + margin)
+    return _supervisor_outer_timeout_s(parameters)
 
 
 def _process_group_exists(pgid: int) -> bool:
@@ -312,7 +301,7 @@ def _retire_runtime_process_group(
     *,
     natural_grace_s: float = _RUNTIME_CHILD_NATURAL_RETIREMENT_S,
     signal_grace_s: float = _RUNTIME_CHILD_SIGNAL_GRACE_S,
-) -> None:
+) -> str:
     """Retire one process group without multiplying phase-local wait budgets."""
     for label, value in (
         ("natural_grace_s", natural_grace_s),
@@ -337,7 +326,7 @@ def _retire_runtime_process_group(
 
     process.join(_runtime_retirement_remaining(natural_deadline))
     if not process.is_alive() and not _process_group_exists(pgid):
-        return
+        return "natural_exit"
 
     _signal_process_group(pgid, _BootstrapSignal.SIGTERM)
     process.join(_runtime_retirement_remaining(term_deadline))
@@ -347,7 +336,7 @@ def _retire_runtime_process_group(
             pgid, _runtime_retirement_remaining(term_deadline)
         )
     ):
-        return
+        return "sigterm_retired"
 
     _signal_process_group(pgid, _BootstrapSignal.SIGKILL)
     process.join(_runtime_retirement_remaining(kill_deadline))
@@ -357,6 +346,7 @@ def _retire_runtime_process_group(
         raise ContractError(
             f"runtime process-group containment failed to retire pgid={pgid}"
         )
+    return "sigkill_retired"
 
 
 def _retire_unbound_runtime_child(
@@ -439,12 +429,62 @@ def _runtime_child_entry(
 _runtime_child_entry.__module__ = _CORE_EXEC_MODULE
 
 
+
+def _build_parent_supervisor_record(
+    *,
+    args: argparse.Namespace,
+    process: Any,
+    pgid: int,
+    outer_execution_timeout_s: float,
+    retirement_terminal: str,
+    expected_provenance: dict[str, str],
+    parameters: dict[str, Any],
+) -> dict[str, Any]:
+    operation = operation_descriptor(
+        expected_provenance,
+        parameters,
+        designated_hostname=args.designated_hostname,
+        openra_dir=Path(args.openra_dir),
+    )
+    return {
+        "schema": SUPERVISOR_SCHEMA,
+        "owner": "parent_process",
+        "parent_pid": os.getpid(),
+        "child_pid": process.pid,
+        "child_pgid": pgid,
+        "authorization_boundary": {
+            "mode": "run",
+            "execute_designated_host": True,
+            "designated_hostname": args.designated_hostname,
+            "operation_sha256": operation["sha256"],
+        },
+        "start_timeout_s": _RUNTIME_CHILD_START_TIMEOUT_S,
+        "outer_execution_timeout_s": outer_execution_timeout_s,
+        "terminal_source": "child_outcome",
+        "containment": {
+            "process_group_bound": True,
+            "retirement_attempted": True,
+            "retirement_terminal": retirement_terminal,
+        },
+    }
+
+
 def _execute_runtime_contained(
     args: argparse.Namespace,
     parameters: dict[str, Any],
     expected_provenance: dict[str, str],
 ) -> dict[str, Any]:
     """Own one runtime attempt in a spawned, killable process group."""
+    if (
+        getattr(args, "mode", None) != "run"
+        or getattr(args, "execute_designated_host", None) is not True
+        or not isinstance(getattr(args, "designated_hostname", None), str)
+        or not args.designated_hostname
+        or not getattr(args, "openra_dir", None)
+    ):
+        raise ContractError(
+            "runtime containment requires explicit designated-host run authorization"
+        )
     if (
         os.name != "posix"
         or not hasattr(os, "setsid")
@@ -469,6 +509,8 @@ def _execute_runtime_contained(
     child_error: str | None = None
     deadline = time.monotonic() + _RUNTIME_CHILD_START_TIMEOUT_S
     runtime_started = False
+    outer_execution_timeout_s: float | None = None
+    retirement_terminal: str | None = None
 
     try:
         while outcome is None and child_error is None:
@@ -503,15 +545,17 @@ def _execute_runtime_contained(
                         break
                     runtime_started = True
                     pgid = message[2]
-                    deadline = (
-                        time.monotonic() + _runtime_process_deadline_s(parameters)
-                    )
+                    outer_execution_timeout_s = _runtime_process_deadline_s(parameters)
+                    deadline = time.monotonic() + outer_execution_timeout_s
                 elif kind == "OUTCOME":
                     if not runtime_started or len(message) != 2:
                         child_error = "runtime child outcome arrived before process-group binding"
                         break
                     if not isinstance(message[1], dict):
                         child_error = "runtime child outcome is not a structured object"
+                        break
+                    if set(message[1]) != {"cells", "run", "host"}:
+                        child_error = "runtime child outcome fields are not exact"
                         break
                     outcome = message[1]
                 elif kind == "ERROR":
@@ -531,11 +575,24 @@ def _execute_runtime_contained(
         if pgid is None:
             _retire_unbound_runtime_child(process)
         else:
-            _retire_runtime_process_group(process, pgid)
+            retirement_terminal = _retire_runtime_process_group(process, pgid)
 
     if outcome is None:
         raise ContractError(child_error or "runtime child produced no outcome")
-    return outcome
+    if pgid is None or outer_execution_timeout_s is None or retirement_terminal is None:
+        raise ContractError("runtime child outcome lacks a closed parent supervisor terminal")
+    return {
+        **outcome,
+        "supervisor": _build_parent_supervisor_record(
+            args=args,
+            process=process,
+            pgid=pgid,
+            outer_execution_timeout_s=outer_execution_timeout_s,
+            retirement_terminal=retirement_terminal,
+            expected_provenance=expected_provenance,
+            parameters=parameters,
+        ),
+    }
 
 
 def _run_runtime_from_main(
@@ -588,6 +645,7 @@ def main(argv: list[str] | None = None) -> int:
                     run=outcome["run"],
                     host=outcome["host"],
                     operation=operation,
+                    supervisor=outcome["supervisor"],
                 )
                 try:
                     payload = stable_json(report).encode("utf-8")

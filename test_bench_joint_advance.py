@@ -23,6 +23,51 @@ import bench_joint_advance as bench
 BENCHMARK_SOURCE_SHA = "a" * 40
 
 
+def supervisor_fixture(
+    parameters,
+    *,
+    operation=None,
+    designated_hostname="fixture",
+):
+    if operation is None:
+        provenance = bench.validate_provenance(
+            bench.FROZEN_ENGINE_SHA,
+            bench.FROZEN_WAR_COLLEGE_SHA,
+            BENCHMARK_SOURCE_SHA,
+            bench.GENERATION,
+        )
+        operation = bench.operation_descriptor(
+            provenance,
+            parameters,
+            designated_hostname=designated_hostname,
+            openra_dir=Path("/tmp/frozen-openra"),
+        )
+    descriptor = operation["descriptor"]
+    designated_hostname = descriptor["designated_hostname"]
+    return {
+        "schema": bench.SUPERVISOR_SCHEMA,
+        "owner": "parent_process",
+        "parent_pid": 4000,
+        "child_pid": 4001,
+        "child_pgid": 4001,
+        "authorization_boundary": {
+            "mode": "run",
+            "execute_designated_host": True,
+            "designated_hostname": designated_hostname,
+            "operation_sha256": operation["sha256"],
+        },
+        "start_timeout_s": bench.SUPERVISOR_START_TIMEOUT_S,
+        "outer_execution_timeout_s": bench._supervisor_outer_timeout_s(parameters),
+        "terminal_source": "child_outcome",
+        "containment": {
+            "process_group_bound": True,
+            "retirement_attempted": True,
+            "retirement_terminal": "natural_exit",
+        },
+    }
+
+
+
 class InputContractTests(unittest.TestCase):
     def test_canonical_integer_list(self):
         self.assertEqual(
@@ -214,6 +259,7 @@ class EvidenceContractTests(unittest.TestCase):
         )
         self.assertEqual(report["runtime_evidence"], "PENDING_DESIGNATED_HOST")
         self.assertIsNone(report["host"])
+        self.assertIsNone(report["supervisor"])
         with self.assertRaises(bench.ContractError):
             bench.build_report(
                 provenance=self.provenance,
@@ -800,6 +846,7 @@ class EvidencePublicationTests(unittest.TestCase):
                   "platform": "fixture-platform", "python": "3.10.0", "cpu_count": 2},
             operation=operation,
         )
+        report["supervisor"] = supervisor_fixture(parameters, operation=operation)
         return bench.stable_json(report).encode("utf-8")
 
     @staticmethod
@@ -826,6 +873,9 @@ class EvidencePublicationTests(unittest.TestCase):
                 for validation in validations:
                     validation["end_tick"] = validation["start_tick"] + 8
         report["cells"].append(second)
+        report["supervisor"] = supervisor_fixture(
+            report["parameters"], operation=report["operation"]
+        )
         return bench.stable_json(report).encode("utf-8")
 
     @staticmethod
@@ -1478,17 +1528,18 @@ class EvidencePublicationTests(unittest.TestCase):
                 with self.assertRaisesRegex(bench.ContractError, "scalar types"):
                     bench.load_committed_evidence(output, self.operation(payload))
 
-    def test_prior_schema_eight_unbound_blocker_is_an_explicit_incompatible_hold(self):
+    def test_prior_schema_nine_without_supervisor_is_an_explicit_incompatible_hold(self):
         candidate = json.loads(self.completed_failure_payload())
-        self.assertEqual(candidate["schema_version"], 9)
-        candidate["schema_version"] = 8
+        self.assertEqual(candidate["schema_version"], 10)
+        candidate["schema_version"] = 9
+        candidate.pop("supervisor")
         candidate["cells"][1]["blocked_by"] = "c1-t8"
         with self.assertRaises(bench.IncompatibleEvidenceSchemaError) as raised:
             bench._validate_recoverable_evidence(
                 bench.stable_json(candidate).encode("utf-8")
             )
-        self.assertEqual(raised.exception.actual, 8)
-        self.assertEqual(raised.exception.expected, 9)
+        self.assertEqual(raised.exception.actual, 9)
+        self.assertEqual(raised.exception.expected, 10)
 
     def test_abrupt_termination_before_commit_receipt_is_not_countable(self):
         payload = self.payload()
@@ -2423,6 +2474,7 @@ class RunRepetitionOwnershipTests(unittest.IsolatedAsyncioTestCase):
 
 class RetryRecoveryTests(unittest.TestCase):
     @staticmethod
+    @staticmethod
     def invocation(directory, output, *, seed="2050", hostname="fixture"):
         argv = [
                 "run",
@@ -2454,9 +2506,20 @@ class RetryRecoveryTests(unittest.TestCase):
             designated_hostname=hostname,
             openra_dir=Path(directory),
         )
-        del provenance, parameters, operation
-        return argv, EvidencePublicationTests.payload()
+        report = json.loads(EvidencePublicationTests.payload())
+        report["provenance"] = provenance
+        report["parameters"] = parameters
+        report["operation"] = operation
+        report["host"]["hostname"] = hostname
+        report["host"]["designated_hostname"] = hostname
+        report["supervisor"] = supervisor_fixture(
+            parameters,
+            operation=operation,
+            designated_hostname=hostname,
+        )
+        return argv, bench.stable_json(report).encode("utf-8")
 
+    @staticmethod
     @staticmethod
     def completed_outcome(payload):
         report = json.loads(payload)
@@ -2464,6 +2527,7 @@ class RetryRecoveryTests(unittest.TestCase):
             "cells": report["cells"],
             "run": report["run"],
             "host": report["host"],
+            "supervisor": report["supervisor"],
         }
 
     def test_main_durably_reserves_exact_pending_inode_before_runtime_contact(self):
