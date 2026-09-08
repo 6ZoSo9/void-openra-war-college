@@ -48,7 +48,7 @@ jobs:
           python -m unittest -v \
             tests/test_designated_host_attempt_admission_v1.py
 
-      - name: Prove narrow create-only authority
+      - name: Prove descriptor-sourced create-only authority
         shell: bash
         run: |
           set -euo pipefail
@@ -64,12 +64,20 @@ jobs:
               "attempt_store_creation_authorized": True,
               "evidence_consumption_authorized": False,
               "live_request_materialization_authorized": False,
+              "pathname_delete_authorized": False,
               "private_key_access": False,
               "runtime_execution_authorized": False,
               "service_action_authorized": False,
               "session_advance_authorized": False,
               "signing_authorized": False,
           }
+          assert (
+              contract["canonical_publish_strategy"]
+              == "linux_linkat_at_empty_path_descriptor_source_v1"
+          )
+          assert contract["retained_staging_alias_required"] is True
+          assert contract["store_required_link_count_after_publish"] == 2
+
           source = Path(
               "scripts/prepare_designated_host_attempt_admission_v1.py"
           ).read_text()
@@ -77,6 +85,12 @@ jobs:
           assert "consume_joint_evidence(" not in source
           assert "advance_session(" not in source
           assert "systemctl" not in source
+          assert "os.unlink(" not in source
+          assert ".unlink(" not in source
+          assert "os.remove(" not in source
           assert source.count("store.create_attempt(") == 1
+          assert "AT_EMPTY_PATH" in source
+          assert "linkat" in source
+          assert "/proc/self/fd/" in source
           print("VOID_WAR_COLLEGE_ATTEMPT_ADMISSION_SOURCE_GREEN")
           PY
