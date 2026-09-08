@@ -11,6 +11,7 @@ import argparse
 import dataclasses
 import hashlib
 import importlib
+import importlib.util
 import json
 import os
 import re
@@ -139,10 +140,15 @@ def load_contract() -> dict[str, Any]:
     }
     if value.get("authority") != expected_authority:
         raise HandoffHold("HOLD_HANDOFF_AUTHORITY_DRIFT")
+    verify_source_bindings(value)
     return value
 
 
-def _git(repo: Path, *args: str) -> str:
+def _git(
+    repo: Path,
+    *args: str,
+    hold: str = "HOLD_RUNTIME_GIT_QUERY",
+) -> str:
     cp = subprocess.run(
         [GIT, "-C", str(repo), *args],
         text=True,
@@ -152,8 +158,79 @@ def _git(repo: Path, *args: str) -> str:
         env={"HOME": str(Path.home()), "LANG": "C", "LC_ALL": "C", "PATH": "/usr/bin:/bin"},
     )
     if cp.returncode != 0:
-        raise HandoffHold("HOLD_RUNTIME_GIT_QUERY")
+        raise HandoffHold(hold)
     return cp.stdout.strip()
+
+
+def verify_source_bindings(
+    contract: dict[str, Any],
+    source_repo: Path = ROOT,
+) -> None:
+    runtime_commit = contract.get("runtime_source_commit")
+    runtime_blobs = contract.get("runtime_artifact_git_blobs")
+    if type(runtime_commit) is not str or type(runtime_blobs) is not dict:
+        raise HandoffHold("HOLD_RUNTIME_SOURCE_BINDING_CONTRACT")
+
+    for rel, expected in sorted(runtime_blobs.items()):
+        if type(rel) is not str or type(expected) is not str:
+            raise HandoffHold("HOLD_RUNTIME_SOURCE_BINDING_CONTRACT")
+        actual = _git(
+            source_repo,
+            "rev-parse",
+            f"{runtime_commit}:{rel}",
+            hold="HOLD_RUNTIME_SOURCE_BINDING_GIT_QUERY",
+        )
+        if actual != expected:
+            raise HandoffHold("HOLD_RUNTIME_SOURCE_BINDING_BLOB")
+
+    wrapper_rel = contract.get("request_wrapper_path")
+    wrapper_blob = contract.get("request_wrapper_git_blob")
+    wrapper_commit = contract.get("request_wrapper_source_commit")
+    if wrapper_rel != "scripts/war_college_designated_host_verify_request_v1.py":
+        raise HandoffHold("HOLD_REQUEST_WRAPPER_SOURCE_PATH")
+    if type(wrapper_blob) is not str or type(wrapper_commit) is not str:
+        raise HandoffHold("HOLD_REQUEST_WRAPPER_SOURCE_CONTRACT")
+    if wrapper_commit != contract.get("semantic_parent_head"):
+        raise HandoffHold("HOLD_REQUEST_WRAPPER_SOURCE_PARENT")
+
+    _git(
+        source_repo,
+        "merge-base",
+        "--is-ancestor",
+        wrapper_commit,
+        "HEAD",
+        hold="HOLD_REQUEST_WRAPPER_SOURCE_NOT_ANCESTOR",
+    )
+    historical_blob = _git(
+        source_repo,
+        "rev-parse",
+        f"{wrapper_commit}:{wrapper_rel}",
+        hold="HOLD_REQUEST_WRAPPER_SOURCE_GIT_QUERY",
+    )
+    current_blob = _git(
+        source_repo,
+        "rev-parse",
+        f"HEAD:{wrapper_rel}",
+        hold="HOLD_REQUEST_WRAPPER_SOURCE_GIT_QUERY",
+    )
+    if historical_blob != wrapper_blob or current_blob != wrapper_blob:
+        raise HandoffHold("HOLD_REQUEST_WRAPPER_SOURCE_BLOB")
+
+    wrapper_path = source_repo / wrapper_rel
+    try:
+        resolved = wrapper_path.resolve(strict=True)
+    except OSError as error:
+        raise HandoffHold("HOLD_REQUEST_WRAPPER_SOURCE_NOT_FOUND") from error
+    if resolved != wrapper_path or wrapper_path.is_symlink() or not wrapper_path.is_file():
+        raise HandoffHold("HOLD_REQUEST_WRAPPER_SOURCE_PATH_IDENTITY")
+    working_blob = _git(
+        source_repo,
+        "hash-object",
+        str(wrapper_path),
+        hold="HOLD_REQUEST_WRAPPER_SOURCE_GIT_QUERY",
+    )
+    if working_blob != wrapper_blob:
+        raise HandoffHold("HOLD_REQUEST_WRAPPER_SOURCE_WORKTREE_DRIFT")
 
 
 def verify_runtime(contract: dict[str, Any]) -> Path:
@@ -174,7 +251,7 @@ def verify_runtime(contract: dict[str, Any]) -> Path:
     return repo
 
 
-def load_runtime_modules(repo: Path):
+def load_runtime_modules(repo: Path, contract: dict[str, Any]):
     original = list(sys.path)
     try:
         if str(repo) not in sys.path:
@@ -183,7 +260,16 @@ def load_runtime_modules(repo: Path):
         producer_auth = importlib.import_module("scripts.verify_controller_evidence_producer_auth_v1")
         designated_root = importlib.import_module("scripts.war_college_designated_producer_trust_root_v1")
         store = importlib.import_module("scripts.controller_attempt_admission_store_v1")
-        wrapper = importlib.import_module("scripts.war_college_designated_host_verify_request_v1")
+
+        wrapper_path = ROOT / contract["request_wrapper_path"]
+        spec = importlib.util.spec_from_file_location(
+            "void_war_college_request_wrapper_bound_v1",
+            wrapper_path,
+        )
+        if spec is None or spec.loader is None:
+            raise HandoffHold("HOLD_REQUEST_WRAPPER_SOURCE_IMPORT_SPEC")
+        wrapper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wrapper)
         return structural, producer_auth, designated_root, store, wrapper
     finally:
         sys.path[:] = original
@@ -407,10 +493,36 @@ def derive_state(
     }
 
 
+def _ensure_private_directory(path: Path) -> None:
+    if path.exists() or path.is_symlink():
+        try:
+            visible = path.lstat()
+        except OSError as error:
+            raise HandoffHold("HOLD_PRIVATE_DIRECTORY_STAT") from error
+        if stat.S_ISLNK(visible.st_mode) or not stat.S_ISDIR(visible.st_mode):
+            raise HandoffHold("HOLD_PRIVATE_DIRECTORY_NOT_DIRECTORY")
+    else:
+        try:
+            path.mkdir(parents=True, mode=0o700)
+        except OSError as error:
+            raise HandoffHold("HOLD_PRIVATE_DIRECTORY_CREATE") from error
+
+    try:
+        os.chmod(path, 0o700)
+        after = path.lstat()
+    except OSError as error:
+        raise HandoffHold("HOLD_PRIVATE_DIRECTORY_HARDEN") from error
+
+    if stat.S_ISLNK(after.st_mode) or not stat.S_ISDIR(after.st_mode):
+        raise HandoffHold("HOLD_PRIVATE_DIRECTORY_NOT_DIRECTORY")
+    if stat.S_IMODE(after.st_mode) != 0o700:
+        raise HandoffHold("HOLD_PRIVATE_DIRECTORY_MODE")
+
+
 def _create_private_dir(path: Path) -> None:
     if path.exists() or path.is_symlink():
         raise HandoffHold("HOLD_OUTPUT_ALREADY_EXISTS")
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_private_directory(path.parent)
     path.mkdir(mode=0o700)
     os.chmod(path, 0o700)
 
@@ -611,7 +723,7 @@ def main(argv: list[str] | None = None) -> int:
             raise HandoffHold("HOLD_OPERATOR_UID_GID")
         contract = load_contract()
         repo = verify_runtime(contract)
-        modules = load_runtime_modules(repo)
+        modules = load_runtime_modules(repo, contract)
         if args.command == "prepare":
             report = prepare_handoff(
                 evidence_path=args.evidence,

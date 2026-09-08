@@ -30,7 +30,7 @@
   "supervisor_contract_git_blob": "28f0dd80a683d8c42b8248833ac3e6039dbfbcc0",
   "supervisor_contract_path": "config/war-college/designated-host-supervisor-v1.json",
   "unit_required_mode": "0o600",
-  "unit_sha256": "0194c458dd3e4f484aa49c6975e6457a87de14b49e67b2d813fb53edbfd495f7",
+  "unit_sha256": "2158e4e57a34d0b09e6f2d655ffbfba1d48a263678b3947d43c3b2b37683e6d7",
   "version": 1,
   "void_data_dir": "/home/zoso/dev/void-node/data_a",
   "working_directory": "/home/zoso/dev/openra-rl-war-college-worktrees/designated-host-runtime-bae61935",

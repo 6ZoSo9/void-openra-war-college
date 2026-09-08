@@ -44,6 +44,36 @@ jobs:
             scripts/prepare_designated_host_request_signing_handoff_v1.py \
             tests/test_designated_host_request_signing_handoff_v1.py
 
+      - name: Prove declared runtime and wrapper source bindings
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          tool_path = Path(
+              "scripts/prepare_designated_host_request_signing_handoff_v1.py"
+          )
+          spec = importlib.util.spec_from_file_location(
+              "handoff_source_binding_probe",
+              tool_path,
+          )
+          assert spec is not None and spec.loader is not None
+          tool = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(tool)
+
+          contract = tool.load_contract()
+          tool.verify_source_bindings(contract)
+          assert (
+              contract["request_wrapper_source_commit"]
+              == contract["semantic_parent_head"]
+          )
+          assert (
+              contract["request_wrapper_path"]
+              not in contract["runtime_artifact_git_blobs"]
+          )
+          print("VOID_WAR_COLLEGE_SIGNING_HANDOFF_SOURCE_BINDINGS_GREEN")
+          PY
+
       - name: Run handoff falsifiers
         run: |
           python -m unittest -v \

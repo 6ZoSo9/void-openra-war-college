@@ -93,7 +93,7 @@ class ProvisioningPlanTests(unittest.TestCase):
         )
         self.assertEqual(
             post["preflight_contract_git_blob"],
-            "531d3aecbe92e8a84ad8324d54053b88de6d5c4a",
+            "6322790f0a0e5f67bdbd83150889bc7639bbcf90",
         )
 
     def test_post_preflight_contract_substitution_fails_closed(self):

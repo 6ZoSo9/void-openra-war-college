@@ -103,11 +103,38 @@ def load_binding(path: Path = BINDING_PATH) -> dict[str, Any]:
         raise ExecutionBindingError("source wrapper SHA mismatch")
 
     unit_text = source_unit.read_text(encoding="utf-8")
+    unit_lines = unit_text.splitlines()
     exact_exec = value.get("exec_start_line")
-    if type(exact_exec) is not str or unit_text.splitlines().count(exact_exec) != 1:
+    if type(exact_exec) is not str or unit_lines.count(exact_exec) != 1:
         raise ExecutionBindingError("exact ExecStart line mismatch")
     if "[Install]" in unit_text:
         raise ExecutionBindingError("source service unexpectedly has an Install section")
+
+    # This verifier is a user-manager service. PrivateDevices= implicitly
+    # rewrites the capability bounding set (including CAP_MKNOD/CAP_SYS_RAWIO)
+    # and is not executable on the designated host's unprivileged user manager.
+    # Keep the remaining sandbox contract explicit while forbidding that
+    # incompatible capability mutation.
+    if any(line.startswith("PrivateDevices=") for line in unit_lines):
+        raise ExecutionBindingError(
+            "source service uses unsupported PrivateDevices in user manager"
+        )
+    for hardening_line in (
+        "UMask=0077",
+        "NoNewPrivileges=true",
+        "PrivateTmp=true",
+        "ProtectSystem=strict",
+        "ProtectHome=read-only",
+        "ReadWritePaths=/home/zoso/dev/void-node/data_a/war_college",
+        "LockPersonality=true",
+        "MemoryDenyWriteExecute=true",
+        "RestrictSUIDSGID=true",
+        "RestrictAddressFamilies=AF_UNIX",
+    ):
+        if unit_lines.count(hardening_line) != 1:
+            raise ExecutionBindingError(
+                "required source service hardening line mismatch"
+            )
     return value
 
 

@@ -158,7 +158,7 @@ def verify_plan(
     expected_artifacts = {
         "systemd_user_unit": (
             binding.get("source_unit_path"),
-            "aeb467f581e71e21fd48bef970f72c2950d39419",
+            "09928da38fd982c897a281957a1c173ae6a6b930",
             binding.get("unit_sha256"),
             binding.get("installed_unit_path"),
             binding.get("unit_required_mode"),
@@ -239,7 +239,7 @@ def verify_plan(
             "/usr/bin/python3",
             "scripts/discover_designated_host_execution_binding_runtime_v1.py",
         ],
-        "preflight_contract_git_blob": "531d3aecbe92e8a84ad8324d54053b88de6d5c4a",
+        "preflight_contract_git_blob": "6322790f0a0e5f67bdbd83150889bc7639bbcf90",
         "preflight_contract_path": (
             "config/war-college/designated-host-runtime-preflight-v1.json"
         ),
