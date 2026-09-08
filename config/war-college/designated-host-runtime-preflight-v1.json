@@ -1,8 +1,8 @@
 {
   "daemon_reload_authorized": false,
-  "execution_binding_git_blob": "db6944b7e53f6fbb7b1d8dfa2cd5a0766c4cc696",
+  "execution_binding_git_blob": "5bcfd79a6a1da5d71ade6a532aaef8b52b6dd825",
   "execution_binding_path": "config/war-college/designated-host-execution-binding-v1.json",
-  "execution_verifier_git_blob": "551a84e0b8ac9230cc94179ed60d722a36f0305d",
+  "execution_verifier_git_blob": "b77d3da8effc07198d2a089c37d57a47ae5dcda1",
   "execution_verifier_path": "scripts/verify_designated_host_execution_binding_v1.py",
   "marker": "VOID_WAR_COLLEGE_DESIGNATED_HOST_RUNTIME_PREFLIGHT_V1",
   "private_key_access": false,

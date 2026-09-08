@@ -80,6 +80,26 @@ class ExecutionBindingTests(unittest.TestCase):
             supervisor["service_instance_id_regex"],
             b["request_id_regex"],
         )
+        unit_text = (
+            verifier.ROOT / b["source_unit_path"]
+        ).read_text(encoding="utf-8")
+        unit_lines = unit_text.splitlines()
+        self.assertFalse(
+            any(line.startswith("PrivateDevices=") for line in unit_lines)
+        )
+        for hardening_line in (
+            "UMask=0077",
+            "NoNewPrivileges=true",
+            "PrivateTmp=true",
+            "ProtectSystem=strict",
+            "ProtectHome=read-only",
+            "ReadWritePaths=/home/zoso/dev/void-node/data_a/war_college",
+            "LockPersonality=true",
+            "MemoryDenyWriteExecute=true",
+            "RestrictSUIDSGID=true",
+            "RestrictAddressFamilies=AF_UNIX",
+        ):
+            self.assertEqual(unit_lines.count(hardening_line), 1)
 
     def test_clean_installed_binding_is_green_without_starting_service(self):
         report = verifier.verify_installed_binding(clean_report())

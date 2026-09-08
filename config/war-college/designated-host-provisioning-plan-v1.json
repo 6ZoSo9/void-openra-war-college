@@ -6,9 +6,9 @@
       "required_gid": 1000,
       "required_mode": "0o600",
       "required_uid": 1000,
-      "source_git_blob": "aeb467f581e71e21fd48bef970f72c2950d39419",
+      "source_git_blob": "09928da38fd982c897a281957a1c173ae6a6b930",
       "source_path": "ops/war-college/void-war-college-evidence-verifier@.service",
-      "source_sha256": "0194c458dd3e4f484aa49c6975e6457a87de14b49e67b2d813fb53edbfd495f7",
+      "source_sha256": "2158e4e57a34d0b09e6f2d655ffbfba1d48a263678b3947d43c3b2b37683e6d7",
       "symlink_allowed": false,
       "target_path": "/home/zoso/.config/systemd/user/void-war-college-evidence-verifier@.service"
     },
@@ -55,7 +55,7 @@
     "required_after_unit_materialization": true,
     "service_start_after_reload": false
   },
-  "execution_binding_git_blob": "db6944b7e53f6fbb7b1d8dfa2cd5a0766c4cc696",
+  "execution_binding_git_blob": "5bcfd79a6a1da5d71ade6a532aaef8b52b6dd825",
   "execution_binding_path": "config/war-college/designated-host-execution-binding-v1.json",
   "marker": "VOID_WAR_COLLEGE_DESIGNATED_HOST_PROVISIONING_PLAN_V1",
   "materialization": {
@@ -73,7 +73,7 @@
       "/usr/bin/python3",
       "scripts/discover_designated_host_execution_binding_runtime_v1.py"
     ],
-    "preflight_contract_git_blob": "531d3aecbe92e8a84ad8324d54053b88de6d5c4a",
+    "preflight_contract_git_blob": "6322790f0a0e5f67bdbd83150889bc7639bbcf90",
     "preflight_contract_path": "config/war-college/designated-host-runtime-preflight-v1.json",
     "required_dropin_paths": [],
     "required_mutation_performed": false,
