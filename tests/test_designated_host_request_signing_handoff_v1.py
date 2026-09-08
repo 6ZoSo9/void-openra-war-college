@@ -330,6 +330,35 @@ class SigningHandoffTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_prepare_hardens_staging_parent_to_0700(self):
+        evidence_path = self.root / "input-evidence-parent-mode.json"
+        public_path = self.root / "public-parent-mode.pem"
+        evidence_path.write_bytes(self.evidence_raw)
+        public_path.write_text(self.public_pem, encoding="ascii")
+
+        staging = self.root / "staging-parent"
+        staging.mkdir(mode=0o775)
+        os.chmod(staging, 0o775)
+        self.assertEqual(stat.S_IMODE(staging.stat().st_mode), 0o775)
+
+        output = staging / "handoff"
+        report = tool.prepare_handoff(
+            evidence_path=evidence_path,
+            public_pem_path=public_path,
+            output_dir=output,
+            contract=self.contract,
+            modules=modules(),
+            store_path=self.store_path,
+            root_override=self.trust_root,
+        )
+
+        self.assertEqual(stat.S_IMODE(staging.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o700)
+        self.assertTrue(report["signature_required"])
+        self.assertFalse(report["private_key_access"])
+        self.assertFalse(report["store_mutation_performed"])
+        self.assertEqual(self.consumption_count(), 0)
+
     def test_prepare_emits_unsigned_handoff_without_consumption(self):
         evidence_path = self.root / "input-evidence.json"
         public_path = self.root / "public.pem"

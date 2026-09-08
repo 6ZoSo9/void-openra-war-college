@@ -493,10 +493,36 @@ def derive_state(
     }
 
 
+def _ensure_private_directory(path: Path) -> None:
+    if path.exists() or path.is_symlink():
+        try:
+            visible = path.lstat()
+        except OSError as error:
+            raise HandoffHold("HOLD_PRIVATE_DIRECTORY_STAT") from error
+        if stat.S_ISLNK(visible.st_mode) or not stat.S_ISDIR(visible.st_mode):
+            raise HandoffHold("HOLD_PRIVATE_DIRECTORY_NOT_DIRECTORY")
+    else:
+        try:
+            path.mkdir(parents=True, mode=0o700)
+        except OSError as error:
+            raise HandoffHold("HOLD_PRIVATE_DIRECTORY_CREATE") from error
+
+    try:
+        os.chmod(path, 0o700)
+        after = path.lstat()
+    except OSError as error:
+        raise HandoffHold("HOLD_PRIVATE_DIRECTORY_HARDEN") from error
+
+    if stat.S_ISLNK(after.st_mode) or not stat.S_ISDIR(after.st_mode):
+        raise HandoffHold("HOLD_PRIVATE_DIRECTORY_NOT_DIRECTORY")
+    if stat.S_IMODE(after.st_mode) != 0o700:
+        raise HandoffHold("HOLD_PRIVATE_DIRECTORY_MODE")
+
+
 def _create_private_dir(path: Path) -> None:
     if path.exists() or path.is_symlink():
         raise HandoffHold("HOLD_OUTPUT_ALREADY_EXISTS")
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_private_directory(path.parent)
     path.mkdir(mode=0o700)
     os.chmod(path, 0o700)
 
