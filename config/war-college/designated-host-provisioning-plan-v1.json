@@ -73,6 +73,8 @@
       "/usr/bin/python3",
       "scripts/discover_designated_host_execution_binding_runtime_v1.py"
     ],
+    "preflight_contract_git_blob": "531d3aecbe92e8a84ad8324d54053b88de6d5c4a",
+    "preflight_contract_path": "config/war-college/designated-host-runtime-preflight-v1.json",
     "required_dropin_paths": [],
     "required_mutation_performed": false,
     "required_need_daemon_reload": false,

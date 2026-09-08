@@ -201,6 +201,10 @@ def verify_plan(plan: Any, binding: Any) -> dict[str, Any]:
             "/usr/bin/python3",
             "scripts/discover_designated_host_execution_binding_runtime_v1.py",
         ],
+        "preflight_contract_git_blob": "531d3aecbe92e8a84ad8324d54053b88de6d5c4a",
+        "preflight_contract_path": (
+            "config/war-college/designated-host-runtime-preflight-v1.json"
+        ),
         "required_dropin_paths": [],
         "required_mutation_performed": False,
         "required_need_daemon_reload": False,
@@ -211,8 +215,17 @@ def verify_plan(plan: Any, binding: Any) -> dict[str, Any]:
     }
     if post != expected_post:
         holds.append("HOLD_PROVISIONING_POST_PREFLIGHT_POLICY")
-    elif _git_blob(post["collector_path"]) != post["collector_git_blob"]:
-        holds.append("HOLD_PROVISIONING_POST_PREFLIGHT_COLLECTOR_BLOB")
+    else:
+        try:
+            if _git_blob(post["collector_path"]) != post["collector_git_blob"]:
+                holds.append("HOLD_PROVISIONING_POST_PREFLIGHT_COLLECTOR_BLOB")
+            if (
+                _git_blob(post["preflight_contract_path"])
+                != post["preflight_contract_git_blob"]
+            ):
+                holds.append("HOLD_PROVISIONING_POST_PREFLIGHT_CONTRACT_BLOB")
+        except ProvisioningPlanError:
+            holds.append("HOLD_PROVISIONING_POST_PREFLIGHT_DEPENDENCY_BLOB")
 
     green = not holds
     return {

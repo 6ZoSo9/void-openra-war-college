@@ -66,6 +66,21 @@ class ProvisioningPlanTests(unittest.TestCase):
         self.assertFalse(post["required_need_daemon_reload"])
         self.assertFalse(post["required_service_started"])
         self.assertFalse(post["required_mutation_performed"])
+        self.assertEqual(
+            post["preflight_contract_path"],
+            "config/war-college/designated-host-runtime-preflight-v1.json",
+        )
+        self.assertEqual(
+            post["preflight_contract_git_blob"],
+            "531d3aecbe92e8a84ad8324d54053b88de6d5c4a",
+        )
+
+    def test_post_preflight_contract_substitution_fails_closed(self):
+        candidate = copy.deepcopy(self.plan)
+        candidate["post_provision_preflight"]["preflight_contract_git_blob"] = (
+            "0" * 40
+        )
+        self.assert_hold(candidate, "HOLD_PROVISIONING_POST_PREFLIGHT_POLICY")
 
 
 if __name__ == "__main__":

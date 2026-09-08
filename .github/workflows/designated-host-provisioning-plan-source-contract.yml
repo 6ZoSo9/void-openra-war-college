@@ -6,6 +6,7 @@ on:
     paths:
       - config/war-college/designated-host-provisioning-plan-v1.json
       - config/war-college/designated-host-execution-binding-v1.json
+      - config/war-college/designated-host-runtime-preflight-v1.json
       - ops/war-college/void-war-college-evidence-verifier.env
       - ops/war-college/void-war-college-evidence-verifier@.service
       - scripts/war_college_designated_host_verify_request_v1.py
