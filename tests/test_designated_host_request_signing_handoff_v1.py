@@ -162,6 +162,33 @@ def make_test_root(public_pem):
     return dataclasses.replace(root, root_id=designated_root.derive_trust_root_id_v1(root))
 
 
+class SourceBindingTests(unittest.TestCase):
+    def test_declared_runtime_and_wrapper_source_bindings_exist(self):
+        contract = tool.load_contract()
+        tool.verify_source_bindings(contract)
+        self.assertEqual(
+            contract["request_wrapper_source_commit"],
+            contract["semantic_parent_head"],
+        )
+        self.assertEqual(
+            contract["request_wrapper_path"],
+            "scripts/war_college_designated_host_verify_request_v1.py",
+        )
+        self.assertNotIn(
+            contract["request_wrapper_path"],
+            contract["runtime_artifact_git_blobs"],
+        )
+
+    def test_impossible_wrapper_in_frozen_runtime_is_rejected(self):
+        contract = tool.load_contract()
+        broken = json.loads(json.dumps(contract))
+        broken["runtime_artifact_git_blobs"][
+            broken["request_wrapper_path"]
+        ] = broken["request_wrapper_git_blob"]
+        with self.assertRaises(tool.HandoffHold):
+            tool.verify_source_bindings(broken)
+
+
 class SigningHandoffTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

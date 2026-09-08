@@ -15,11 +15,13 @@
   "request_id_derivation_domain": "VOID_WAR_COLLEGE_REQUEST_ID_V1",
   "request_marker": "VOID_WAR_COLLEGE_DESIGNATED_HOST_VERIFY_REQUEST_BUNDLE_V1",
   "request_schema_version": 1,
+  "request_wrapper_git_blob": "816ffeb46c553c754a152a26d348d64433120162",
+  "request_wrapper_path": "scripts/war_college_designated_host_verify_request_v1.py",
+  "request_wrapper_source_commit": "1320b43cfba99980c9fb983c409e2865252e68d3",
   "runtime_artifact_git_blobs": {
     "scripts/controller_attempt_admission_store_v1.py": "5f03230bd8af50ccbb265a6173a3a7d52a6e09b8",
     "scripts/verify_controller_evidence_isolation_v1.py": "3f3ca8ae70c3005dea45b153017f7e0e0caa1296",
     "scripts/verify_controller_evidence_producer_auth_v1.py": "cce13a7ff4d36e21cc4719625e2b3c116e851889",
-    "scripts/war_college_designated_host_verify_request_v1.py": "816ffeb46c553c754a152a26d348d64433120162",
     "scripts/war_college_designated_producer_trust_root_v1.py": "ac3394d03ecadb0112edd67c565d44c740e63d76"
   },
   "runtime_repository": "/home/zoso/dev/openra-rl-war-college-worktrees/designated-host-runtime-bae61935",
