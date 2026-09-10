@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from typing import Any
 
 from openra_env.learning.g2_runtime_capability_projection import (
     CAPABILITIES,
