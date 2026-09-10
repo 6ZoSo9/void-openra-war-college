@@ -137,3 +137,21 @@ def test_precondition_hold_branch_does_not_reach_g2_or_environment():
     assert "env.call_tool" not in body
     assert "g2_frontier.prepare_call" in other
     assert "env.call_tool" in other
+
+def test_later_turn_snapshot_is_cleared_before_fresh_state_read():
+    source = AGENT.read_text(encoding="utf-8")
+    loop = source.index("if total_api_calls > 0:")
+    refresh = source.index(
+        'briefing_state = await env.call_tool("get_game_state")',
+        loop,
+    )
+    clear = source.index("latest_game_state = {}", loop, refresh)
+
+    assert loop < clear < refresh
+
+    # The broad refresh exception remains below this assignment. Therefore a
+    # failed refresh leaves the guard with an empty snapshot, which the helper
+    # already proves fails open to the environment's validation path.
+    refresh_try_end = source.index("# Call LLM with retry for rate limits", refresh)
+    exception = source.index("except Exception:", refresh, refresh_try_end)
+    assert clear < refresh < exception

@@ -1136,6 +1136,10 @@ async def run_agent(config, verbose: bool = False):
 
             # Inject state briefing before LLM thinks (skip first turn — initial state already provided)
             if total_api_calls > 0:
+                # Never carry an older availability snapshot across turns. If
+                # the fresh state read fails, production admission must fail
+                # open to the environment's existing validation path.
+                latest_game_state = {}
                 try:
                     briefing_state = await env.call_tool("get_game_state")
                     if isinstance(briefing_state, dict):
