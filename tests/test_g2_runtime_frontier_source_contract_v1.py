@@ -25,6 +25,7 @@ PRESERVED_CURRENT_BLOBS = {
     if key != "openra_env/agent.py"
 }
 EXPECTED_PATHS = {
+    ".github/workflows/g2-runtime-frontier-adapter-source-contract.yml",
     "openra_env/agent.py",
     "openra_env/learning/g2_runtime_tool_classification.py",
     "openra_env/learning/g2_runtime_capability_projection.py",
@@ -32,7 +33,7 @@ EXPECTED_PATHS = {
     "openra_env/learning/g2_runtime_compiled_comparator_gate.py",
     "tests/test_g2_runtime_frontier_adapter_v1.py",
     "tests/test_g2_runtime_frontier_source_contract_v1.py",
-    ".github/workflows/g2-runtime-frontier-adapter-source-contract.yml",
+    "tests/test_g2_runtime_comparator_loader_v1.py",
 }
 FORBIDDEN_RUNTIME_IMPORTS = {
     "httpx", "requests", "urllib", "socket", "subprocess"
