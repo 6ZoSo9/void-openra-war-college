@@ -9,9 +9,9 @@ material.  Shadow mode never replaces the proposed action.
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import os
+import types
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -89,13 +89,22 @@ def load_accepted_comparator(path: Path):
             + ":actual="
             + actual
         )
-    spec = importlib.util.spec_from_file_location(
-        "void_g2_runtime_accepted_compiled_comparator_v1", path
+
+    # Execute exactly the source bytes that passed the SHA-256 check.  Do not
+    # hand the path to importlib after hashing: a second path-based load could
+    # consume a timestamp-valid cached .pyc or observe path replacement.
+    module = types.ModuleType(
+        "void_g2_runtime_accepted_compiled_comparator_v1"
     )
-    if spec is None or spec.loader is None:
-        raise G2RuntimeFrontierHold("comparator_import_spec")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module.__file__ = str(path)
+    try:
+        code = compile(raw, str(path), "exec", dont_inherit=True)
+        exec(code, module.__dict__)
+    except Exception as exc:
+        raise G2RuntimeFrontierHold(
+            "comparator_verified_bytes_execution"
+        ) from exc
+
     if getattr(module, "CANDIDATE_ID", None) != (
         "apollyon-g2-compiled-lexicographic-comparator-v1"
     ):
