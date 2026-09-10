@@ -20,6 +20,9 @@ from openra_env.game_data import get_building_stats, get_faction_info, get_tech_
 from openra_env.learning.g2_runtime_compiled_comparator_gate import (
     RuntimeFrontierController,
 )
+from openra_env.learning.g2_runtime_tool_classification import (
+    is_mutation_capable,
+)
 from openra_env.mcp_ws_client import OpenRAMCPClient
 
 logger = logging.getLogger("llm_agent")
@@ -66,6 +69,43 @@ def _phase_scoped_tool_surfaces(
     ]
     return planning, gameplay
 
+
+def _mutation_turn_execution_mask(tool_calls: list[dict]) -> tuple[bool, ...]:
+    # Tool calls in one assistant response are all chosen from the same
+    # pre-response state. Permit observations, but execute at most one
+    # mutation-capable call so later mutations cannot act on stale state.
+    mutation_seen = False
+    mask: list[bool] = []
+
+    for tool_call in tool_calls:
+        tool_name = tool_call["function"]["name"]
+        if not is_mutation_capable(tool_name):
+            mask.append(True)
+            continue
+        if mutation_seen:
+            mask.append(False)
+            continue
+        mutation_seen = True
+        mask.append(True)
+
+    return tuple(mask)
+
+
+def _mutation_turn_hold_result(tool_name: str) -> dict:
+    return {
+        "mutation_turn_hold": True,
+        "executed": False,
+        "held_tool": tool_name,
+        "reason": (
+            "A previous mutation-capable tool call in this same assistant "
+            "response was already executed. This later mutation was held so "
+            "it cannot act on stale state."
+        ),
+        "next_step": (
+            "Observe the updated state and first mutation result, then reissue "
+            "this action in a new assistant response if it is still valid."
+        ),
+    }
 
 
 def _looks_like_tool_capability_error(error_text: str) -> bool:
@@ -1190,8 +1230,12 @@ async def run_agent(config, verbose: bool = False):
                 )
                 continue
 
-            # Execute each tool call
-            for tc in tool_calls:
+            # Execute each tool call. Later mutation-capable calls from the
+            # same assistant response are held until a fresh model turn.
+            tool_execution_mask = _mutation_turn_execution_mask(tool_calls)
+            for tc, execute_tool_call in zip(
+                tool_calls, tool_execution_mask, strict=True
+            ):
                 fn_name = tc["function"]["name"]
                 try:
                     fn_args = json.loads(tc["function"].get("arguments", "{}"))
@@ -1206,34 +1250,47 @@ async def run_agent(config, verbose: bool = False):
                         args_str = args_str[:80] + "..."
                     print(f"  [Tool] {fn_name}({args_str})")
 
-                try:
-                    prepared_tool_call = await g2_frontier.prepare_call(
-                        env, fn_name, fn_args
-                    )
-                    if prepared_tool_call.record is not None:
-                        g2_frontier_records.append(prepared_tool_call.record)
-                    fn_name = prepared_tool_call.tool_name
-                    fn_args = prepared_tool_call.arguments
-                    result = await env.call_tool(fn_name, **fn_args)
-                    consecutive_errors = 0
-                    # Track tool results for cross-episode reflection
-                    if event_tracker and isinstance(result, dict):
-                        _tick = result.get("tick", 0)
-                        event_tracker.update_from_tool_result(fn_name, fn_args, result, _tick)
-                except Exception as e:
-                    result = {"error": str(e)}
-                    # Suggest similar tools for unknown tool errors
-                    if fn_name not in tool_names:
-                        import difflib
-                        close = difflib.get_close_matches(fn_name, tool_names, n=3, cutoff=0.4)
-                        # Always include canonical build tools for build-related names
-                        build_keywords = {"build", "place", "train", "produce", "construct"}
-                        if any(kw in fn_name.lower() for kw in build_keywords):
-                            for bt in ("build_unit", "build_structure", "build_and_place"):
-                                if bt in tool_names and bt not in close:
-                                    close.append(bt)
-                        if close:
-                            result["suggested_tools"] = close
+                if not execute_tool_call:
+                    result = _mutation_turn_hold_result(fn_name)
+                else:
+                    try:
+                        prepared_tool_call = await g2_frontier.prepare_call(
+                            env, fn_name, fn_args
+                        )
+                        if prepared_tool_call.record is not None:
+                            g2_frontier_records.append(prepared_tool_call.record)
+                        fn_name = prepared_tool_call.tool_name
+                        fn_args = prepared_tool_call.arguments
+                        result = await env.call_tool(fn_name, **fn_args)
+                        consecutive_errors = 0
+                        # Track tool results for cross-episode reflection
+                        if event_tracker and isinstance(result, dict):
+                            _tick = result.get("tick", 0)
+                            event_tracker.update_from_tool_result(
+                                fn_name, fn_args, result, _tick
+                            )
+                    except Exception as e:
+                        result = {"error": str(e)}
+                        # Suggest similar tools for unknown tool errors
+                        if fn_name not in tool_names:
+                            import difflib
+                            close = difflib.get_close_matches(
+                                fn_name, tool_names, n=3, cutoff=0.4
+                            )
+                            # Always include canonical build tools for build-related names
+                            build_keywords = {
+                                "build", "place", "train", "produce", "construct"
+                            }
+                            if any(kw in fn_name.lower() for kw in build_keywords):
+                                for bt in (
+                                    "build_unit",
+                                    "build_structure",
+                                    "build_and_place",
+                                ):
+                                    if bt in tool_names and bt not in close:
+                                        close.append(bt)
+                            if close:
+                                result["suggested_tools"] = close
 
                 # Detect game connection lost
                 if isinstance(result, dict) and "connection lost" in str(result.get("error", "")).lower():
