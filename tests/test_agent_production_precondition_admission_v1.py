@@ -101,9 +101,7 @@ def test_agent_tracks_exact_pre_response_state_and_guards_before_g2():
     assert source.count(refresh) == 1
     assert source.count(guard) == 1
 
-    execution_start = source.index(
-        "# Execute each tool call. Later mutation-capable calls from the"
-    )
+    execution_start = source.index("mutation_execution_reserved = False")
     execution_end = source.index("# Detect game connection lost", execution_start)
     execution = source[execution_start:execution_end]
 
