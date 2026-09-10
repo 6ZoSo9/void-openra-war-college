@@ -28,6 +28,7 @@ EXPECTED_PATHS = {
     ".github/workflows/g2-runtime-frontier-adapter-source-contract.yml",
     "openra_env/agent.py",
     "openra_env/learning/g2_runtime_tool_classification.py",
+    "openra_env/server/openra_environment.py",
     "openra_env/learning/g2_runtime_capability_projection.py",
     "openra_env/learning/g2_runtime_candidate_frontier.py",
     "openra_env/learning/g2_runtime_compiled_comparator_gate.py",
@@ -35,6 +36,7 @@ EXPECTED_PATHS = {
     "tests/test_g2_runtime_frontier_source_contract_v1.py",
     "tests/test_g2_runtime_comparator_loader_v1.py",
     "tests/test_agent_phase_tool_surfaces_v1.py",
+    "tests/test_deploy_unit_tool_contract_v1.py",
 }
 FORBIDDEN_RUNTIME_IMPORTS = {
     "httpx", "requests", "urllib", "socket", "subprocess"

@@ -1809,7 +1809,15 @@ class OpenRAEnvironment(MCPEnvironment):
 
         @configurable_tool
         def deploy_unit(unit_id: int) -> dict:
-            """Deploy a unit (e.g., MCV → Construction Yard)."""
+            """Deploy a unit (e.g., MCV → Construction Yard).
+
+            Deployment is not instantaneous. This command sends the deploy order and
+            advances only the action step; the deployed form may not yet be available
+            in the returned state. After deploying an MCV, call advance() as a separate
+            tool call and verify the Construction Yard exists before issuing dependent
+            build commands. Do not include dependent build commands alongside
+            deploy_unit() in the same tool-call response or plan.
+            """
             env._refresh_obs()
             obs = env._last_obs or {}
             units = obs.get("units", [])
@@ -1817,7 +1825,13 @@ class OpenRAEnvironment(MCPEnvironment):
                 return {"error": f"Unit {unit_id} not found. It may have been destroyed.",
                         "your_units": [{"id": u["actor_id"], "type": u["type"]} for u in units[:20]]}
             commands = [CommandModel(action=ActionType.DEPLOY, actor_id=unit_id)]
-            return env._execute_commands(commands)
+            result = env._execute_commands(commands)
+            result["note"] = (
+                "Deployment command issued. Deployment may still be in progress; "
+                "call advance() and verify the deployed form exists before using "
+                "dependent commands."
+            )
+            return result
 
         @configurable_tool
         def sell_building(building_id: int) -> dict:
@@ -2216,13 +2230,11 @@ class OpenRAEnvironment(MCPEnvironment):
             refreshes observations. Use advance() as a standalone call to
             let construction and movement complete.
 
-            Example — deploy then build:
-            [
-              {"actions": [{"tool": "deploy_unit", "unit_id": 120}]},
-              {"actions": [{"tool": "build_structure", "building_type": "powr"}]},
-              {"condition": "building_ready",
-               "actions": [{"tool": "place_building", "building_type": "powr"}]}
-            ]
+            Do not use plan to chain deploy_unit() directly into dependent build
+            actions. Deployment can require additional game time. Use this sequence:
+            call deploy_unit() separately, call advance() separately, verify the
+            deployed form exists in game state, then issue dependent build actions
+            (directly or through plan).
 
             Returns: game state summary + execution log.
             """
