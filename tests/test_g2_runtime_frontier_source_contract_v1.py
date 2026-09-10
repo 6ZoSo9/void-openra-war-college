@@ -39,6 +39,7 @@ EXPECTED_PATHS = {
     "tests/test_deploy_unit_tool_contract_v1.py",
     "tests/test_advance_tool_contract_v1.py",
     "tests/test_agent_mutation_turn_serialization_v1.py",
+    "tests/test_agent_production_precondition_admission_v1.py",
 }
 FORBIDDEN_RUNTIME_IMPORTS = {
     "httpx", "requests", "urllib", "socket", "subprocess"

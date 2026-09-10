@@ -108,6 +108,53 @@ def _mutation_turn_hold_result(tool_name: str) -> dict:
     }
 
 
+def _known_production_precondition_hold(
+    tool_name: str,
+    arguments: dict,
+    pre_response_state: dict,
+) -> dict | None:
+    """Hold production calls that the exact pre-response state proves invalid."""
+    argument_name = {
+        "build_unit": "unit_type",
+        "build_structure": "building_type",
+        "build_and_place": "building_type",
+    }.get(tool_name)
+    if argument_name is None:
+        return None
+    if not isinstance(arguments, dict) or not isinstance(pre_response_state, dict):
+        return None
+
+    requested_item = arguments.get(argument_name)
+    available = pre_response_state.get("available_production")
+    if not isinstance(requested_item, str) or not requested_item:
+        return None
+    if not isinstance(available, list):
+        # Unknown availability is not grounds to invent a rejection. Preserve
+        # the environment's existing validation path.
+        return None
+    if requested_item in available:
+        return None
+
+    return {
+        "production_precondition_hold": True,
+        "executed": False,
+        "held_tool": tool_name,
+        "requested_item": requested_item,
+        "tick": pre_response_state.get("tick"),
+        "available_production": list(available),
+        "reason": (
+            "The requested item is absent from available_production in the "
+            "exact game-state snapshot supplied before this assistant response. "
+            "Executing this production call would therefore be known-invalid."
+        ),
+        "next_step": (
+            "Do not retry until state changes. If waiting for deployment or "
+            "production, call advance() in a new assistant response; otherwise "
+            "satisfy the missing prerequisite and observe state again."
+        ),
+    }
+
+
 def _looks_like_tool_capability_error(error_text: str) -> bool:
     """Best-effort detection of provider errors indicating no tool support."""
     text = error_text.lower()
@@ -1019,6 +1066,7 @@ async def run_agent(config, verbose: bool = False):
         messages = [messages[0]]  # keep only system prompt
 
         state = await env.call_tool("get_game_state")
+        latest_game_state = state if isinstance(state, dict) else {}
         match_map_name = match_map_name or state.get("map", {}).get("map_name", "")
         briefing = compose_pregame_briefing(state)
 
@@ -1090,6 +1138,8 @@ async def run_agent(config, verbose: bool = False):
             if total_api_calls > 0:
                 try:
                     briefing_state = await env.call_tool("get_game_state")
+                    if isinstance(briefing_state, dict):
+                        latest_game_state = briefing_state
                     # Track in-game events for cross-episode reflection
                     if event_tracker and isinstance(briefing_state, dict):
                         event_tracker.update_from_state(briefing_state)
@@ -1253,44 +1303,50 @@ async def run_agent(config, verbose: bool = False):
                 if not execute_tool_call:
                     result = _mutation_turn_hold_result(fn_name)
                 else:
-                    try:
-                        prepared_tool_call = await g2_frontier.prepare_call(
-                            env, fn_name, fn_args
-                        )
-                        if prepared_tool_call.record is not None:
-                            g2_frontier_records.append(prepared_tool_call.record)
-                        fn_name = prepared_tool_call.tool_name
-                        fn_args = prepared_tool_call.arguments
-                        result = await env.call_tool(fn_name, **fn_args)
-                        consecutive_errors = 0
-                        # Track tool results for cross-episode reflection
-                        if event_tracker and isinstance(result, dict):
-                            _tick = result.get("tick", 0)
-                            event_tracker.update_from_tool_result(
-                                fn_name, fn_args, result, _tick
+                    precondition_hold = _known_production_precondition_hold(
+                        fn_name, fn_args, latest_game_state
+                    )
+                    if precondition_hold is not None:
+                        result = precondition_hold
+                    else:
+                        try:
+                            prepared_tool_call = await g2_frontier.prepare_call(
+                                env, fn_name, fn_args
                             )
-                    except Exception as e:
-                        result = {"error": str(e)}
-                        # Suggest similar tools for unknown tool errors
-                        if fn_name not in tool_names:
-                            import difflib
-                            close = difflib.get_close_matches(
-                                fn_name, tool_names, n=3, cutoff=0.4
-                            )
-                            # Always include canonical build tools for build-related names
-                            build_keywords = {
-                                "build", "place", "train", "produce", "construct"
-                            }
-                            if any(kw in fn_name.lower() for kw in build_keywords):
-                                for bt in (
-                                    "build_unit",
-                                    "build_structure",
-                                    "build_and_place",
-                                ):
-                                    if bt in tool_names and bt not in close:
-                                        close.append(bt)
-                            if close:
-                                result["suggested_tools"] = close
+                            if prepared_tool_call.record is not None:
+                                g2_frontier_records.append(prepared_tool_call.record)
+                            fn_name = prepared_tool_call.tool_name
+                            fn_args = prepared_tool_call.arguments
+                            result = await env.call_tool(fn_name, **fn_args)
+                            consecutive_errors = 0
+                            # Track tool results for cross-episode reflection
+                            if event_tracker and isinstance(result, dict):
+                                _tick = result.get("tick", 0)
+                                event_tracker.update_from_tool_result(
+                                    fn_name, fn_args, result, _tick
+                                )
+                        except Exception as e:
+                            result = {"error": str(e)}
+                            # Suggest similar tools for unknown tool errors
+                            if fn_name not in tool_names:
+                                import difflib
+                                close = difflib.get_close_matches(
+                                    fn_name, tool_names, n=3, cutoff=0.4
+                                )
+                                # Always include canonical build tools for build-related names
+                                build_keywords = {
+                                    "build", "place", "train", "produce", "construct"
+                                }
+                                if any(kw in fn_name.lower() for kw in build_keywords):
+                                    for bt in (
+                                        "build_unit",
+                                        "build_structure",
+                                        "build_and_place",
+                                    ):
+                                        if bt in tool_names and bt not in close:
+                                            close.append(bt)
+                                if close:
+                                    result["suggested_tools"] = close
 
                 # Detect game connection lost
                 if isinstance(result, dict) and "connection lost" in str(result.get("error", "")).lower():
