@@ -1429,8 +1429,11 @@ class OpenRAEnvironment(MCPEnvironment):
         @configurable_tool
         def advance(ticks: int = 1) -> dict:
             """Advance the game by N ticks at accelerated speed (~25 ticks = 1 game-second).
+            Requests are clamped to 1-50 ticks per call so each gRPC call stays bounded.
             Production, movement, combat, and building auto-placement all require
             game time to progress — nothing happens without calling advance().
+            For waits longer than 50 ticks, call advance() repeatedly and inspect the
+            returned state until the prerequisite is present or an interrupt ends the call.
             Also triggers auto-placement of buildings queued via build_and_place().
             Typical build times: power plant ~300 ticks, barracks ~500 ticks,
             war factory ~750 ticks. Returns updated game summary.
@@ -1518,10 +1521,16 @@ class OpenRAEnvironment(MCPEnvironment):
                 # Server-side interrupt detection results
                 "interrupted": obs_dict.get("interrupted", False),
                 "interrupt_reason": obs_dict.get("interrupt_reason", ""),
+                "requested_ticks": requested,
+                "effective_ticks": ticks,
                 "actual_ticks_advanced": obs_dict.get("actual_ticks_advanced", 0),
             }
-            if requested > 500:
-                result["note"] = f"Clamped from {requested} to 500 ticks (max per call)."
+            if requested != ticks:
+                result["note"] = (
+                    f"Requested {requested} ticks; clamped to {ticks} ticks for this call "
+                    "(allowed range: 1-50). "
+                    "Call advance() again if more game time is needed."
+                )
             return result
 
         @configurable_tool

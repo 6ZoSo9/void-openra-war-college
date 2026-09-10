@@ -37,6 +37,7 @@ EXPECTED_PATHS = {
     "tests/test_g2_runtime_comparator_loader_v1.py",
     "tests/test_agent_phase_tool_surfaces_v1.py",
     "tests/test_deploy_unit_tool_contract_v1.py",
+    "tests/test_advance_tool_contract_v1.py",
 }
 FORBIDDEN_RUNTIME_IMPORTS = {
     "httpx", "requests", "urllib", "socket", "subprocess"
