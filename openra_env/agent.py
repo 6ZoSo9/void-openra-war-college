@@ -70,25 +70,15 @@ def _phase_scoped_tool_surfaces(
     return planning, gameplay
 
 
-def _mutation_turn_execution_mask(tool_calls: list[dict]) -> tuple[bool, ...]:
-    # Tool calls in one assistant response are all chosen from the same
-    # pre-response state. Permit observations, but execute at most one
-    # mutation-capable call so later mutations cannot act on stale state.
-    mutation_seen = False
-    mask: list[bool] = []
-
-    for tool_call in tool_calls:
-        tool_name = tool_call["function"]["name"]
-        if not is_mutation_capable(tool_name):
-            mask.append(True)
-            continue
-        if mutation_seen:
-            mask.append(False)
-            continue
-        mutation_seen = True
-        mask.append(True)
-
-    return tuple(mask)
+def _mutation_turn_can_execute(
+    tool_name: str,
+    mutation_execution_reserved: bool,
+) -> bool:
+    """Allow observations, or a mutation before this response executes one."""
+    return not (
+        mutation_execution_reserved
+        and is_mutation_capable(tool_name)
+    )
 
 
 def _mutation_turn_hold_result(tool_name: str) -> dict:
@@ -1284,12 +1274,12 @@ async def run_agent(config, verbose: bool = False):
                 )
                 continue
 
-            # Execute each tool call. Later mutation-capable calls from the
-            # same assistant response are held until a fresh model turn.
-            tool_execution_mask = _mutation_turn_execution_mask(tool_calls)
-            for tc, execute_tool_call in zip(
-                tool_calls, tool_execution_mask, strict=True
-            ):
+            # Execute each tool call. A host-side non-executing hold does not
+            # consume the one mutation execution slot for this assistant
+            # response. Once a mutation reaches the G2/environment path, later
+            # mutation-capable calls wait for a fresh model turn.
+            mutation_execution_reserved = False
+            for tc in tool_calls:
                 fn_name = tc["function"]["name"]
                 try:
                     fn_args = json.loads(tc["function"].get("arguments", "{}"))
@@ -1304,6 +1294,10 @@ async def run_agent(config, verbose: bool = False):
                         args_str = args_str[:80] + "..."
                     print(f"  [Tool] {fn_name}({args_str})")
 
+                is_mutation_call = is_mutation_capable(fn_name)
+                execute_tool_call = _mutation_turn_can_execute(
+                    fn_name, mutation_execution_reserved
+                )
                 if not execute_tool_call:
                     result = _mutation_turn_hold_result(fn_name)
                 else:
@@ -1313,6 +1307,11 @@ async def run_agent(config, verbose: bool = False):
                     if precondition_hold is not None:
                         result = precondition_hold
                     else:
+                        if is_mutation_call:
+                            # Reserve before entering G2/environment execution.
+                            # Even a downstream validation error keeps later
+                            # same-response mutations fail-closed.
+                            mutation_execution_reserved = True
                         try:
                             prepared_tool_call = await g2_frontier.prepare_call(
                                 env, fn_name, fn_args
