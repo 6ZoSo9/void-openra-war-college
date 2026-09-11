@@ -1746,6 +1746,13 @@ class OpenRAEnvironment(MCPEnvironment):
                 )
                 if already:
                     return {"error": f"'{building_type}' is already in the production queue."}
+                queue_hold = env._placeable_queue_hold(
+                    building_type,
+                    env._last_obs.get("production", []),
+                    env._last_obs.get("tick", 0),
+                )
+                if queue_hold is not None:
+                    return queue_hold
             commands = [CommandModel(action=ActionType.BUILD, item_type=building_type)]
             result = env._execute_commands(commands)
             env._pending_placements[building_type] = {"cell_x": cell_x, "cell_y": cell_y}
@@ -2694,6 +2701,73 @@ class OpenRAEnvironment(MCPEnvironment):
 
     # Queue types that produce placeable structures (Building + Defense)
     _PLACEABLE_QUEUE_TYPES = {"Building", "Defense"}
+
+    # Canonical Red Alert Buildable Queue: Defense membership from the
+    # accepted engine rules at 1607a7a6501d42a47638393ecef8b22831064932.
+    # This is intentionally distinct from _DEFENSE_BUILDINGS, which only
+    # controls placement bias and is not a production-queue classifier.
+    _DEFENSE_QUEUE_BUILDINGS = {
+        "mslo", "gap", "iron", "pdox",
+        "tsla", "agun", "sam", "pbox", "hbox", "gun", "ftur",
+        "silo", "sbag", "fenc", "brik",
+    }
+
+    @classmethod
+    def _placeable_queue_type(cls, building_type: str) -> str:
+        "Return the canonical OpenRA placeable production queue for a building."
+        return (
+            "Defense"
+            if building_type.lower() in cls._DEFENSE_QUEUE_BUILDINGS
+            else "Building"
+        )
+
+    @classmethod
+    def _placeable_queue_hold(
+        cls,
+        building_type: str,
+        production: object,
+        tick: object = 0,
+    ) -> dict | None:
+        "Hold a new auto-place request while the same placeable queue is busy."
+        if not isinstance(production, list):
+            return None
+
+        requested_queue = cls._placeable_queue_type(building_type)
+        pending_items: list[str] = []
+        for entry in production:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("queue_type") != requested_queue:
+                continue
+            item = entry.get("item")
+            if not isinstance(item, str) or not item or item == building_type:
+                continue
+            pending_items.append(item)
+
+        if not pending_items:
+            return None
+
+        stable_pending = list(dict.fromkeys(pending_items))
+        safe_tick = tick if isinstance(tick, int) and not isinstance(tick, bool) else 0
+        pending_text = ", ".join(stable_pending)
+        return {
+            "production_queue_hold": True,
+            "executed": False,
+            "held_tool": "build_and_place",
+            "requested_item": building_type,
+            "queue_type": requested_queue,
+            "pending_items": stable_pending,
+            "tick": safe_tick,
+            "reason": (
+                f"The {requested_queue} production queue already has pending "
+                f"auto-place work: {pending_text}. Queueing another item in the "
+                "same queue can overtake or starve earlier prerequisite work."
+            ),
+            "next_step": (
+                f"Let {pending_text} progress with advance() or explicitly cancel "
+                f"that production before queueing another {requested_queue} item."
+            ),
+        }
 
     # Building footprint sizes (width x height in cells) from RA rules
     _FOOTPRINTS = {
