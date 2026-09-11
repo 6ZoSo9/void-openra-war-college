@@ -1560,6 +1560,14 @@ class OpenRAEnvironment(MCPEnvironment):
             """Move units to a map cell position. Units pathfind automatically.
             unit_ids: comma-separated IDs, "all_combat", "all_idle", "type:e1", "all_infantry", "all_vehicles", or a group name."""
             env._refresh_obs()
+            bounds_hold = env._movement_target_bounds_hold(
+                env._last_obs or {},
+                target_x,
+                target_y,
+                held_tool="move_units",
+            )
+            if bounds_hold is not None:
+                return bounds_hold
             resolved = env._resolve_unit_ids(unit_ids, env._last_obs or {})
             if not resolved:
                 return {"error": "No matching units found"}
@@ -1579,6 +1587,14 @@ class OpenRAEnvironment(MCPEnvironment):
             """Move units toward a cell, attacking enemies encountered along the way.
             unit_ids: comma-separated IDs, "all_combat", "all_idle", "type:e1", "all_infantry", "all_vehicles", or a group name."""
             env._refresh_obs()
+            bounds_hold = env._movement_target_bounds_hold(
+                env._last_obs or {},
+                target_x,
+                target_y,
+                held_tool="attack_move",
+            )
+            if bounds_hold is not None:
+                return bounds_hold
             resolved = env._resolve_unit_ids(unit_ids, env._last_obs or {})
             if not resolved:
                 return {"error": "No matching units found"}
@@ -1928,6 +1944,14 @@ class OpenRAEnvironment(MCPEnvironment):
             """Order units to patrol between current position and target, engaging enemies on the way.
             unit_ids: comma-separated IDs, \"all_combat\", \"all_idle\", \"type:e1\", or a group name."""
             env._refresh_obs()
+            bounds_hold = env._movement_target_bounds_hold(
+                env._last_obs or {},
+                target_x,
+                target_y,
+                held_tool="patrol_units",
+            )
+            if bounds_hold is not None:
+                return bounds_hold
             resolved = env._resolve_unit_ids(unit_ids, env._last_obs or {})
             if not resolved:
                 return {"error": "No matching units found"}
@@ -2128,6 +2152,15 @@ class OpenRAEnvironment(MCPEnvironment):
 
             # Prune dead units
             env._refresh_obs()
+            if command in {"attack_move", "move_units"}:
+                bounds_hold = env._movement_target_bounds_hold(
+                    env._last_obs or {},
+                    target_x,
+                    target_y,
+                    held_tool="command_group",
+                )
+                if bounds_hold is not None:
+                    return bounds_hold
             if env._last_obs:
                 alive_ids = {u["actor_id"] for u in env._last_obs.get("units", [])}
                 ids = [uid for uid in ids if uid in alive_ids]
@@ -2340,6 +2373,53 @@ class OpenRAEnvironment(MCPEnvironment):
             }
 
     # ── Internal helpers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _movement_target_bounds_hold(
+        obs: dict,
+        target_x: int,
+        target_y: int,
+        *,
+        held_tool: str,
+    ) -> dict | None:
+        """Reject known out-of-bounds movement targets before world mutation."""
+        map_info = obs.get("map_info", {}) if isinstance(obs, dict) else {}
+        width = map_info.get("width", 0) if isinstance(map_info, dict) else 0
+        height = map_info.get("height", 0) if isinstance(map_info, dict) else 0
+
+        if not isinstance(width, int) or isinstance(width, bool):
+            width = 0
+        if not isinstance(height, int) or isinstance(height, bool):
+            height = 0
+        if width <= 0 or height <= 0:
+            return None
+
+        coords_are_ints = (
+            isinstance(target_x, int)
+            and not isinstance(target_x, bool)
+            and isinstance(target_y, int)
+            and not isinstance(target_y, bool)
+        )
+        if coords_are_ints and 0 <= target_x < width and 0 <= target_y < height:
+            return None
+
+        return {
+            "movement_target_bounds_hold": True,
+            "executed": False,
+            "held_tool": held_tool,
+            "requested_target": {"x": target_x, "y": target_y},
+            "map": {"width": width, "height": height},
+            "valid_target_x": [0, width - 1],
+            "valid_target_y": [0, height - 1],
+            "reason": (
+                f"Target ({target_x}, {target_y}) is outside map bounds "
+                f"for a {width}x{height} map."
+            ),
+            "next_step": (
+                f"Choose a target inside x=0..{width - 1} and "
+                f"y=0..{height - 1}, then reissue the movement command."
+            ),
+        }
 
     def _check_plan_condition(self, condition: str, obs: dict) -> bool:
         """Evaluate a plan condition against current observation."""
@@ -2583,13 +2663,25 @@ class OpenRAEnvironment(MCPEnvironment):
                                 item_type=action["building_type"],
                                 target_x=action.get("cell_x", 0), target_y=action.get("cell_y", 0))]
         elif tool == "attack_move":
+            target_x = action["target_x"]
+            target_y = action["target_y"]
+            if self._movement_target_bounds_hold(
+                obs, target_x, target_y, held_tool="attack_move"
+            ) is not None:
+                return []
             return [CommandModel(action=ActionType.ATTACK_MOVE, actor_id=uid,
-                                target_x=action["target_x"], target_y=action["target_y"],
+                                target_x=target_x, target_y=target_y,
                                 queued=queued)
                     for uid in unit_ids]
         elif tool == "move_units":
+            target_x = action["target_x"]
+            target_y = action["target_y"]
+            if self._movement_target_bounds_hold(
+                obs, target_x, target_y, held_tool="move_units"
+            ) is not None:
+                return []
             return [CommandModel(action=ActionType.MOVE, actor_id=uid,
-                                target_x=action["target_x"], target_y=action["target_y"],
+                                target_x=target_x, target_y=target_y,
                                 queued=queued)
                     for uid in unit_ids]
         elif tool == "attack_target":
