@@ -2544,20 +2544,32 @@ class TestAdvanceClamping:
         openra_environment.observation_to_dict = original_fn
 
     def test_advance_clamp_note(self, env_with_advance):
-        """advance(1500) should include clamping note."""
+        """advance(1500) reports the accepted 1-50 per-call clamp."""
         env, mcp = env_with_advance
         tool = mcp._tool_manager._tools["advance"]
         result = tool.fn(ticks=1500)
-        assert "note" in result
-        assert "1500" in result["note"]
-        assert "500" in result["note"]
+        assert result["requested_ticks"] == 1500
+        assert result["effective_ticks"] == 50
+        assert "allowed range: 1-50" in result["note"]
+        assert "Call advance() again" in result["note"]
 
     def test_advance_no_note_within_limit(self, env_with_advance):
-        """advance(100) should NOT include clamping note."""
+        """advance(50) is within the accepted per-call limit."""
+        env, mcp = env_with_advance
+        tool = mcp._tool_manager._tools["advance"]
+        result = tool.fn(ticks=50)
+        assert result["requested_ticks"] == 50
+        assert result["effective_ticks"] == 50
+        assert "note" not in result
+
+    def test_advance_100_is_truthfully_clamped(self, env_with_advance):
+        """The historical 100-tick no-clamp expectation is retired."""
         env, mcp = env_with_advance
         tool = mcp._tool_manager._tools["advance"]
         result = tool.fn(ticks=100)
-        assert "note" not in result
+        assert result["requested_ticks"] == 100
+        assert result["effective_ticks"] == 50
+        assert "allowed range: 1-50" in result["note"]
 
 
 # ── Helpers for spatial data ────────────────────────────────────────────────

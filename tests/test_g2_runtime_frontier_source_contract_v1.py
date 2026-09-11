@@ -9,10 +9,7 @@ from openra_env.learning.g2_runtime_tool_classification import (
     TOOL_CLASSIFICATION,
 )
 
-BASE_HEAD = "5c815762cba15f350495d3c3dbeb99246964bee1"
-BASE_TREE = "90c87bc19aab8b90d19774df99a1317f170f8b7b"
-BASE_BLOBS = {
-    "openra_env/agent.py": "2bf0e37d2f9d24c019acbd3c811638e8bc0960cc",
+PRESERVED_CURRENT_BLOBS = {
     "openra_env/mcp_ws_client.py": "fe144d0562314f6afe9284d087335720e19dc57f",
     "openra_env/learning/general_brain_direct_policy.py": "d7c0af773a0a36657e5f8225e46cb60d38b452dc",
     "openra_env/learning/general_brain_policy_adapter.py": "682d561e57a721a456325c568db6550ebbf19370",
@@ -20,11 +17,7 @@ BASE_BLOBS = {
         "c0bfd0565a96c64842d86a566dff273a6d19804f"
     ),
 }
-PRESERVED_CURRENT_BLOBS = {
-    key: value for key, value in BASE_BLOBS.items()
-    if key != "openra_env/agent.py"
-}
-EXPECTED_PATHS = {
+EXPECTED_TRACKED_PATHS = {
     ".github/workflows/g2-runtime-frontier-adapter-source-contract.yml",
     "openra_env/agent.py",
     "openra_env/learning/g2_runtime_tool_classification.py",
@@ -72,44 +65,20 @@ class TestG2RuntimeFrontierSourceContractV1(unittest.TestCase):
             )
         return cp.stdout.strip()
 
-    def test_exact_pr40_parent_is_bound(self):
-        self.assertEqual(
-            self.git("rev-parse", f"{BASE_HEAD}^{{tree}}"),
-            BASE_TREE,
-        )
-        for path, blob in BASE_BLOBS.items():
-            self.assertEqual(
-                self.git("rev-parse", f"{BASE_HEAD}:{path}"),
-                blob,
-                path,
-            )
-        cp = subprocess.run(
-            ["git", "-C", str(self.root), "merge-base", "--is-ancestor", BASE_HEAD, "HEAD"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        self.assertEqual(cp.returncode, 0, cp.stderr.decode())
-
-    def test_child_scope_is_exact_and_capture_transport_are_preserved(self):
-        changed = set(
-            filter(
-                None,
-                self.git("diff", "--name-only", f"{BASE_HEAD}...HEAD").splitlines(),
-            )
-        )
-        changed.update(
-            filter(None, self.git("diff", "--name-only").splitlines())
-        )
-        changed.update(
+    def test_merged_contract_surface_is_tracked(self):
+        tracked = set(
             filter(
                 None,
                 self.git(
-                    "ls-files", "--others", "--exclude-standard"
+                    "ls-files", "--", *sorted(EXPECTED_TRACKED_PATHS)
                 ).splitlines(),
             )
         )
-        self.assertEqual(changed, EXPECTED_PATHS)
+        self.assertEqual(tracked, EXPECTED_TRACKED_PATHS)
+        for path in EXPECTED_TRACKED_PATHS:
+            self.assertTrue((self.root / path).is_file(), path)
+
+    def test_capture_transport_and_brain_sources_are_preserved(self):
         for path, blob in PRESERVED_CURRENT_BLOBS.items():
             self.assertEqual(self.git("rev-parse", f"HEAD:{path}"), blob, path)
 
