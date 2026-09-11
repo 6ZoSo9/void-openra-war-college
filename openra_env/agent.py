@@ -98,6 +98,58 @@ def _mutation_turn_hold_result(tool_name: str) -> dict:
     }
 
 
+def _no_tool_action_nudge(base_nudge: str, state: object) -> str:
+    "Turn a prose-only model response into a current-state action prompt."
+    base = (
+        base_nudge.strip()
+        if isinstance(base_nudge, str) and base_nudge.strip()
+        else "No tool was called. A tool call is required each turn."
+    )
+    if not isinstance(state, dict):
+        return base
+
+    parts = [base]
+    tick = state.get("tick")
+    if isinstance(tick, int) and not isinstance(tick, bool):
+        parts.append(f"Current tick: {tick}.")
+
+    available = state.get("available_production")
+    if isinstance(available, list):
+        valid_choices = [
+            item for item in available
+            if isinstance(item, str) and item
+        ]
+        if valid_choices:
+            parts.append(
+                "Current available_production: "
+                + ", ".join(valid_choices)
+                + "."
+            )
+        else:
+            parts.append("Current available_production is empty.")
+
+    idle_unit_ids: list[str] = []
+    units = state.get("units_summary")
+    if isinstance(units, list):
+        for unit in units:
+            if not isinstance(unit, dict) or unit.get("idle") is not True:
+                continue
+            unit_id = unit.get("id")
+            if isinstance(unit_id, bool):
+                continue
+            if isinstance(unit_id, (int, str)) and str(unit_id):
+                idle_unit_ids.append(str(unit_id))
+    if idle_unit_ids:
+        parts.append("Current idle unit IDs: " + ", ".join(idle_unit_ids) + ".")
+
+    parts.append(
+        "Do not only describe intent. Issue one concrete valid tool call now "
+        "using this current state. If a desired production item is absent, do "
+        "not retry it; choose another currently valid action or advance."
+    )
+    return " ".join(parts)
+
+
 def _known_production_precondition_hold(
     tool_name: str,
     arguments: dict,
@@ -1284,7 +1336,10 @@ async def run_agent(config, verbose: bool = False):
                     turn=turn,
                     message={
                         "role": "user",
-                        "content": config.prompts.no_tool_nudge,
+                        "content": _no_tool_action_nudge(
+                                config.prompts.no_tool_nudge,
+                                latest_game_state,
+                            ),
                     },
                 )
                 continue
