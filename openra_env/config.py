@@ -115,7 +115,7 @@ class AlertsConfig(BaseModel):
     stance_warning: bool = False  # prescriptive — agent should discover
     idle_army: bool = False  # prescriptive — agent should discover
     no_defenses: bool = False  # prescriptive — agent should discover
-    no_scouting: bool = False  # prescriptive — agent should discover
+    no_scouting: bool = True  # factual: enemy unseen + exploration + idle combat count
     loss_tracking: bool = True
     minimap: bool = True  # Show ASCII minimap in turn briefing
     max_alerts: int = 0  # 0 = unlimited; set >0 to cap alerts per turn
