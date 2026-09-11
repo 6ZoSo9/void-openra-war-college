@@ -17,6 +17,9 @@ import httpx
 from openra_env.arena_data import new_run_id, sanitize_config_snapshot, save_run_artifact
 from openra_env.config import LLMConfig
 from openra_env.game_data import get_building_stats, get_faction_info, get_tech_tree, get_unit_stats
+from openra_env.learning.g2_runtime_compiled_comparator_gate import (
+    RuntimeFrontierController,
+)
 from openra_env.mcp_ws_client import OpenRAMCPClient
 
 logger = logging.getLogger("llm_agent")
@@ -738,6 +741,8 @@ async def run_agent(config, verbose: bool = False):
         mcp_tools = await env.list_tools()
         openai_tools = mcp_tools_to_openai(mcp_tools)
         tool_names = {t["function"]["name"] for t in openai_tools}
+        g2_frontier = RuntimeFrontierController.from_environment(mcp_tools)
+        g2_frontier_records: list[dict[str, Any]] = []
         print(f"Discovered {len(mcp_tools)} MCP tools")
 
         if verbose:
@@ -1156,6 +1161,13 @@ async def run_agent(config, verbose: bool = False):
                     print(f"  [Tool] {fn_name}({args_str})")
 
                 try:
+                    prepared_tool_call = await g2_frontier.prepare_call(
+                        env, fn_name, fn_args
+                    )
+                    if prepared_tool_call.record is not None:
+                        g2_frontier_records.append(prepared_tool_call.record)
+                    fn_name = prepared_tool_call.tool_name
+                    fn_args = prepared_tool_call.arguments
                     result = await env.call_tool(fn_name, **fn_args)
                     consecutive_errors = 0
                     # Track tool results for cross-episode reflection
@@ -1506,6 +1518,12 @@ async def run_agent(config, verbose: bool = False):
                 "summary": summary,
                 "events": event_tracker.summary() if event_tracker else [],
                 "messages": trace_messages,
+                "g2_runtime_frontier": {
+                    "mode": g2_frontier.mode,
+                    "records": g2_frontier_records,
+                    "source_grants_runtime_authority": False,
+                    "source_grants_deployment_authority": False,
+                },
                 "bench_export_path": bench_export_path,
                 "config": sanitize_config_snapshot(config),
             }
