@@ -1,0 +1,108 @@
+name: designated-host-attempt-admission-source-contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - config/war-college/designated-host-attempt-admission-v1.json
+      - scripts/prepare_designated_host_attempt_admission_v1.py
+      - tests/test_designated_host_attempt_admission_v1.py
+      - .github/workflows/designated-host-attempt-admission-source-contract.yml
+      - scripts/controller_attempt_admission_store_v1.py
+      - scripts/verify_controller_evidence_isolation_v1.py
+      - scripts/verify_controller_evidence_producer_auth_v1.py
+      - scripts/war_college_designated_producer_trust_root_v1.py
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install focused dependency
+        run: python -m pip install 'cryptography>=41.0.0,<51.0.0'
+
+      - name: Compile admission lane
+        run: |
+          python -m py_compile \
+            scripts/prepare_designated_host_attempt_admission_v1.py \
+            tests/test_designated_host_attempt_admission_v1.py
+
+      - name: Run admission falsifiers
+        run: |
+          python -m unittest -v \
+            tests/test_designated_host_attempt_admission_v1.py
+
+      - name: Prove descriptor-sourced create-only authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          contract = json.loads(
+              Path("config/war-college/designated-host-attempt-admission-v1.json")
+              .read_text()
+          )
+          assert contract["authority"] == {
+              "attempt_store_creation_authorized": True,
+              "evidence_consumption_authorized": False,
+              "live_request_materialization_authorized": False,
+              "pathname_delete_authorized": False,
+              "private_key_access": False,
+              "runtime_execution_authorized": False,
+              "service_action_authorized": False,
+              "session_advance_authorized": False,
+              "signing_authorized": False,
+          }
+          assert (
+              contract["canonical_publish_strategy"]
+              == "linux_linkat_at_empty_path_descriptor_source_v1"
+          )
+          assert contract["retained_staging_alias_required"] is True
+          assert contract["store_required_link_count_after_publish"] == 2
+
+          source = Path(
+              "scripts/prepare_designated_host_attempt_admission_v1.py"
+          ).read_text()
+          assert "BEGIN PRIVATE KEY" not in source
+          assert "consume_joint_evidence(" not in source
+          assert "advance_session(" not in source
+          assert "systemctl" not in source
+          assert "os.unlink(" not in source
+          assert ".unlink(" not in source
+          assert "os.remove(" not in source
+          assert source.count("store.create_attempt(") == 1
+          assert "AT_EMPTY_PATH" in source
+          assert "linkat" in source
+          assert "/proc/self/fd/" in source
+          tests = Path(
+              "tests/test_designated_host_attempt_admission_v1.py"
+          ).read_text()
+          assert "HOLD_{label}_PATH_IDENTITY" in source
+          assert (
+              "HOLD_WAR_COLLEGE_DIRECTORY_PATH_IDENTITY" in tests
+          )
+          assert (
+              "test_war_college_directory_substitution_fails_after_publication"
+              in tests
+          )
+          assert source.count("_require_fd_path_identity(") >= 5
+          print("VOID_WAR_COLLEGE_ATTEMPT_ADMISSION_SOURCE_GREEN")
+          PY

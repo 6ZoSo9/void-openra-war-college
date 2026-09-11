@@ -1,0 +1,55 @@
+{
+  "artifact_policy": {
+    "data_dir_group_or_other_writable": false,
+    "data_dir_required_mode": "0o700",
+    "environment_file_required_mode": "0o600",
+    "environment_files_group_or_other_writable": false,
+    "environment_files_no_symlink": true,
+    "environment_files_regular_only": true,
+    "runtime_artifact_git_blobs_exact": true,
+    "runtime_worktree_must_be_clean": true,
+    "unit_files_group_or_other_writable": false,
+    "unit_files_no_symlink": true,
+    "unit_files_regular_only": true,
+    "void_data_dir_must_be_absolute": true
+  },
+  "authority": {
+    "credential_change": false,
+    "evidence_countability": false,
+    "model_promotion": false,
+    "model_training": false,
+    "private_key_access": false,
+    "runtime_execution": false,
+    "service_install": false,
+    "service_reload": false,
+    "service_restart": false,
+    "service_start": false,
+    "wallet_or_signer_access": false
+  },
+  "designated_host_label": "precision",
+  "expected_node_id": "9d89483769e469e0473b489dc50dba96",
+  "marker": "VOID_WAR_COLLEGE_DESIGNATED_HOST_SUPERVISOR_CONTRACT_V1",
+  "observed_legacy_service_disposition": {
+    "eligible_as_war_college_supervisor": false,
+    "reason": "shared_multi_lane_service_relative_void_data_dir_and_group_writable_artifacts",
+    "service_name": "void-node-live.service"
+  },
+  "runtime_artifact_git_blobs": {
+    "scripts/controller_attempt_admission_store_v1.py": "5f03230bd8af50ccbb265a6173a3a7d52a6e09b8",
+    "scripts/verify_controller_evidence_isolation_v1.py": "3f3ca8ae70c3005dea45b153017f7e0e0caa1296",
+    "scripts/verify_controller_evidence_producer_auth_v1.py": "cce13a7ff4d36e21cc4719625e2b3c116e851889",
+    "scripts/verify_controller_evidence_with_durable_currentness_v1.py": "2d7a583e45df8d803b21b534c2d80ce9f1a787f7",
+    "scripts/war_college_designated_producer_trust_root_v1.py": "ac3394d03ecadb0112edd67c565d44c740e63d76"
+  },
+  "runtime_gid": 1000,
+  "runtime_repository": "/home/zoso/dev/openra-rl-war-college-worktrees/designated-host-runtime-bae61935",
+  "runtime_source_commit": "bae61935b956c5f7ebce005c0fef69ec86f69d09",
+  "runtime_uid": 1000,
+  "service_instance_id_regex": "wcrq1_[0-9a-f]{32}",
+  "service_name": "void-war-college-evidence-verifier@.service",
+  "service_scope": "systemd_user",
+  "store_absolute_path": "/home/zoso/dev/void-node/data_a/war_college/controller_attempt_admission_v3.sqlite3",
+  "store_relative_path": "war_college/controller_attempt_admission_v3.sqlite3",
+  "version": 1,
+  "void_data_dir": "/home/zoso/dev/void-node/data_a"
+}

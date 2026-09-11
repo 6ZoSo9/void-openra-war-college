@@ -1,0 +1,17 @@
+{
+  "daemon_reload_authorized": false,
+  "execution_binding_git_blob": "5bcfd79a6a1da5d71ade6a532aaef8b52b6dd825",
+  "execution_binding_path": "config/war-college/designated-host-execution-binding-v1.json",
+  "execution_verifier_git_blob": "b77d3da8effc07198d2a089c37d57a47ae5dcda1",
+  "execution_verifier_path": "scripts/verify_designated_host_execution_binding_v1.py",
+  "marker": "VOID_WAR_COLLEGE_DESIGNATED_HOST_RUNTIME_PREFLIGHT_V1",
+  "private_key_access": false,
+  "read_only": true,
+  "runtime_execution_authorized": false,
+  "semantic_parent_head": "5b1f2f1ec391ee68add8aa600658074a3fb95a52",
+  "semantic_parent_pr": 32,
+  "service_install_authorized": false,
+  "service_start_authorized": false,
+  "service_template_name": "void-war-college-evidence-verifier@.service",
+  "version": 1
+}

@@ -1,0 +1,131 @@
+name: designated-host-execution-binding-runtime-preflight-source-contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - config/war-college/designated-host-runtime-preflight-v1.json
+      - config/war-college/designated-host-execution-binding-v1.json
+      - scripts/discover_designated_host_execution_binding_runtime_v1.py
+      - scripts/verify_designated_host_execution_binding_v1.py
+      - tests/test_discover_designated_host_execution_binding_runtime_v1.py
+      - ops/war-college/void-war-college-evidence-verifier.env
+      - ops/war-college/void-war-college-evidence-verifier@.service
+      - scripts/war_college_designated_host_verify_request_v1.py
+      - .github/workflows/designated-host-execution-binding-runtime-preflight-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    name: Python ${{ matrix.python-version }} runtime preflight source contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    env:
+      SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      INTEGRATION_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout integration generation
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+          submodules: false
+
+      - name: Checkout exact source head
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ env.SOURCE_HEAD_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+          path: exact-head
+
+      - name: Checkout current base
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          path: live-base
+
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Prove exact integration generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$INTEGRATION_SHA"
+          test "$(git -C exact-head rev-parse HEAD)" = "$SOURCE_HEAD_SHA"
+          read -r integration_base source_head extra_parent <<< "$(git show -s --format=%P HEAD)"
+          test -n "$integration_base"
+          test -n "$source_head"
+          test -z "${extra_parent:-}"
+          test "$source_head" = "$SOURCE_HEAD_SHA"
+          live_base="$(git -C live-base rev-parse HEAD)"
+          test "$integration_base" = "$live_base"
+          merge_base="$(git -C exact-head merge-base "$integration_base" "$SOURCE_HEAD_SHA")"
+          test "$merge_base" = "$integration_base"
+          git -C exact-head diff --check "${merge_base}...${SOURCE_HEAD_SHA}"
+
+      - name: Compile integration source
+        run: |
+          python -m py_compile             scripts/discover_designated_host_execution_binding_runtime_v1.py             scripts/verify_designated_host_execution_binding_v1.py             tests/test_discover_designated_host_execution_binding_runtime_v1.py
+
+      - name: Run integration source tests
+        run: python -m unittest -v tests/test_discover_designated_host_execution_binding_runtime_v1.py
+
+      - name: Compile exact-head source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          python -m py_compile             scripts/discover_designated_host_execution_binding_runtime_v1.py             scripts/verify_designated_host_execution_binding_v1.py             tests/test_discover_designated_host_execution_binding_runtime_v1.py
+
+      - name: Run exact-head source tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          python -m unittest -v tests/test_discover_designated_host_execution_binding_runtime_v1.py
+
+      - name: Prove collector has no runtime mutation authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("exact-head")
+          contract = json.loads(
+              (root / "config/war-college/designated-host-runtime-preflight-v1.json")
+              .read_text(encoding="utf-8")
+          )
+          source = (
+              root / "scripts/discover_designated_host_execution_binding_runtime_v1.py"
+          ).read_text(encoding="utf-8")
+          assert contract["read_only"] is True
+          for key in (
+              "private_key_access",
+              "service_install_authorized",
+              "daemon_reload_authorized",
+              "service_start_authorized",
+              "runtime_execution_authorized",
+          ):
+              assert contract[key] is False
+          assert '"show"' in source
+          for forbidden in (
+              '"start"', '"restart"', '"enable"', '"disable"', '"stop"',
+              '"daemon-reload"',
+          ):
+              assert forbidden not in source
+          print("VOID_WAR_COLLEGE_RUNTIME_PREFLIGHT_SOURCE_GREEN")
+          PY

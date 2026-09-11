@@ -1,0 +1,111 @@
+name: designated-host-provisioning-plan-source-contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - config/war-college/designated-host-provisioning-plan-v1.json
+      - config/war-college/designated-host-execution-binding-v1.json
+      - config/war-college/designated-host-runtime-preflight-v1.json
+      - ops/war-college/void-war-college-evidence-verifier.env
+      - ops/war-college/void-war-college-evidence-verifier@.service
+      - scripts/war_college_designated_host_verify_request_v1.py
+      - scripts/discover_designated_host_execution_binding_runtime_v1.py
+      - scripts/verify_designated_host_execution_binding_v1.py
+      - scripts/verify_designated_host_provisioning_plan_v1.py
+      - tests/test_war_college_designated_host_execution_binding_v1.py
+      - tests/test_designated_host_provisioning_plan_v1.py
+      - .github/workflows/designated-host-provisioning-plan-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    env:
+      SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout integration generation
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Checkout exact source head
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ env.SOURCE_HEAD_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+          path: exact-head
+
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Prove exact source generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C exact-head rev-parse HEAD)" = "$SOURCE_HEAD_SHA"
+          merge_base="$(git -C exact-head merge-base "${{ github.event.pull_request.base.sha }}" "$SOURCE_HEAD_SHA")"
+          test "$merge_base" = "${{ github.event.pull_request.base.sha }}"
+          git -C exact-head diff --check "${merge_base}...${SOURCE_HEAD_SHA}"
+
+      - name: Compile and test integration generation
+        run: |
+          python -m py_compile \
+            scripts/verify_designated_host_execution_binding_v1.py \
+            scripts/verify_designated_host_provisioning_plan_v1.py \
+            tests/test_war_college_designated_host_execution_binding_v1.py \
+            tests/test_designated_host_provisioning_plan_v1.py
+          python -m unittest -v \
+            tests/test_war_college_designated_host_execution_binding_v1.py \
+            tests/test_designated_host_provisioning_plan_v1.py
+
+      - name: Compile and test exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          python -m py_compile \
+            scripts/verify_designated_host_execution_binding_v1.py \
+            scripts/verify_designated_host_provisioning_plan_v1.py \
+            tests/test_war_college_designated_host_execution_binding_v1.py \
+            tests/test_designated_host_provisioning_plan_v1.py
+          python -m unittest -v \
+            tests/test_war_college_designated_host_execution_binding_v1.py \
+            tests/test_designated_host_provisioning_plan_v1.py
+
+      - name: Prove strict historical runtime generation and non-authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact-head
+          report="$(python scripts/verify_designated_host_provisioning_plan_v1.py --require-historical-runtime-commit)"
+          printf '%s\n' "$report"
+          python - "$report" <<'PY'
+          import json
+          import sys
+
+          report = json.loads(sys.argv[1])
+          assert report["contract"] == "GREEN"
+          assert report["plan_only"] is True
+          assert report["historical_runtime_commit_verified"] is True
+          for key in (
+              "materialization_authorized",
+              "daemon_reload_authorized",
+              "service_start_authorized",
+              "runtime_execution_authorized",
+              "private_key_access",
+          ):
+              assert report[key] is False
+          print("VOID_WAR_COLLEGE_PROVISIONING_PLAN_STRICT_SOURCE_GREEN")
+          PY

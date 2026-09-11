@@ -247,7 +247,7 @@ class TestReplayViewerSettings:
         from openra_env.cli.docker_manager import load_replay_viewer_settings
         # 0 means "all available"
         s = load_replay_viewer_settings(cpu_cores=0)
-        assert s.cpu_cores == (_os.cpu_count() or 4)
+        assert s.cpu_cores == min(32, (_os.cpu_count() or 4))
         # Clamped to max 32
         s = load_replay_viewer_settings(cpu_cores=100)
         assert s.cpu_cores == 32

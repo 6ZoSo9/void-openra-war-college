@@ -1,0 +1,171 @@
+name: designated-host-controller-evidence-capture-source-contract
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/designated-host-controller-evidence-capture-source-contract.yml
+      - config/war-college/designated-host-controller-evidence-capture-v1.json
+      - scripts/capture_designated_host_controller_evidence_v1.py
+      - tests/test_designated_host_controller_evidence_capture_v1.py
+      - bench_joint_advance.py
+      - bench_joint_advance_core.py
+      - proto/rl_bridge.proto
+      - scripts/controller_attempt_admission_store_v1.py
+      - scripts/verify_controller_evidence_isolation_v1.py
+      - OpenRA
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/designated-host-controller-evidence-capture-source-contract.yml
+      - config/war-college/designated-host-controller-evidence-capture-v1.json
+      - scripts/capture_designated_host_controller_evidence_v1.py
+      - tests/test_designated_host_controller_evidence_capture_v1.py
+      - bench_joint_advance.py
+      - bench_joint_advance_core.py
+      - proto/rl_bridge.proto
+      - scripts/controller_attempt_admission_store_v1.py
+      - scripts/verify_controller_evidence_isolation_v1.py
+      - OpenRA
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    name: Python ${{ matrix.python-version }} source contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile source
+        run: |
+          python -m py_compile \
+            scripts/capture_designated_host_controller_evidence_v1.py \
+            tests/test_designated_host_controller_evidence_capture_v1.py
+      - name: Run focused falsifiers
+        run: |
+          python \
+            -W error::ResourceWarning \
+            -W error::RuntimeWarning \
+            -m unittest -v \
+            tests.test_designated_host_controller_evidence_capture_v1
+      - name: Verify source authority and causal wall
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          contract = json.loads(
+              Path(
+                  "config/war-college/"
+                  "designated-host-controller-evidence-capture-v1.json"
+              ).read_text()
+          )
+          source = Path(
+              "scripts/capture_designated_host_controller_evidence_v1.py"
+          ).read_text()
+          tests = Path(
+              "tests/test_designated_host_controller_evidence_capture_v1.py"
+          ).read_text()
+          workflow = Path(
+              ".github/workflows/"
+              "designated-host-controller-evidence-capture-source-contract.yml"
+          ).read_text()
+
+          assert contract["version"] == 2
+          assert contract["source_lane_authority"] == {
+              "canonical_store_mutation": False,
+              "controller_model_execution": False,
+              "evidence_consumption": False,
+              "live_request_materialization": False,
+              "private_key_access": False,
+              "runtime_execution": False,
+              "service_action": False,
+              "session_advance": False,
+              "signing": False,
+          }
+          assert (
+              contract["controller_decision_provenance"]
+              == "operator_bound_empty_action_profile_v1"
+          )
+          assert contract["controller_model_execution"] is False
+          assert (
+              contract["runtime_containment_strategy"]
+              == "spawned_capture_child_private_process_group_v1"
+          )
+          assert (
+              contract["private_publish_strategy"]
+              == "retained_output_directory_fd_o_excl_v1"
+          )
+          assert contract["action_profile"] == "empty_joint_batches"
+          assert contract["bootstrap_ticks"] == 1
+          assert contract["action_ticks"] == 1
+          assert contract["dotnet_version"] == "8.0.424"
+
+          assert "HOLD_CAPTURE_CAUSAL_ACTION_START_TICK" in source
+          assert "action_start != bootstrap_end" in source
+          assert source.count("stub.JointAdvance(") == 2
+          assert 'pb2.PlayerCommandBatch(player="Multi0")' in source
+          assert 'pb2.PlayerCommandBatch(player="Multi1")' in source
+          assert '"commands": []' in source
+          assert "mode=ro" in source
+          assert "PRAGMA query_only=ON" in source
+          assert "start_new_session=True" in source
+          assert "os.killpg(" in source
+          assert "runtime_provenance(" in source
+          assert "dir_fd=root_fd" in source
+          assert "_require_fd_path_identity(" in source
+          assert "HOLD_CAPTURE_PARENT_CHILD_SOURCE_HEAD_MISMATCH" in source
+          assert "HOLD_CAPTURE_CHILD_SOURCE_HEAD_DRIFT" in source
+          assert "source_head_after_publish" in source
+          assert source.count("verify_runtime_generation(contract)") >= 5
+          assert source.count("verify_source_generation(contract)") >= 5
+          assert "if str(ROOT) not in sys.path" in source
+          assert "CAPTURE_FIRST_CONTROLLER_EVIDENCE" in (
+              Path(
+                  "config/war-college/"
+                  "designated-host-controller-evidence-capture-v1.json"
+              ).read_text()
+          )
+
+          for forbidden in (
+              "BEGIN PRIVATE KEY",
+              "consume_joint_evidence(",
+              "advance_session(",
+              "systemctl",
+              "producer_auth",
+              ".sign(",
+          ):
+              assert forbidden not in source
+
+          for bound in (
+              "bench_joint_advance.py",
+              "bench_joint_advance_core.py",
+              "proto/rl_bridge.proto",
+              "scripts/controller_attempt_admission_store_v1.py",
+              "scripts/verify_controller_evidence_isolation_v1.py",
+              "OpenRA",
+          ):
+              assert f"- {bound}" in workflow
+
+          assert "test_rejects_retroactive_action_tick" in tests
+          assert "mock.AsyncMock" in tests
+          assert "test_process_group_retirement_is_bounded" in tests
+          assert (
+              "test_private_directory_substitution_is_detected_without_retargeting"
+              in tests
+          )
+          assert "test_repo_root_is_inserted_for_isolated_runtime_imports" in tests
+          print("VOID_WAR_COLLEGE_CONTROLLER_EVIDENCE_CAPTURE_SOURCE_V2_GREEN")
+          PY
