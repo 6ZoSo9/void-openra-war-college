@@ -1673,6 +1673,14 @@ class OpenRAEnvironment(MCPEnvironment):
                             available=total_funds, item=unit_type, cost=unit_cost),
                     }
             count = max(1, min(count, 10))
+            queue_hold = env._unit_production_queue_hold(
+                env._last_obs or {},
+                unit_type,
+                count,
+                held_tool="build_unit",
+            )
+            if queue_hold is not None:
+                return queue_hold
             commands = [CommandModel(action=ActionType.TRAIN, item_type=unit_type)
                         for _ in range(count)]
             result = env._execute_commands(commands)
@@ -2429,6 +2437,53 @@ class OpenRAEnvironment(MCPEnvironment):
         }
 
     @staticmethod
+    def _unit_production_queue_hold(
+        obs: dict,
+        unit_type: str,
+        requested_count: int,
+        *,
+        held_tool: str,
+    ) -> dict | None:
+        # Bound aggregate pending production for one unit type to the direct-call ceiling.
+        production = obs.get("production", []) if isinstance(obs, dict) else []
+        normalized_count = max(1, min(int(requested_count), 10))
+
+        pending_same_type = sum(
+            1
+            for entry in production
+            if isinstance(entry, dict)
+            and (entry.get("item") or entry.get("type")) == unit_type
+        )
+        max_pending_same_type = 10
+        available_slots = max(0, max_pending_same_type - pending_same_type)
+        pending_after_request = pending_same_type + normalized_count
+
+        if pending_after_request <= max_pending_same_type:
+            return None
+
+        return {
+            "unit_production_queue_hold": True,
+            "executed": False,
+            "held_tool": held_tool,
+            "requested_unit_type": unit_type,
+            "requested_count": normalized_count,
+            "pending_same_type": pending_same_type,
+            "pending_after_request": pending_after_request,
+            "max_pending_same_type": max_pending_same_type,
+            "available_slots": available_slots,
+            "reason": (
+                f"'{unit_type}' already has {pending_same_type} pending production "
+                f"item(s); this request for {normalized_count} would exceed the "
+                f"same-unit pending limit of {max_pending_same_type}."
+            ),
+            "next_step": (
+                f"Wait for queued '{unit_type}' production to advance, choose another "
+                f"valid action, or request at most {available_slots} additional "
+                f"'{unit_type}' unit(s)."
+            ),
+        }
+
+    @staticmethod
     def _harvest_precondition_hold(
         obs: dict,
         unit_id: int,
@@ -2696,7 +2751,14 @@ class OpenRAEnvironment(MCPEnvironment):
             available = obs.get("available_production", [])
             if not available or unit_type not in available:
                 return []  # unavailable — batch() will mark as FAILED
-            count = max(1, action.get("count", 1))
+            count = max(1, min(action.get("count", 1), 10))
+            if self._unit_production_queue_hold(
+                obs,
+                unit_type,
+                count,
+                held_tool="build_unit",
+            ) is not None:
+                return []
             return [CommandModel(action=ActionType.TRAIN, item_type=unit_type)
                     for _ in range(count)]
         elif tool == "build_structure":
