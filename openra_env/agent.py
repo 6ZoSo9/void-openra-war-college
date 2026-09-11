@@ -125,6 +125,25 @@ def _known_production_precondition_hold(
     if requested_item in available:
         return None
 
+    valid_choices = [
+        item for item in available
+        if isinstance(item, str) and item
+    ]
+    if valid_choices:
+        next_step = (
+            f"Do not retry {requested_item!r} until it appears in "
+            "available_production. Choose only from the currently available "
+            f"production items: {', '.join(valid_choices)}. If none advances "
+            "the intended prerequisite chain, call advance() in a new "
+            "assistant response and observe state again."
+        )
+    else:
+        next_step = (
+            f"Do not retry {requested_item!r} until it appears in "
+            "available_production. No production item is currently available; "
+            "call advance() in a new assistant response and observe state again."
+        )
+
     return {
         "production_precondition_hold": True,
         "executed": False,
@@ -137,11 +156,7 @@ def _known_production_precondition_hold(
             "exact game-state snapshot supplied before this assistant response. "
             "Executing this production call would therefore be known-invalid."
         ),
-        "next_step": (
-            "Do not retry until state changes. If waiting for deployment or "
-            "production, call advance() in a new assistant response; otherwise "
-            "satisfy the missing prerequisite and observe state again."
-        ),
+        "next_step": next_step,
     }
 
 
