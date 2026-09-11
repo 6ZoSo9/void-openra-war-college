@@ -25,6 +25,49 @@ from openra_env.mcp_ws_client import OpenRAMCPClient
 logger = logging.getLogger("llm_agent")
 
 
+# LLM-visible tools are phase scoped. The host owns phase transitions:
+# planning begins before the planning LLM loop, and gameplay begins only
+# after planning ends. Do not expose phase-entry controls back to the model.
+PLANNING_LLM_TOOL_NAMES = frozenset(
+    {
+        "get_faction_briefing",
+        "get_map_analysis",
+        "get_opponent_intel",
+        "batch_lookup",
+        "end_planning_phase",
+    }
+)
+
+GAMEPLAY_HIDDEN_TOOL_NAMES = frozenset(
+    {
+        "start_planning_phase",
+        "end_planning_phase",
+        "get_planning_status",
+    }
+)
+
+
+def _openai_tool_name(tool: dict) -> str:
+    return tool["function"]["name"]
+
+
+def _phase_scoped_tool_surfaces(
+    openai_tools: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    planning = [
+        tool
+        for tool in openai_tools
+        if _openai_tool_name(tool) in PLANNING_LLM_TOOL_NAMES
+    ]
+    gameplay = [
+        tool
+        for tool in openai_tools
+        if _openai_tool_name(tool) not in GAMEPLAY_HIDDEN_TOOL_NAMES
+    ]
+    return planning, gameplay
+
+
+
 def _looks_like_tool_capability_error(error_text: str) -> bool:
     """Best-effort detection of provider errors indicating no tool support."""
     text = error_text.lower()
@@ -740,7 +783,10 @@ async def run_agent(config, verbose: bool = False):
         # Discover and convert tools
         mcp_tools = await env.list_tools()
         openai_tools = mcp_tools_to_openai(mcp_tools)
-        tool_names = {t["function"]["name"] for t in openai_tools}
+        planning_openai_tools, gameplay_openai_tools = _phase_scoped_tool_surfaces(
+            openai_tools
+        )
+        tool_names = {_openai_tool_name(t) for t in gameplay_openai_tools}
         g2_frontier = RuntimeFrontierController.from_environment(mcp_tools)
         g2_frontier_records: list[dict[str, Any]] = []
         print(f"Discovered {len(mcp_tools)} MCP tools")
@@ -818,7 +864,7 @@ async def run_agent(config, verbose: bool = False):
                 planning_done = False
                 for planning_turn in range(max_planning_turns + 2):
                     try:
-                        response = await chat_completion(messages, openai_tools, llm_config, verbose, prompts=config.prompts)
+                        response = await chat_completion(messages, planning_openai_tools, llm_config, verbose, prompts=config.prompts)
                     except (RuntimeError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
                         print(f"  [Planning] API error: {e}")
                         print("  Skipping planning phase.")
@@ -1074,7 +1120,7 @@ async def run_agent(config, verbose: bool = False):
             is_local = any(h in llm_config.base_url for h in ("localhost", "127.0.0.1"))
             for attempt in range(max_retries):
                 try:
-                    response = await chat_completion(messages, openai_tools, llm_config, verbose, prompts=config.prompts)
+                    response = await chat_completion(messages, gameplay_openai_tools, llm_config, verbose, prompts=config.prompts)
                     break
                 except (httpx.ReadTimeout, httpx.ConnectTimeout):
                     timeout_s = int(llm_config.request_timeout_s)

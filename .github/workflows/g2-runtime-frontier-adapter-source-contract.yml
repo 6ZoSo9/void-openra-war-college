@@ -11,6 +11,7 @@ name: g2-runtime-frontier-adapter-source-contract
       - tests/test_g2_runtime_frontier_adapter_v1.py
       - tests/test_g2_runtime_frontier_source_contract_v1.py
       - tests/test_g2_runtime_comparator_loader_v1.py
+      - tests/test_agent_phase_tool_surfaces_v1.py
       - .github/workflows/g2-runtime-frontier-adapter-source-contract.yml
   push:
     branches:
@@ -24,6 +25,7 @@ name: g2-runtime-frontier-adapter-source-contract
       - tests/test_g2_runtime_frontier_adapter_v1.py
       - tests/test_g2_runtime_frontier_source_contract_v1.py
       - tests/test_g2_runtime_comparator_loader_v1.py
+      - tests/test_agent_phase_tool_surfaces_v1.py
       - .github/workflows/g2-runtime-frontier-adapter-source-contract.yml
 
 permissions:
@@ -43,7 +45,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
-          fetch-depth: 2
+          fetch-depth: 0
 
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
@@ -87,14 +89,16 @@ jobs:
             openra_env/learning/g2_runtime_tool_classification.py \
             tests/test_g2_runtime_frontier_adapter_v1.py \
             tests/test_g2_runtime_frontier_source_contract_v1.py \
-            tests/test_g2_runtime_comparator_loader_v1.py
+            tests/test_g2_runtime_comparator_loader_v1.py \
+            tests/test_agent_phase_tool_surfaces_v1.py
 
       - name: Run G2 runtime frontier contract tests
         run: |
           python -m pytest -q \
             tests/test_g2_runtime_frontier_adapter_v1.py \
             tests/test_g2_runtime_frontier_source_contract_v1.py \
-            tests/test_g2_runtime_comparator_loader_v1.py
+            tests/test_g2_runtime_comparator_loader_v1.py \
+            tests/test_agent_phase_tool_surfaces_v1.py
 
       - name: Lint G2 runtime frontier source
         run: |
@@ -103,7 +107,8 @@ jobs:
             openra_env/learning/g2_runtime_candidate_frontier.py \
             openra_env/learning/g2_runtime_capability_projection.py \
             openra_env/learning/g2_runtime_compiled_comparator_gate.py \
-            openra_env/learning/g2_runtime_tool_classification.py
+            openra_env/learning/g2_runtime_tool_classification.py \
+            tests/test_agent_phase_tool_surfaces_v1.py
 
       - name: Prove source-only boundary
         run: |
