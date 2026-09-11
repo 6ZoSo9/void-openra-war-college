@@ -51,6 +51,8 @@ def test_known_unavailable_build_is_held_without_environment_error():
     assert result["tick"] == 4
     assert result["available_production"] == []
     assert "known-invalid" in result["reason"]
+    assert "Do not retry 'powr'" in result["next_step"]
+    assert "No production item is currently available" in result["next_step"]
     assert "call advance()" in result["next_step"]
     assert "error" not in result
 
@@ -65,6 +67,29 @@ def test_known_unavailable_unit_is_held():
     assert result is not None
     assert result["held_tool"] == "build_unit"
     assert result["requested_item"] == "e1"
+    assert "Do not retry 'e1'" in result["next_step"]
+    assert "currently available production items: powr, tent" in result["next_step"]
+
+
+def test_hold_guidance_surfaces_exact_current_valid_choices_without_inventing_any():
+    guard = _helper()
+    available = ["syrd", "proc", "powr", "tent", "sbag", "brik"]
+    result = guard(
+        "build_and_place",
+        {"building_type": "weap"},
+        {"tick": 269, "available_production": available},
+    )
+
+    assert result["production_precondition_hold"] is True
+    assert result["executed"] is False
+    assert result["requested_item"] == "weap"
+    assert result["available_production"] == available
+    assert (
+        "currently available production items: syrd, proc, powr, tent, sbag, brik"
+        in result["next_step"]
+    )
+    assert "weap" not in result["available_production"]
+    assert "error" not in result
 
 
 def test_unknown_availability_fails_open_to_existing_server_validation():
