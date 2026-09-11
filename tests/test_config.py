@@ -57,12 +57,25 @@ class TestDefaults:
         cfg = OpenRARLConfig()
         # Factual alerts — report events
         for field in ("under_attack", "damaged_building", "low_power", "ore_full",
-                      "production_stalled", "building_ready", "loss_tracking", "minimap"):
+                      "production_stalled", "building_ready", "loss_tracking", "minimap",
+                      "no_scouting"):
             assert getattr(cfg.alerts, field) is True, f"Alert {field} should default to True"
         # Prescriptive alerts — disabled so agent discovers on its own
         for field in ("idle_funds", "idle_production", "stance_warning",
-                      "idle_army", "no_defenses", "no_scouting"):
+                      "idle_army", "no_defenses"):
             assert getattr(cfg.alerts, field) is False, f"Alert {field} should default to False"
+
+    def test_no_scouting_alert_default_is_factual_and_overridable(self):
+        cfg = OpenRARLConfig()
+        assert cfg.alerts.no_scouting is True
+
+        text = cfg.prompts.alerts.no_scouting.lower()
+        assert "enemy not found" in text
+        assert "{explored}" in text
+        assert "{idle}" in text
+
+        disabled = AlertsConfig(no_scouting=False)
+        assert disabled.no_scouting is False
 
     def test_redundant_read_tools_disabled_by_default(self):
         """Redundant read tools disabled — turn briefing provides the same data."""
