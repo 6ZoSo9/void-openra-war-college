@@ -185,7 +185,7 @@ class AlertPromptsConfig(BaseModel):
     no_defenses: str = "NO DEFENSES: no defense structures built"
     no_scouting: str = (
         "NO SCOUTING: enemy not found — {explored} of map explored, "
-        "{idle} idle combat units available"
+        "{idle} idle combat units available; quadrant exploration {quadrants}"
     )
 
 

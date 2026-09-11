@@ -140,5 +140,5 @@ alerts:
 
   no_defenses: "NO DEFENSES: no defense structures built"
 
-  # Variables: {explored}, {idle}
-  no_scouting: "NO SCOUTING: enemy not found — {explored} of map explored, {idle} idle combat units available"
+  # Variables: {explored}, {idle}, {quadrants}
+  no_scouting: "NO SCOUTING: enemy not found — {explored} of map explored, {idle} idle combat units available; quadrant exploration {quadrants}"
