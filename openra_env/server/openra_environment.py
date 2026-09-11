@@ -2034,6 +2034,13 @@ class OpenRAEnvironment(MCPEnvironment):
             if not any(u.get("actor_id") == unit_id for u in units):
                 return {"error": f"Unit {unit_id} not found. It may have been destroyed.",
                         "your_units": [{"id": u["actor_id"], "type": u["type"]} for u in units[:20]]}
+            harvest_hold = env._harvest_precondition_hold(
+                obs,
+                unit_id,
+                held_tool="harvest",
+            )
+            if harvest_hold is not None:
+                return harvest_hold
             commands = [CommandModel(action=ActionType.HARVEST, actor_id=unit_id, target_x=cell_x, target_y=cell_y)]
             return env._execute_commands(commands)
 
@@ -2421,6 +2428,55 @@ class OpenRAEnvironment(MCPEnvironment):
             ),
         }
 
+    @staticmethod
+    def _harvest_precondition_hold(
+        obs: dict,
+        unit_id: int,
+        *,
+        held_tool: str,
+    ) -> dict | None:
+        """Reject harvest commands for living actors that are not harvesters."""
+        units = obs.get("units", []) if isinstance(obs, dict) else []
+        requested = next(
+            (u for u in units if u.get("actor_id") == unit_id),
+            None,
+        )
+        if requested is None:
+            return None
+        if requested.get("type") == "harv":
+            return None
+
+        harvesters = [
+            {"id": u.get("actor_id"), "type": u.get("type")}
+            for u in units
+            if u.get("type") == "harv"
+        ]
+        harvester_stats = get_unit_stats("harv") or {}
+        required_name = harvester_stats.get("name", "Ore Truck")
+        prerequisites = list(harvester_stats.get("prerequisites", []))
+
+        return {
+            "harvest_precondition_hold": True,
+            "executed": False,
+            "held_tool": held_tool,
+            "requested_unit": {
+                "id": unit_id,
+                "type": requested.get("type", ""),
+            },
+            "required_unit_type": "harv",
+            "required_unit_name": required_name,
+            "required_prerequisites": prerequisites,
+            "available_harvesters": harvesters,
+            "reason": (
+                f"Unit {unit_id} ({requested.get('type', '')}) is not a harvester. "
+                f"Harvest requires a 'harv' ({required_name})."
+            ),
+            "next_step": (
+                "Do not retry harvest on this unit. "
+                "Use a living 'harv' actor ID from available_harvesters if one is present."
+            ),
+        }
+
     def _check_plan_condition(self, condition: str, obs: dict) -> bool:
         """Evaluate a plan condition against current observation."""
         if condition == "enemies_visible":
@@ -2715,6 +2771,12 @@ class OpenRAEnvironment(MCPEnvironment):
         elif tool == "harvest":
             uid = action["unit_id"]
             if not any(u.get("actor_id") == uid for u in obs.get("units", [])):
+                return []
+            if self._harvest_precondition_hold(
+                obs,
+                uid,
+                held_tool="harvest",
+            ) is not None:
                 return []
             return [CommandModel(action=ActionType.HARVEST, actor_id=uid,
                                 target_x=action.get("cell_x", 0),
