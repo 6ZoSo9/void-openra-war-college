@@ -476,25 +476,47 @@ class OpenRAEnvironment(MCPEnvironment):
                 if obs["tick"] > 750 and not obs["visible_enemies"] and not obs.get("visible_enemy_buildings"):
                     if not getattr(env, "_enemy_ever_seen", False):
                         idle_combat = sum(1 for u in obs["units"] if u.get("can_attack") and u.get("is_idle"))
-                        # Compute exploration % from spatial data if available
+                        # Compute overall and per-quadrant exploration facts from
+                        # the same fog tensor used by get_exploration_status().
                         _expl_pct = "?"
+                        _quadrants = "unavailable"
                         _spatial = obs.get("spatial_map", "")
                         _mi = obs.get("map_info", {})
                         _sw, _sh, _sc = _mi.get("width", 0), _mi.get("height", 0), obs.get("spatial_channels", 0)
-                        if _spatial and _sw > 0 and _sc > 0:
+                        if _spatial and _sw > 0 and _sh > 0 and _sc > 0:
                             import base64 as _b64
                             import struct as _st
                             try:
                                 _raw = _b64.b64decode(_spatial)
-                                _explored = sum(
-                                    1 for _i in range(_sw * _sh)
-                                    if _st.unpack_from("f", _raw, (_i * _sc + 4) * 4)[0] > 0.25
-                                )
+                                _explored = 0
+                                _quad_total = {"NW": 0, "NE": 0, "SW": 0, "SE": 0}
+                                _quad_explored = {"NW": 0, "NE": 0, "SW": 0, "SE": 0}
+                                _half_w, _half_h = _sw // 2, _sh // 2
+                                for _i in range(_sw * _sh):
+                                    _y, _x = divmod(_i, _sw)
+                                    _quad = (
+                                        ("N" if _y < _half_h else "S")
+                                        + ("W" if _x < _half_w else "E")
+                                    )
+                                    _quad_total[_quad] += 1
+                                    _fog = _st.unpack_from(
+                                        "f", _raw, (_i * _sc + 4) * 4
+                                    )[0]
+                                    if _fog > 0.25:
+                                        _explored += 1
+                                        _quad_explored[_quad] += 1
                                 _expl_pct = f"{round(100 * _explored / (_sw * _sh), 1)}%"
+                                _quadrants = ", ".join(
+                                    f"{_quad}={round(100 * _quad_explored[_quad] / max(_quad_total[_quad], 1), 1)}%"
+                                    for _quad in ("NW", "NE", "SW", "SE")
+                                )
                             except Exception:
                                 pass
                         alerts.append((7, pcfg.no_scouting.format(
-                            explored=_expl_pct, idle=idle_combat)))
+                            explored=_expl_pct,
+                            idle=idle_combat,
+                            quadrants=_quadrants,
+                        )))
 
             # Sort alerts by priority and apply cap
             alerts.sort(key=lambda x: x[0])
