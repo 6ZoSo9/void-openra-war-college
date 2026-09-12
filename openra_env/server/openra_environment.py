@@ -471,11 +471,24 @@ class OpenRAEnvironment(MCPEnvironment):
             if obs.get("visible_enemies") or obs.get("visible_enemy_buildings"):
                 env._enemy_ever_seen = True
 
-            # No scouting — factual alert (suppress after first contact)
+            # No scouting — factual alert (suppress after first contact).
+            # Emit only when at least one idle combat unit can act on the alert.
             if acfg.no_scouting:
-                if obs["tick"] > 750 and not obs["visible_enemies"] and not obs.get("visible_enemy_buildings"):
+                if (
+                    obs["tick"] > 750
+                    and not obs["visible_enemies"]
+                    and not obs.get("visible_enemy_buildings")
+                    and any(
+                        u.get("can_attack") and u.get("is_idle")
+                        for u in obs["units"]
+                    )
+                ):
                     if not getattr(env, "_enemy_ever_seen", False):
-                        idle_combat = sum(1 for u in obs["units"] if u.get("can_attack") and u.get("is_idle"))
+                        idle_combat = sum(
+                            1
+                            for u in obs["units"]
+                            if u.get("can_attack") and u.get("is_idle")
+                        )
                         # Compute overall and per-quadrant exploration facts from
                         # the same fog tensor used by get_exploration_status().
                         _expl_pct = "?"
