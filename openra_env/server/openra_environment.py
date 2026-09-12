@@ -1875,11 +1875,30 @@ class OpenRAEnvironment(MCPEnvironment):
             env._refresh_obs()
             obs = env._last_obs or {}
             queue = obs.get("production", [])
-            in_queue = any(p.get("type", "").lower() == item_type.lower() for p in queue)
-            if not in_queue:
-                queued_items = [p.get("type", "") for p in queue]
-                return {"error": f"'{item_type}' is not in the production queue.", "current_queue": queued_items}
-            commands = [CommandModel(action=ActionType.CANCEL_PRODUCTION, item_type=item_type)]
+            queued_item = next(
+                (
+                    str(p.get("item", ""))
+                    for p in queue
+                    if str(p.get("item", "")).lower() == item_type.lower()
+                ),
+                "",
+            )
+            if not queued_item:
+                queued_items = [
+                    str(p.get("item", ""))
+                    for p in queue
+                    if p.get("item")
+                ]
+                return {
+                    "error": f"'{item_type}' is not in the production queue.",
+                    "current_queue": queued_items,
+                }
+            commands = [
+                CommandModel(
+                    action=ActionType.CANCEL_PRODUCTION,
+                    item_type=queued_item,
+                )
+            ]
             return env._execute_commands(commands)
 
         @configurable_tool
@@ -2880,11 +2899,24 @@ class OpenRAEnvironment(MCPEnvironment):
                 return []
             return [CommandModel(action=ActionType.UNLOAD, actor_id=transport_id)]
         elif tool == "cancel_production":
-            item = action["item_type"]
+            item = str(action["item_type"])
             queue = obs.get("production", [])
-            if not any(p.get("type", "").lower() == item.lower() for p in queue):
+            queued_item = next(
+                (
+                    str(p.get("item", ""))
+                    for p in queue
+                    if str(p.get("item", "")).lower() == item.lower()
+                ),
+                "",
+            )
+            if not queued_item:
                 return []
-            return [CommandModel(action=ActionType.CANCEL_PRODUCTION, item_type=item)]
+            return [
+                CommandModel(
+                    action=ActionType.CANCEL_PRODUCTION,
+                    item_type=queued_item,
+                )
+            ]
         elif tool == "surrender":
             return [CommandModel(action=ActionType.SURRENDER)]
         else:
@@ -3296,6 +3328,33 @@ class OpenRAEnvironment(MCPEnvironment):
                 raise
             if not obs_dict.get("done"):
                 raise
+
+        # Successful production cancellation must also clear matching
+        # auto-placement bookkeeping. Confirm disappearance in the returned
+        # observation before touching local metadata.
+        cancel_items = {
+            str(command.item_type).lower()
+            for command in commands
+            if command.action == ActionType.CANCEL_PRODUCTION
+            and command.item_type
+        }
+        if cancel_items:
+            remaining_items = {
+                str(entry.get("item", "")).lower()
+                for entry in obs_dict.get("production", [])
+                if entry.get("item")
+            }
+            for cancelled_item in cancel_items - remaining_items:
+                for pending_item in list(
+                    getattr(self, "_pending_placements", {})
+                ):
+                    if pending_item.lower() == cancelled_item:
+                        self._pending_placements.pop(pending_item, None)
+                for attempted_item in list(
+                    getattr(self, "_attempted_placements", {})
+                ):
+                    if attempted_item.lower() == cancelled_item:
+                        self._attempted_placements.pop(attempted_item, None)
 
         # Track losses and trigger auto-placement
         if self._app_config.alerts.loss_tracking:
