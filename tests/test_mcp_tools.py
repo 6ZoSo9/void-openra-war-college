@@ -2927,7 +2927,6 @@ class TestFactualNoScoutingAlert:
     """NO_SCOUTING alert should be fact-based, not prescriptive."""
 
     def _make_obs_with_fog(self, tick=1000, fog_values=None, units=None):
-        spatial = _make_spatial(4, 4, fog_values=fog_values or {})
         return {
             "tick": tick,
             "done": False,
@@ -4303,7 +4302,7 @@ class TestActorValidation:
                 },
             ],
             "production": [
-                {"type": "e1", "progress": 50, "paused": False},
+                {"queue_type": "Infantry", "item": "e1", "progress": 0.5, "remaining_ticks": 30, "remaining_cost": 50, "paused": False},
             ],
             "visible_enemies": [],
             "visible_enemy_buildings": [],
@@ -4745,13 +4744,13 @@ class TestActionToCommandsValidation:
 
     def test_cancel_production_item_not_in_queue_returns_empty(self, env_for_batch):
         env = env_for_batch
-        obs = {"units": [], "buildings": [], "production": [{"type": "e1", "progress": 50}]}
+        obs = {"units": [], "buildings": [], "production": [{"queue_type": "Infantry", "item": "e1", "progress": 0.5, "remaining_ticks": 30, "remaining_cost": 50, "paused": False}]}
         result = env._action_to_commands({"tool": "cancel_production", "item_type": "3tnk"}, obs)
         assert result == []
 
     def test_cancel_production_item_in_queue_returns_command(self, env_for_batch):
         env = env_for_batch
-        obs = {"units": [], "buildings": [], "production": [{"type": "e1", "progress": 50}]}
+        obs = {"units": [], "buildings": [], "production": [{"queue_type": "Infantry", "item": "e1", "progress": 0.5, "remaining_ticks": 30, "remaining_cost": 50, "paused": False}]}
         result = env._action_to_commands({"tool": "cancel_production", "item_type": "e1"}, obs)
         assert len(result) == 1
         assert result[0].action == ActionType.CANCEL_PRODUCTION
