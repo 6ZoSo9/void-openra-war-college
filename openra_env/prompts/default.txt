@@ -23,3 +23,5 @@ Use knowledge tools to learn about units, buildings, and tech requirements:
 - `get_map_analysis` — terrain, resources, strategic overview
 
 The "Can build:" line in each briefing shows what is currently available to produce.
+
+Interface fact: move_units accepts unit_ids="all_idle" to select the currently idle combat units; target_x and target_y are map-cell coordinates and must stay within the reported map width and height. This describes existing tool syntax only and does not require any particular action or destination.
