@@ -370,6 +370,31 @@ class TestPlanningTools:
         result = fn()
         assert result["planning_enabled"] is False
 
+    def test_planning_disabled_registers_status_but_hides_planning_actions(self):
+        from fastmcp import FastMCP
+        from openra_env.config import OpenRARLConfig, PlanningConfig
+        from openra_env.server.openra_environment import OpenRAEnvironment
+        from tests.conftest import get_tool_fn, get_tool_names
+
+        env = OpenRAEnvironment.__new__(OpenRAEnvironment)
+        env._app_config = OpenRARLConfig(
+            planning=PlanningConfig(enabled=False)
+        )
+        env._planning_enabled = False
+        mcp = FastMCP("openra-planning-disabled-test")
+
+        env._register_tools(mcp)
+        tool_names = get_tool_names(mcp)
+
+        assert "get_planning_status" in tool_names
+        assert "get_opponent_intel" not in tool_names
+        assert "start_planning_phase" not in tool_names
+        assert "end_planning_phase" not in tool_names
+
+        status_fn = get_tool_fn(mcp, "get_planning_status")
+        assert status_fn is not None
+        assert status_fn() == {"planning_enabled": False}
+
     def test_game_state_includes_planning_indicator(self, env_with_obs):
         env, mcp = env_with_obs
         start_fn = self._get_tool(mcp, "start_planning_phase")
