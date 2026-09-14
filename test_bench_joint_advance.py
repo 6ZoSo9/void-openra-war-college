@@ -2669,3 +2669,281 @@ class RetryRecoveryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EvidenceReservationFinalizerTests(unittest.TestCase):
+    @staticmethod
+    def _reservation(output: Path) -> bench.EvidenceReservation:
+        descriptor = os.open(os.devnull, os.O_RDONLY)
+        parent_descriptor = os.open(os.devnull, os.O_RDONLY)
+        return bench.EvidenceReservation(
+            path=output,
+            staging=bench._pending_path(output),
+            descriptor=descriptor,
+            parent_descriptor=parent_descriptor,
+        )
+
+    def test_owned_precommit_cleanup_preserves_primary_and_attempts_both_closes(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            reservation = self._reservation(output)
+            descriptor = reservation.descriptor
+            parent_descriptor = reservation.parent_descriptor
+            self.assertIsNotNone(descriptor)
+            self.assertIsNotNone(parent_descriptor)
+            primary = OSError("fixture precommit write failure")
+            close_failure = OSError("fixture descriptor close failure")
+            real_close = os.close
+            attempted = []
+
+            def close_then_fail_first(fd):
+                if fd in (descriptor, parent_descriptor):
+                    attempted.append(fd)
+                if fd == descriptor:
+                    real_close(fd)
+                    raise close_failure
+                return real_close(fd)
+
+            with (
+                mock.patch.object(
+                    bench,
+                    "reserve_evidence_namespace",
+                    return_value=reservation,
+                ),
+                mock.patch.object(
+                    bench,
+                    "_write_reserved_payload",
+                    side_effect=primary,
+                ),
+                mock.patch.object(
+                    bench.os,
+                    "close",
+                    side_effect=close_then_fail_first,
+                ),
+            ):
+                with self.assertRaises(
+                    bench.EvidenceReservationCleanupError
+                ) as raised:
+                    bench.publish_evidence_create_only(output, b"payload\n")
+
+            error = raised.exception
+            self.assertIs(error.primary, primary)
+            self.assertIs(error.descriptor_close_error, close_failure)
+            self.assertIsNone(error.parent_descriptor_close_error)
+            self.assertIs(error.__cause__, primary)
+            self.assertEqual(attempted, [descriptor, parent_descriptor])
+            self.assertIsNone(reservation.descriptor)
+            self.assertIsNone(reservation.parent_descriptor)
+            self.assertFalse(output.exists())
+            self.assertFalse(bench._commit_receipt_path(output).exists())
+
+    def test_main_output_error_is_not_masked_by_reservation_close_failure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            reservation = self._reservation(output)
+            descriptor = reservation.descriptor
+            parent_descriptor = reservation.parent_descriptor
+            self.assertIsNotNone(descriptor)
+            self.assertIsNotNone(parent_descriptor)
+            args = types.SimpleNamespace(
+                mode="run",
+                execute_designated_host=True,
+                openra_dir="/tmp/fixture-openra",
+                output=str(output),
+                designated_hostname="fixture",
+                engine_sha=bench.FROZEN_ENGINE_SHA,
+                war_college_sha=bench.FROZEN_WAR_COLLEGE_SHA,
+                benchmark_source_sha=BENCHMARK_SOURCE_SHA,
+                generation=bench.GENERATION,
+            )
+            parser = mock.Mock()
+            parser.parse_args.return_value = args
+            report = {
+                "cells": [],
+                "run": {"terminal": "completed"},
+                "host": {},
+                "supervisor": {},
+            }
+            publication_failure = OSError("fixture publication failure")
+            close_failure = OSError("fixture descriptor close failure")
+            real_close = os.close
+            attempted = []
+
+            def close_then_fail_first(fd):
+                if fd in (descriptor, parent_descriptor):
+                    attempted.append(fd)
+                if fd == descriptor:
+                    real_close(fd)
+                    raise close_failure
+                return real_close(fd)
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(bench, "parser", return_value=parser),
+                mock.patch.object(
+                    bench,
+                    "validate_provenance",
+                    return_value={"fixture": "provenance"},
+                ),
+                mock.patch.object(
+                    bench,
+                    "normalized_args",
+                    return_value={"fixture": "parameters"},
+                ),
+                mock.patch.object(
+                    bench,
+                    "operation_descriptor",
+                    return_value={"fixture": "operation"},
+                ),
+                mock.patch.object(
+                    bench,
+                    "reserve_evidence_namespace",
+                    return_value=reservation,
+                ),
+                mock.patch.object(
+                    bench,
+                    "_run_runtime_from_main",
+                    return_value={
+                        "cells": [],
+                        "run": {"terminal": "completed"},
+                        "host": {},
+                        "supervisor": {},
+                    },
+                ),
+                mock.patch.object(
+                    bench,
+                    "build_report",
+                    return_value=report,
+                ),
+                mock.patch.object(
+                    bench,
+                    "publish_evidence_create_only",
+                    side_effect=publication_failure,
+                ),
+                mock.patch.object(
+                    bench,
+                    "_write_reserved_payload",
+                    return_value=None,
+                ) as persist,
+                mock.patch.object(
+                    bench,
+                    "human_summary",
+                    return_value="fixture summary",
+                ),
+                mock.patch.object(
+                    bench.os,
+                    "close",
+                    side_effect=close_then_fail_first,
+                ),
+                mock.patch("sys.stdout", stdout),
+                mock.patch("sys.stderr", stderr),
+            ):
+                result = bench.main([])
+
+            self.assertEqual(result, 1)
+            emitted = json.loads(stdout.getvalue())
+            self.assertEqual(emitted["run"]["terminal"], "output_error")
+            self.assertEqual(
+                emitted["run"]["error"],
+                "fixture publication failure",
+            )
+            self.assertEqual(attempted, [descriptor, parent_descriptor])
+            self.assertIsNone(reservation.descriptor)
+            self.assertIsNone(reservation.parent_descriptor)
+            self.assertIn(
+                "reservation cleanup warning:"
+                "reservation_descriptor_close:OSError:"
+                "fixture descriptor close failure",
+                stderr.getvalue(),
+            )
+            persist.assert_called_once()
+
+    def test_main_runtime_primary_is_retained_when_finalizer_also_fails(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            reservation = self._reservation(output)
+            descriptor = reservation.descriptor
+            parent_descriptor = reservation.parent_descriptor
+            self.assertIsNotNone(descriptor)
+            self.assertIsNotNone(parent_descriptor)
+            args = types.SimpleNamespace(
+                mode="run",
+                execute_designated_host=True,
+                openra_dir="/tmp/fixture-openra",
+                output=str(output),
+                designated_hostname="fixture",
+                engine_sha=bench.FROZEN_ENGINE_SHA,
+                war_college_sha=bench.FROZEN_WAR_COLLEGE_SHA,
+                benchmark_source_sha=BENCHMARK_SOURCE_SHA,
+                generation=bench.GENERATION,
+            )
+            parser = mock.Mock()
+            parser.parse_args.return_value = args
+            primary = bench.ContractError("fixture runtime primary")
+            close_failure = OSError("fixture descriptor close failure")
+            real_close = os.close
+            attempted = []
+
+            def close_then_fail_first(fd):
+                if fd in (descriptor, parent_descriptor):
+                    attempted.append(fd)
+                if fd == descriptor:
+                    real_close(fd)
+                    raise close_failure
+                return real_close(fd)
+
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(bench, "parser", return_value=parser),
+                mock.patch.object(
+                    bench,
+                    "validate_provenance",
+                    return_value={"fixture": "provenance"},
+                ),
+                mock.patch.object(
+                    bench,
+                    "normalized_args",
+                    return_value={"fixture": "parameters"},
+                ),
+                mock.patch.object(
+                    bench,
+                    "operation_descriptor",
+                    return_value={"fixture": "operation"},
+                ),
+                mock.patch.object(
+                    bench,
+                    "reserve_evidence_namespace",
+                    return_value=reservation,
+                ),
+                mock.patch.object(
+                    bench,
+                    "_run_runtime_from_main",
+                    side_effect=primary,
+                ),
+                mock.patch.object(
+                    bench.os,
+                    "close",
+                    side_effect=close_then_fail_first,
+                ),
+                mock.patch("sys.stderr", stderr),
+            ):
+                result = bench.main([])
+
+            self.assertEqual(result, 2)
+            self.assertEqual(attempted, [descriptor, parent_descriptor])
+            self.assertIsNone(reservation.descriptor)
+            self.assertIsNone(reservation.parent_descriptor)
+            diagnostic = stderr.getvalue()
+            self.assertIn("fixture runtime primary", diagnostic)
+            self.assertIn("fixture descriptor close failure", diagnostic)
+            self.assertIn(
+                "evidence reservation cleanup failed:",
+                diagnostic,
+            )
