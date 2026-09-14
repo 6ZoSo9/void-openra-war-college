@@ -7,6 +7,7 @@ on:
       - bench_joint_advance_core.py
       - test_bench_joint_advance.py
       - tests/test_joint_advance_parent_supervisor_schema_v10.py
+      - tests/test_runtime_child_handoff_cleanup_v1.py
       - .github/workflows/joint-advance-source-contract.yml
   push:
     branches:
@@ -16,6 +17,7 @@ on:
       - bench_joint_advance_core.py
       - test_bench_joint_advance.py
       - tests/test_joint_advance_parent_supervisor_schema_v10.py
+      - tests/test_runtime_child_handoff_cleanup_v1.py
       - .github/workflows/joint-advance-source-contract.yml
 
 permissions:
@@ -100,6 +102,7 @@ jobs:
               "bench_joint_advance_core.py",
               "test_bench_joint_advance.py",
               "tests/test_joint_advance_parent_supervisor_schema_v10.py",
+              "tests/test_runtime_child_handoff_cleanup_v1.py",
               ".github/workflows/joint-advance-source-contract.yml",
           )
 
@@ -196,21 +199,21 @@ jobs:
             git -C exact-head diff --check HEAD
           fi
       - name: Compile integration source contract
-        run: python -m py_compile bench_joint_advance.py bench_joint_advance_core.py test_bench_joint_advance.py tests/test_joint_advance_parent_supervisor_schema_v10.py
+        run: python -m py_compile bench_joint_advance.py bench_joint_advance_core.py test_bench_joint_advance.py tests/test_joint_advance_parent_supervisor_schema_v10.py tests/test_runtime_child_handoff_cleanup_v1.py
       - name: Run integration source contract tests
-        run: python -m unittest -v test_bench_joint_advance.py tests/test_joint_advance_parent_supervisor_schema_v10.py
+        run: python -m unittest -v test_bench_joint_advance.py tests/test_joint_advance_parent_supervisor_schema_v10.py tests/test_runtime_child_handoff_cleanup_v1.py
       - name: Compile exact-head source contract
         shell: bash
         run: |
           set -euo pipefail
           cd exact-head
-          python -m py_compile bench_joint_advance.py bench_joint_advance_core.py test_bench_joint_advance.py tests/test_joint_advance_parent_supervisor_schema_v10.py
+          python -m py_compile bench_joint_advance.py bench_joint_advance_core.py test_bench_joint_advance.py tests/test_joint_advance_parent_supervisor_schema_v10.py tests/test_runtime_child_handoff_cleanup_v1.py
       - name: Run exact-head source contract tests
         shell: bash
         run: |
           set -euo pipefail
           cd exact-head
-          python -m unittest -v test_bench_joint_advance.py tests/test_joint_advance_parent_supervisor_schema_v10.py
+          python -m unittest -v test_bench_joint_advance.py tests/test_joint_advance_parent_supervisor_schema_v10.py tests/test_runtime_child_handoff_cleanup_v1.py
       - name: Verify exact-head source-only plan provenance
         shell: bash
         run: |
