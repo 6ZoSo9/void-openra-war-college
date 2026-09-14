@@ -600,6 +600,23 @@ def _retire_runtime_process_group(
                         child_alive=False,
                         group_absent=True,
                     )
+                try:
+                    natural_exitcode = process.exitcode
+                except BaseException as error:
+                    observation_errors.append(("natural_exitcode", error))
+                    _raise_process_group_cleanup_error(
+                        term_error=None,
+                        kill_error=None,
+                        verification_error=None,
+                        observation_errors=observation_errors,
+                        child_alive=False,
+                        group_absent=True,
+                    )
+                if type(natural_exitcode) is not int or natural_exitcode != 0:
+                    raise ContractError(
+                        "runtime child natural exit is not successful: "
+                        f"exitcode={natural_exitcode!r}"
+                    )
                 return "natural_exit"
 
     try:
@@ -1073,11 +1090,13 @@ def _runtime_child_entry(
 ) -> None:
     """Run the reviewed async attempt inside a new session/process group.
 
-    The result is sent from inside the root coroutine, before ``asyncio.run``
-    begins pending-task shutdown. The parent can therefore obtain the closed
-    evidence outcome and still force-retire this process if a cancellation-
-    resistant detached task would otherwise hang event-loop shutdown.
+    ``OUTCOME`` is the sole successful control terminal. Once it has been sent,
+    failures raised by ``asyncio.run`` shutdown are re-raised instead of being
+    encoded as a contradictory second ``ERROR`` terminal. The parent binds any
+    such natural nonzero child exit before accepting supervisor evidence, while
+    still retaining authority to force-retire cancellation-resistant shutdown.
     """
+    outcome_sent = False
     try:
         os.setsid()
         child_pid = os.getpid()
@@ -1087,13 +1106,17 @@ def _runtime_child_entry(
         sender.send(("STARTED", child_pid, child_pgid))
 
         async def attempt() -> None:
+            nonlocal outcome_sent
             outcome = await _CORE_EXECUTE_RUNTIME(
                 args, parameters, expected_provenance,
             )
             sender.send(("OUTCOME", outcome))
+            outcome_sent = True
 
         asyncio.run(attempt())
     except BaseException as error:
+        if outcome_sent:
+            raise
         try:
             sender.send(("ERROR", type(error).__name__, str(error)))
         except (BrokenPipeError, EOFError, OSError):
