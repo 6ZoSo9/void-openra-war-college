@@ -265,5 +265,221 @@ class RuntimeChildHandoffCleanupTests(unittest.TestCase):
         retire.assert_called_once_with(process)
 
 
+    def test_process_construction_receiver_close_failure_still_closes_sender(
+        self,
+    ) -> None:
+        context = mock.Mock()
+        receiver = mock.Mock()
+        sender = mock.Mock()
+        primary = RuntimeError("process construction refused")
+        receiver_failure = OSError("receiver close refused")
+        context.Pipe.return_value = (receiver, sender)
+        context.Process.side_effect = primary
+        receiver.close.side_effect = receiver_failure
+
+        with mock.patch.object(
+            bench._BootstrapMultiprocessing,
+            "get_context",
+            return_value=context,
+        ):
+            with self.assertRaises(bench.RuntimeChildStartCleanupError) as raised:
+                self._invoke()
+
+        error = raised.exception
+        self.assertIs(error.primary, primary)
+        self.assertIs(error.receiver_close_error, receiver_failure)
+        self.assertIsNone(error.sender_close_error)
+        self.assertIs(error.__cause__, primary)
+        receiver.close.assert_called_once_with()
+        sender.close.assert_called_once_with()
+
+    def test_spawn_failure_dual_endpoint_cleanup_preserves_all_causes(self) -> None:
+        context = mock.Mock()
+        receiver = mock.Mock()
+        sender = mock.Mock()
+        process = mock.Mock()
+        primary = OSError("spawn refused")
+        receiver_failure = OSError("receiver close refused")
+        sender_failure = OSError("sender close refused")
+        process.start.side_effect = primary
+        receiver.close.side_effect = receiver_failure
+        sender.close.side_effect = sender_failure
+        context.Pipe.return_value = (receiver, sender)
+        context.Process.return_value = process
+
+        with mock.patch.object(
+            bench._BootstrapMultiprocessing,
+            "get_context",
+            return_value=context,
+        ):
+            with self.assertRaises(bench.RuntimeChildStartCleanupError) as raised:
+                self._invoke()
+
+        error = raised.exception
+        self.assertIs(error.primary, primary)
+        self.assertIs(error.receiver_close_error, receiver_failure)
+        self.assertIs(error.sender_close_error, sender_failure)
+        self.assertIs(error.__cause__, primary)
+        self.assertIn('"error":"spawn refused"', str(error))
+        self.assertIn('"error":"receiver close refused"', str(error))
+        self.assertIn('"error":"sender close refused"', str(error))
+        receiver.close.assert_called_once_with()
+        sender.close.assert_called_once_with()
+
+    def test_unbound_parent_receiver_close_failure_still_retires_child(self) -> None:
+        context = mock.Mock()
+        receiver = mock.Mock()
+        sender = mock.Mock()
+        process = mock.Mock()
+        receiver.poll.return_value = False
+        process.is_alive.return_value = False
+        receiver_failure = OSError("receiver close refused")
+        receiver.close.side_effect = receiver_failure
+        context.Pipe.return_value = (receiver, sender)
+        context.Process.return_value = process
+
+        with (
+            mock.patch.object(
+                bench._BootstrapMultiprocessing,
+                "get_context",
+                return_value=context,
+            ),
+            mock.patch.object(
+                bench,
+                "_retire_unbound_runtime_child",
+                return_value=None,
+            ) as retire,
+        ):
+            with self.assertRaises(bench.RuntimeChildParentCleanupError) as raised:
+                self._invoke()
+
+        error = raised.exception
+        self.assertIsNone(error.primary)
+        self.assertIs(error.receiver_close_error, receiver_failure)
+        self.assertIsNone(error.retirement_error)
+        retire.assert_called_once_with(process)
+
+    def test_bound_parent_receiver_close_failure_still_retires_group(self) -> None:
+        context = mock.Mock()
+        receiver = mock.Mock()
+        sender = mock.Mock()
+        process = mock.Mock()
+        process.pid = 4242
+        receiver.poll.side_effect = (True, True)
+        receiver.recv.side_effect = (
+            ("STARTED", 4242, 4242),
+            ("OUTCOME", {"cells": [], "run": {}, "host": {}}),
+        )
+        receiver_failure = OSError("receiver close refused")
+        receiver.close.side_effect = receiver_failure
+        context.Pipe.return_value = (receiver, sender)
+        context.Process.return_value = process
+
+        with (
+            mock.patch.object(
+                bench._BootstrapMultiprocessing,
+                "get_context",
+                return_value=context,
+            ),
+            mock.patch.object(
+                bench,
+                "_runtime_process_deadline_s",
+                return_value=0.1,
+            ),
+            mock.patch.object(
+                bench,
+                "_retire_runtime_process_group",
+                return_value="natural_exit",
+            ) as retire,
+        ):
+            with self.assertRaises(bench.RuntimeChildParentCleanupError) as raised:
+                self._invoke()
+
+        error = raised.exception
+        self.assertIsNone(error.primary)
+        self.assertIs(error.receiver_close_error, receiver_failure)
+        self.assertIsNone(error.retirement_error)
+        retire.assert_called_once_with(process, 4242)
+
+    def test_bound_parent_dual_cleanup_failure_preserves_both(self) -> None:
+        context = mock.Mock()
+        receiver = mock.Mock()
+        sender = mock.Mock()
+        process = mock.Mock()
+        process.pid = 4242
+        receiver.poll.side_effect = (True, True)
+        receiver.recv.side_effect = (
+            ("STARTED", 4242, 4242),
+            ("OUTCOME", {"cells": [], "run": {}, "host": {}}),
+        )
+        receiver_failure = OSError("receiver close refused")
+        retirement_failure = bench.ContractError("process group retirement failed")
+        receiver.close.side_effect = receiver_failure
+        context.Pipe.return_value = (receiver, sender)
+        context.Process.return_value = process
+
+        with (
+            mock.patch.object(
+                bench._BootstrapMultiprocessing,
+                "get_context",
+                return_value=context,
+            ),
+            mock.patch.object(
+                bench,
+                "_runtime_process_deadline_s",
+                return_value=0.1,
+            ),
+            mock.patch.object(
+                bench,
+                "_retire_runtime_process_group",
+                side_effect=retirement_failure,
+            ) as retire,
+        ):
+            with self.assertRaises(bench.RuntimeChildParentCleanupError) as raised:
+                self._invoke()
+
+        error = raised.exception
+        self.assertIsNone(error.primary)
+        self.assertIs(error.receiver_close_error, receiver_failure)
+        self.assertIs(error.retirement_error, retirement_failure)
+        self.assertIn('"error":"receiver close refused"', str(error))
+        self.assertIn('"error":"process group retirement failed"', str(error))
+        retire.assert_called_once_with(process, 4242)
+
+    def test_parent_loop_primary_is_preserved_when_retirement_also_fails(self) -> None:
+        context = mock.Mock()
+        receiver = mock.Mock()
+        sender = mock.Mock()
+        process = mock.Mock()
+        primary = RuntimeError("receiver poll refused")
+        retirement_failure = bench.ContractError("child retirement failed")
+        receiver.poll.side_effect = primary
+        context.Pipe.return_value = (receiver, sender)
+        context.Process.return_value = process
+
+        with (
+            mock.patch.object(
+                bench._BootstrapMultiprocessing,
+                "get_context",
+                return_value=context,
+            ),
+            mock.patch.object(
+                bench,
+                "_retire_unbound_runtime_child",
+                side_effect=retirement_failure,
+            ) as retire,
+        ):
+            with self.assertRaises(bench.RuntimeChildParentCleanupError) as raised:
+                self._invoke()
+
+        error = raised.exception
+        self.assertIs(error.primary, primary)
+        self.assertIsNone(error.receiver_close_error)
+        self.assertIs(error.retirement_error, retirement_failure)
+        self.assertIs(error.__cause__, primary)
+        retire.assert_called_once_with(process)
+
+
+
 if __name__ == "__main__":
     unittest.main()
