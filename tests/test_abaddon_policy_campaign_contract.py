@@ -69,6 +69,17 @@ def test_plan_mirrors_recovered_refiner_policy_and_stays_nonexecuting():
     assert plan["pre_execution_gates"]["opponent_snapshot_source_binding_complete"] is True
     assert plan["pre_execution_gates"]["previous_champion_binding_required"] is True
     assert plan["pre_execution_gates"]["previous_champion_binding_complete"] is False
+    campaign = plan["precommitted_campaign_plan"]
+    assert campaign["plan_sha256"] == "b6cc6395861e87beb69e9c811e63d1946e76b73ecd7289852ab9433271fc8cf2"
+    assert campaign["summary"]["pair_slot_count"] == 12
+    assert campaign["summary"]["baseline_execution_count"] == 12
+    assert campaign["summary"]["candidate_execution_count"] == 12
+    assert campaign["summary"]["total_eventual_game_executions"] == 24
+    assert campaign["execution_eligible"] is False
+    assert plan["pre_execution_gates"]["campaign_attempt_ledger_complete"] is True
+    assert plan["pre_execution_gates"]["candidate_frozen_before_campaign_evidence"] is True
+    assert plan["pre_execution_gates"]["pair_arms_precommitted"] is True
+    assert plan["pre_execution_gates"]["opponent_runtime_realization_complete"] is False
     assert plan["authority"]["runtime_execution_authorized"] is False
     assert plan["authority"]["automatic_training_admission"] is False
     assert plan["authority"]["automatic_policy_promotion"] is False
