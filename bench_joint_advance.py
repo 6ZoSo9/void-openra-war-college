@@ -41,32 +41,129 @@ def _post_commit_error(error: BaseException, stage: str) -> str:
     return f"{stage}:{type(error).__name__}:{error}"
 
 
-def _close_committed_evidence_reservation(
-    reservation: EvidenceReservation,
-    post_commit_errors: list[str],
-) -> None:
-    """Close retained publication descriptors without crossing the commit boundary.
+class EvidenceReservationCleanupError(ContractError):
+    """Preserve a primary failure plus both retained-descriptor close outcomes."""
 
-    Each descriptor is attempted independently. Once close has been attempted,
-    ownership is dropped even if close reports an error: retrying a failed
-    ``close(2)`` can target a reused descriptor on some platforms. After the
-    durable receipt commit, close failures are diagnostics only.
+    def __init__(
+        self,
+        primary: BaseException | None,
+        descriptor_close_error: OSError | None,
+        parent_descriptor_close_error: OSError | None,
+    ) -> None:
+        def outcome(error: BaseException | None) -> dict[str, str]:
+            if error is None:
+                return {"status": "ok"}
+            return {
+                "status": "error",
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+
+        self.primary = primary
+        self.descriptor_close_error = descriptor_close_error
+        self.parent_descriptor_close_error = parent_descriptor_close_error
+        self.details = {
+            "primary": outcome(primary),
+            "cleanup": {
+                "reservation_descriptor_close": outcome(
+                    descriptor_close_error
+                ),
+                "reservation_parent_descriptor_close": outcome(
+                    parent_descriptor_close_error
+                ),
+            },
+        }
+        encoded = _BootstrapJson.dumps(
+            self.details,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        super().__init__(f"evidence reservation cleanup failed:{encoded}")
+
+
+def _close_evidence_reservation_handles(
+    reservation: EvidenceReservation,
+) -> tuple[OSError | None, OSError | None]:
+    """Attempt both retained closes exactly once and drop local ownership.
+
+    A failed ``close(2)`` is never retried because the descriptor may already
+    have been released and reused by the kernel.
     """
 
-    for attribute, stage in (
-        ("descriptor", "reservation_descriptor_close"),
-        ("parent_descriptor", "reservation_parent_descriptor_close"),
-    ):
+    errors: dict[str, OSError | None] = {
+        "descriptor": None,
+        "parent_descriptor": None,
+    }
+    for attribute in ("descriptor", "parent_descriptor"):
         descriptor = getattr(reservation, attribute)
         if descriptor is None:
             continue
         try:
             os.close(descriptor)
         except OSError as error:
-            post_commit_errors.append(_post_commit_error(error, stage))
+            errors[attribute] = error
         finally:
             setattr(reservation, attribute, None)
+    return errors["descriptor"], errors["parent_descriptor"]
 
+
+def _evidence_reservation_close_diagnostics(
+    descriptor_close_error: OSError | None,
+    parent_descriptor_close_error: OSError | None,
+) -> list[str]:
+    diagnostics: list[str] = []
+    if descriptor_close_error is not None:
+        diagnostics.append(
+            _post_commit_error(
+                descriptor_close_error,
+                "reservation_descriptor_close",
+            )
+        )
+    if parent_descriptor_close_error is not None:
+        diagnostics.append(
+            _post_commit_error(
+                parent_descriptor_close_error,
+                "reservation_parent_descriptor_close",
+            )
+        )
+    return diagnostics
+
+
+def _raise_evidence_reservation_cleanup(
+    *,
+    primary: BaseException | None,
+    descriptor_close_error: OSError | None,
+    parent_descriptor_close_error: OSError | None,
+) -> None:
+    failure = EvidenceReservationCleanupError(
+        primary,
+        descriptor_close_error,
+        parent_descriptor_close_error,
+    )
+    cause = (
+        primary
+        or descriptor_close_error
+        or parent_descriptor_close_error
+    )
+    assert cause is not None
+    raise failure from cause
+
+
+def _close_committed_evidence_reservation(
+    reservation: EvidenceReservation,
+    post_commit_errors: list[str],
+) -> None:
+    """Close retained descriptors after commit without crossing the boundary."""
+
+    descriptor_error, parent_error = _close_evidence_reservation_handles(
+        reservation
+    )
+    post_commit_errors.extend(
+        _evidence_reservation_close_diagnostics(
+            descriptor_error,
+            parent_error,
+        )
+    )
 
 def _retire_pending(
     parent_descriptor: int,
@@ -261,7 +358,16 @@ def publish_evidence_create_only(
                 reservation, post_commit_errors,
             )
         elif owns_reservation:
-            reservation.close()
+            primary = _BootstrapSys.exc_info()[1]
+            descriptor_error, parent_error = (
+                _close_evidence_reservation_handles(reservation)
+            )
+            if descriptor_error is not None or parent_error is not None:
+                _raise_evidence_reservation_cleanup(
+                    primary=primary,
+                    descriptor_close_error=descriptor_error,
+                    parent_descriptor_close_error=parent_error,
+                )
 
     if not committed or commit_receipt is None:
         raise ContractError("evidence publication returned without durable commit receipt")
@@ -1235,6 +1341,7 @@ def main(argv: list[str] | None = None) -> int:
             # it before runtime contact; the spawned runtime child never owns
             # these retained publication descriptors.
             reservation = reserve_evidence_namespace(Path(args.output))
+            report: dict[str, Any] | None = None
             try:
                 outcome = _run_runtime_from_main(args, parameters, provenance)
                 report = build_report(
@@ -1282,7 +1389,35 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         report = json.loads(json.dumps(report, allow_nan=False))
             finally:
-                reservation.close()
+                primary = _BootstrapSys.exc_info()[1]
+                descriptor_error, parent_error = (
+                    _close_evidence_reservation_handles(reservation)
+                )
+                if descriptor_error is not None or parent_error is not None:
+                    if primary is not None:
+                        _raise_evidence_reservation_cleanup(
+                            primary=primary,
+                            descriptor_close_error=descriptor_error,
+                            parent_descriptor_close_error=parent_error,
+                        )
+                    if (
+                        report is None
+                        or report.get("run", {}).get("terminal")
+                        != "output_error"
+                    ):
+                        _raise_evidence_reservation_cleanup(
+                            primary=None,
+                            descriptor_close_error=descriptor_error,
+                            parent_descriptor_close_error=parent_error,
+                        )
+                    for diagnostic in _evidence_reservation_close_diagnostics(
+                        descriptor_error, parent_error,
+                    ):
+                        print(
+                            f"reservation cleanup warning:{diagnostic}",
+                            file=sys.stderr,
+                        )
+            assert report is not None
             print(human_summary(report), file=sys.stderr)
         else:
             if args.execute_designated_host:
