@@ -481,5 +481,85 @@ class RuntimeChildHandoffCleanupTests(unittest.TestCase):
 
 
 
+    def test_unbound_terminate_failure_still_attempts_kill(self) -> None:
+        process = mock.Mock()
+        process.is_alive.side_effect = (True, False)
+        terminate_failure = OSError("terminate refused")
+        process.terminate.side_effect = terminate_failure
+
+        with self.assertRaises(
+            bench.RuntimeChildUnboundRetirementError
+        ) as raised:
+            bench._retire_unbound_runtime_child(
+                process,
+                signal_grace_s=0.1,
+            )
+
+        error = raised.exception
+        self.assertIs(error.terminate_error, terminate_failure)
+        self.assertIsNone(error.kill_error)
+        self.assertFalse(error.child_alive)
+        self.assertIs(error.__cause__, terminate_failure)
+        process.join.assert_any_call(0)
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+        self.assertEqual(process.join.call_count, 2)
+
+    def test_unbound_terminate_and_kill_failure_preserve_both(self) -> None:
+        process = mock.Mock()
+        process.is_alive.side_effect = (True, True)
+        terminate_failure = OSError("terminate refused")
+        kill_failure = OSError("kill refused")
+        process.terminate.side_effect = terminate_failure
+        process.kill.side_effect = kill_failure
+
+        with self.assertRaises(
+            bench.RuntimeChildUnboundRetirementError
+        ) as raised:
+            bench._retire_unbound_runtime_child(
+                process,
+                signal_grace_s=0.1,
+            )
+
+        error = raised.exception
+        self.assertIs(error.terminate_error, terminate_failure)
+        self.assertIs(error.kill_error, kill_failure)
+        self.assertTrue(error.child_alive)
+        self.assertIs(error.__cause__, terminate_failure)
+        self.assertIn('"error":"terminate refused"', str(error))
+        self.assertIn('"error":"kill refused"', str(error))
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+
+    def test_unbound_kill_failure_after_successful_term_preserves_failure(
+        self,
+    ) -> None:
+        process = mock.Mock()
+        process.is_alive.side_effect = (True, True, True)
+        kill_failure = OSError("kill refused")
+        process.kill.side_effect = kill_failure
+
+        with mock.patch.object(
+            bench.time,
+            "monotonic",
+            side_effect=(0.0, 0.0),
+        ):
+            with self.assertRaises(
+                bench.RuntimeChildUnboundRetirementError
+            ) as raised:
+                bench._retire_unbound_runtime_child(
+                    process,
+                    signal_grace_s=0.1,
+                )
+
+        error = raised.exception
+        self.assertIsNone(error.terminate_error)
+        self.assertIs(error.kill_error, kill_failure)
+        self.assertTrue(error.child_alive)
+        self.assertIs(error.__cause__, kill_failure)
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+
+
 if __name__ == "__main__":
     unittest.main()
