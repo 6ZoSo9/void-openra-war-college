@@ -561,5 +561,189 @@ class RuntimeChildHandoffCleanupTests(unittest.TestCase):
         process.kill.assert_called_once_with()
 
 
+    def test_bound_sigterm_failure_still_attempts_sigkill(self) -> None:
+        process = mock.Mock()
+        process.pid = 4242
+        process.is_alive.side_effect = (True, False)
+        term_failure = PermissionError("sigterm refused")
+
+        with (
+            mock.patch.object(
+                bench.time,
+                "monotonic",
+                return_value=0.0,
+            ),
+            mock.patch.object(
+                bench,
+                "_signal_process_group",
+                side_effect=(term_failure, None),
+            ) as signal_group,
+            mock.patch.object(
+                bench,
+                "_wait_process_group_absent",
+                return_value=True,
+            ) as wait_absent,
+        ):
+            with self.assertRaises(
+                bench.RuntimeProcessGroupSignalCleanupError
+            ) as raised:
+                bench._retire_runtime_process_group(
+                    process,
+                    4242,
+                    natural_grace_s=0.0,
+                    signal_grace_s=0.1,
+                )
+
+        error = raised.exception
+        self.assertIs(error.term_error, term_failure)
+        self.assertIsNone(error.kill_error)
+        self.assertIsNone(error.verification_error)
+        self.assertFalse(error.child_alive)
+        self.assertTrue(error.group_absent)
+        self.assertIs(error.__cause__, term_failure)
+        self.assertEqual(
+            signal_group.call_args_list,
+            [
+                mock.call(4242, bench._BootstrapSignal.SIGTERM),
+                mock.call(4242, bench._BootstrapSignal.SIGKILL),
+            ],
+        )
+        wait_absent.assert_called_once()
+
+    def test_bound_sigterm_and_sigkill_failures_preserve_both(self) -> None:
+        process = mock.Mock()
+        process.pid = 4242
+        process.is_alive.side_effect = (True, True)
+        term_failure = PermissionError("sigterm refused")
+        kill_failure = PermissionError("sigkill refused")
+
+        with (
+            mock.patch.object(
+                bench.time,
+                "monotonic",
+                return_value=0.0,
+            ),
+            mock.patch.object(
+                bench,
+                "_signal_process_group",
+                side_effect=(term_failure, kill_failure),
+            ) as signal_group,
+            mock.patch.object(
+                bench,
+                "_wait_process_group_absent",
+                return_value=False,
+            ),
+        ):
+            with self.assertRaises(
+                bench.RuntimeProcessGroupSignalCleanupError
+            ) as raised:
+                bench._retire_runtime_process_group(
+                    process,
+                    4242,
+                    natural_grace_s=0.0,
+                    signal_grace_s=0.1,
+                )
+
+        error = raised.exception
+        self.assertIs(error.term_error, term_failure)
+        self.assertIs(error.kill_error, kill_failure)
+        self.assertTrue(error.child_alive)
+        self.assertFalse(error.group_absent)
+        self.assertIs(error.__cause__, term_failure)
+        self.assertIn('"error":"sigterm refused"', str(error))
+        self.assertIn('"error":"sigkill refused"', str(error))
+        self.assertEqual(signal_group.call_count, 2)
+
+    def test_bound_sigkill_failure_after_successful_sigterm_is_preserved(
+        self,
+    ) -> None:
+        process = mock.Mock()
+        process.pid = 4242
+        process.is_alive.side_effect = (True, True, True)
+        kill_failure = PermissionError("sigkill refused")
+
+        with (
+            mock.patch.object(
+                bench.time,
+                "monotonic",
+                return_value=0.0,
+            ),
+            mock.patch.object(
+                bench,
+                "_signal_process_group",
+                side_effect=(None, kill_failure),
+            ) as signal_group,
+            mock.patch.object(
+                bench,
+                "_wait_process_group_absent",
+                return_value=False,
+            ),
+        ):
+            with self.assertRaises(
+                bench.RuntimeProcessGroupSignalCleanupError
+            ) as raised:
+                bench._retire_runtime_process_group(
+                    process,
+                    4242,
+                    natural_grace_s=0.0,
+                    signal_grace_s=0.1,
+                )
+
+        error = raised.exception
+        self.assertIsNone(error.term_error)
+        self.assertIs(error.kill_error, kill_failure)
+        self.assertTrue(error.child_alive)
+        self.assertFalse(error.group_absent)
+        self.assertIs(error.__cause__, kill_failure)
+        self.assertEqual(
+            signal_group.call_args_list,
+            [
+                mock.call(4242, bench._BootstrapSignal.SIGTERM),
+                mock.call(4242, bench._BootstrapSignal.SIGKILL),
+            ],
+        )
+
+    def test_bound_post_kill_verification_failure_is_structured(self) -> None:
+        process = mock.Mock()
+        process.pid = 4242
+        process.is_alive.side_effect = (True, True, False)
+        verification_failure = PermissionError("group verification refused")
+
+        with (
+            mock.patch.object(
+                bench.time,
+                "monotonic",
+                return_value=0.0,
+            ),
+            mock.patch.object(
+                bench,
+                "_signal_process_group",
+                side_effect=(None, None),
+            ),
+            mock.patch.object(
+                bench,
+                "_wait_process_group_absent",
+                side_effect=verification_failure,
+            ),
+        ):
+            with self.assertRaises(
+                bench.RuntimeProcessGroupSignalCleanupError
+            ) as raised:
+                bench._retire_runtime_process_group(
+                    process,
+                    4242,
+                    natural_grace_s=0.0,
+                    signal_grace_s=0.1,
+                )
+
+        error = raised.exception
+        self.assertIsNone(error.term_error)
+        self.assertIsNone(error.kill_error)
+        self.assertIs(error.verification_error, verification_failure)
+        self.assertFalse(error.child_alive)
+        self.assertFalse(error.group_absent)
+        self.assertIs(error.__cause__, verification_failure)
+
+
 if __name__ == "__main__":
     unittest.main()
