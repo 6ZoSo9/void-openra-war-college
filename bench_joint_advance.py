@@ -297,7 +297,7 @@ def _runtime_retirement_remaining(deadline_s: float) -> float:
 
 
 class RuntimeProcessGroupSignalCleanupError(ContractError):
-    """Preserve process-group signal failures after the strongest retirement attempt."""
+    """Preserve retirement failures after the strongest safe cleanup attempt."""
 
     def __init__(
         self,
@@ -306,6 +306,7 @@ class RuntimeProcessGroupSignalCleanupError(ContractError):
         verification_error: BaseException | None,
         child_alive: bool,
         group_absent: bool,
+        observation_errors: tuple[tuple[str, BaseException], ...] = (),
     ) -> None:
         def outcome(error: BaseException | None) -> dict[str, str]:
             if error is None:
@@ -321,10 +322,15 @@ class RuntimeProcessGroupSignalCleanupError(ContractError):
         self.verification_error = verification_error
         self.child_alive = child_alive
         self.group_absent = group_absent
+        self.observation_errors = observation_errors
         self.details = {
             "sigterm": outcome(term_error),
             "sigkill": outcome(kill_error),
             "verification": outcome(verification_error),
+            "observations": [
+                {"stage": stage, **outcome(error)}
+                for stage, error in observation_errors
+            ],
             "child_alive": child_alive,
             "group_absent": group_absent,
         }
@@ -333,7 +339,62 @@ class RuntimeProcessGroupSignalCleanupError(ContractError):
             sort_keys=True,
             separators=(",", ":"),
         )
-        super().__init__(f"runtime process-group signal cleanup failed:{encoded}")
+        super().__init__(f"runtime process-group cleanup failed:{encoded}")
+
+
+def _record_runtime_process_join(
+    process: Any,
+    timeout_s: float,
+    stage: str,
+    observation_errors: list[tuple[str, BaseException]],
+) -> None:
+    """Attempt one bounded join and retain any observation failure."""
+
+    try:
+        process.join(timeout_s)
+    except BaseException as error:
+        observation_errors.append((stage, error))
+
+
+def _observe_runtime_process_alive(
+    process: Any,
+    stage: str,
+    observation_errors: list[tuple[str, BaseException]],
+) -> bool:
+    """Return process liveness; uncertainty is pessimistically treated as alive."""
+
+    try:
+        return bool(process.is_alive())
+    except BaseException as error:
+        observation_errors.append((stage, error))
+        return True
+
+
+def _raise_process_group_cleanup_error(
+    *,
+    term_error: BaseException | None,
+    kill_error: BaseException | None,
+    verification_error: BaseException | None,
+    observation_errors: list[tuple[str, BaseException]],
+    child_alive: bool,
+    group_absent: bool,
+) -> None:
+    failure = RuntimeProcessGroupSignalCleanupError(
+        term_error,
+        kill_error,
+        verification_error,
+        child_alive,
+        group_absent,
+        tuple(observation_errors),
+    )
+    cause = (
+        term_error
+        or kill_error
+        or verification_error
+        or (observation_errors[0][1] if observation_errors else None)
+    )
+    assert cause is not None
+    raise failure from cause
 
 
 def _retire_runtime_process_group(
@@ -343,11 +404,11 @@ def _retire_runtime_process_group(
     natural_grace_s: float = _RUNTIME_CHILD_NATURAL_RETIREMENT_S,
     signal_grace_s: float = _RUNTIME_CHILD_SIGNAL_GRACE_S,
 ) -> str:
-    """Retire one process group without multiplying phase-local wait budgets.
+    """Retire one process group within one monotonic escalation budget.
 
-    SIGTERM and SIGKILL are independent cleanup opportunities. A SIGTERM
-    delivery failure cannot skip SIGKILL. Signal/verification failures remain
-    observable only after the strongest bounded retirement attempt completes.
+    Process observation failures are retained and treated pessimistically.
+    They cannot prevent TERM/KILL escalation when retirement is still
+    uncertain.
     """
     for label, value in (
         ("natural_grace_s", natural_grace_s),
@@ -370,38 +431,95 @@ def _retire_runtime_process_group(
     if pgid != process.pid:
         raise ContractError("runtime process-group identity is not bound to child PID")
 
-    process.join(_runtime_retirement_remaining(natural_deadline))
-    if not process.is_alive() and not _process_group_exists(pgid):
-        return "natural_exit"
-
+    observation_errors: list[tuple[str, BaseException]] = []
     term_error: BaseException | None = None
     kill_error: BaseException | None = None
     verification_error: BaseException | None = None
+
+    _record_runtime_process_join(
+        process,
+        _runtime_retirement_remaining(natural_deadline),
+        "natural_join",
+        observation_errors,
+    )
+    natural_alive = _observe_runtime_process_alive(
+        process,
+        "natural_is_alive",
+        observation_errors,
+    )
+    if not natural_alive:
+        try:
+            natural_group_absent = not _process_group_exists(pgid)
+        except BaseException as error:
+            verification_error = error
+        else:
+            if natural_group_absent:
+                if observation_errors:
+                    _raise_process_group_cleanup_error(
+                        term_error=None,
+                        kill_error=None,
+                        verification_error=None,
+                        observation_errors=observation_errors,
+                        child_alive=False,
+                        group_absent=True,
+                    )
+                return "natural_exit"
 
     try:
         _signal_process_group(pgid, _BootstrapSignal.SIGTERM)
     except BaseException as error:
         term_error = error
     else:
-        process.join(_runtime_retirement_remaining(term_deadline))
-        if not process.is_alive():
+        _record_runtime_process_join(
+            process,
+            _runtime_retirement_remaining(term_deadline),
+            "sigterm_join",
+            observation_errors,
+        )
+        term_alive = _observe_runtime_process_alive(
+            process,
+            "sigterm_is_alive",
+            observation_errors,
+        )
+        if not term_alive:
             try:
-                if _wait_process_group_absent(
+                term_group_absent = _wait_process_group_absent(
                     pgid,
                     _runtime_retirement_remaining(term_deadline),
-                ):
-                    return "sigterm_retired"
+                )
             except BaseException as error:
-                verification_error = error
+                if verification_error is None:
+                    verification_error = error
+            else:
+                if term_group_absent:
+                    if verification_error is not None or observation_errors:
+                        _raise_process_group_cleanup_error(
+                            term_error=None,
+                            kill_error=None,
+                            verification_error=verification_error,
+                            observation_errors=observation_errors,
+                            child_alive=False,
+                            group_absent=True,
+                        )
+                    return "sigterm_retired"
 
     try:
         _signal_process_group(pgid, _BootstrapSignal.SIGKILL)
     except BaseException as error:
         kill_error = error
     else:
-        process.join(_runtime_retirement_remaining(kill_deadline))
+        _record_runtime_process_join(
+            process,
+            _runtime_retirement_remaining(kill_deadline),
+            "sigkill_join",
+            observation_errors,
+        )
 
-    child_alive = process.is_alive()
+    child_alive = _observe_runtime_process_alive(
+        process,
+        "sigkill_is_alive",
+        observation_errors,
+    )
     group_absent = False
     try:
         group_absent = _wait_process_group_absent(
@@ -416,17 +534,16 @@ def _retire_runtime_process_group(
         term_error is not None
         or kill_error is not None
         or verification_error is not None
+        or observation_errors
     ):
-        failure = RuntimeProcessGroupSignalCleanupError(
-            term_error,
-            kill_error,
-            verification_error,
-            child_alive,
-            group_absent,
+        _raise_process_group_cleanup_error(
+            term_error=term_error,
+            kill_error=kill_error,
+            verification_error=verification_error,
+            observation_errors=observation_errors,
+            child_alive=child_alive,
+            group_absent=group_absent,
         )
-        cause = term_error or kill_error or verification_error
-        assert cause is not None
-        raise failure from cause
 
     if child_alive or not group_absent:
         raise ContractError(
@@ -435,13 +552,14 @@ def _retire_runtime_process_group(
     return "sigkill_retired"
 
 class RuntimeChildUnboundRetirementError(ContractError):
-    """Preserve TERM/KILL failures while still attempting bounded retirement."""
+    """Preserve unbound-child failures after the strongest safe cleanup attempt."""
 
     def __init__(
         self,
         terminate_error: BaseException | None,
         kill_error: BaseException | None,
         child_alive: bool,
+        observation_errors: tuple[tuple[str, BaseException], ...] = (),
     ) -> None:
         def outcome(error: BaseException | None) -> dict[str, str]:
             if error is None:
@@ -455,9 +573,14 @@ class RuntimeChildUnboundRetirementError(ContractError):
         self.terminate_error = terminate_error
         self.kill_error = kill_error
         self.child_alive = child_alive
+        self.observation_errors = observation_errors
         self.details = {
             "terminate": outcome(terminate_error),
             "kill": outcome(kill_error),
+            "observations": [
+                {"stage": stage, **outcome(error)}
+                for stage, error in observation_errors
+            ],
             "child_alive": child_alive,
         }
         encoded = _BootstrapJson.dumps(
@@ -467,6 +590,29 @@ class RuntimeChildUnboundRetirementError(ContractError):
         )
         super().__init__(f"unbound runtime child retirement failed:{encoded}")
 
+
+def _raise_unbound_cleanup_error(
+    *,
+    terminate_error: BaseException | None,
+    kill_error: BaseException | None,
+    observation_errors: list[tuple[str, BaseException]],
+    child_alive: bool,
+) -> None:
+    failure = RuntimeChildUnboundRetirementError(
+        terminate_error,
+        kill_error,
+        child_alive,
+        tuple(observation_errors),
+    )
+    cause = (
+        terminate_error
+        or kill_error
+        or (observation_errors[0][1] if observation_errors else None)
+    )
+    assert cause is not None
+    raise failure from cause
+
+
 def _retire_unbound_runtime_child(
     process: Any,
     *,
@@ -474,9 +620,9 @@ def _retire_unbound_runtime_child(
 ) -> None:
     """Retire an unbound child within one monotonic TERM/KILL budget.
 
-    TERM and KILL are independent cleanup opportunities.  A TERM call failure
-    cannot skip the KILL attempt.  Any signal-call failure remains observable
-    after the strongest bounded retirement attempt has completed.
+    Process observation failures are retained and treated pessimistically.
+    They cannot prevent terminate/kill escalation while retirement is
+    uncertain.
     """
     if (
         type(signal_grace_s) not in (int, float)
@@ -498,20 +644,55 @@ def _retire_unbound_runtime_child(
             "derived unbound runtime child retirement deadlines must be finite"
         )
 
-    process.join(0)
-    if not process.is_alive():
-        return
-
+    observation_errors: list[tuple[str, BaseException]] = []
     terminate_error: BaseException | None = None
     kill_error: BaseException | None = None
+
+    _record_runtime_process_join(
+        process,
+        0,
+        "natural_join",
+        observation_errors,
+    )
+    natural_alive = _observe_runtime_process_alive(
+        process,
+        "natural_is_alive",
+        observation_errors,
+    )
+    if not natural_alive:
+        if observation_errors:
+            _raise_unbound_cleanup_error(
+                terminate_error=None,
+                kill_error=None,
+                observation_errors=observation_errors,
+                child_alive=False,
+            )
+        return
 
     try:
         process.terminate()
     except BaseException as error:
         terminate_error = error
     else:
-        process.join(_runtime_retirement_remaining(term_deadline))
-        if not process.is_alive():
+        _record_runtime_process_join(
+            process,
+            _runtime_retirement_remaining(term_deadline),
+            "terminate_join",
+            observation_errors,
+        )
+        term_alive = _observe_runtime_process_alive(
+            process,
+            "terminate_is_alive",
+            observation_errors,
+        )
+        if not term_alive:
+            if observation_errors:
+                _raise_unbound_cleanup_error(
+                    terminate_error=None,
+                    kill_error=None,
+                    observation_errors=observation_errors,
+                    child_alive=False,
+                )
             return
 
     try:
@@ -519,22 +700,28 @@ def _retire_unbound_runtime_child(
     except BaseException as error:
         kill_error = error
     else:
-        process.join(_runtime_retirement_remaining(kill_deadline))
-
-    child_alive = process.is_alive()
-    if terminate_error is not None or kill_error is not None:
-        failure = RuntimeChildUnboundRetirementError(
-            terminate_error,
-            kill_error,
-            child_alive,
+        _record_runtime_process_join(
+            process,
+            _runtime_retirement_remaining(kill_deadline),
+            "kill_join",
+            observation_errors,
         )
-        cause = terminate_error or kill_error
-        assert cause is not None
-        raise failure from cause
+
+    child_alive = _observe_runtime_process_alive(
+        process,
+        "kill_is_alive",
+        observation_errors,
+    )
+    if terminate_error is not None or kill_error is not None or observation_errors:
+        _raise_unbound_cleanup_error(
+            terminate_error=terminate_error,
+            kill_error=kill_error,
+            observation_errors=observation_errors,
+            child_alive=child_alive,
+        )
 
     if child_alive:
         raise ContractError("unbound runtime child could not be retired")
-
 
 class RuntimeChildStartCleanupError(ContractError):
     """Retain a construction/start failure plus both endpoint-close outcomes."""
