@@ -10,9 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from .apollyon_opponent_snapshots import reviewed_snapshot_set
+from .apollyon_v10_campaign_translation import translation_contract
 
 REALIZATION_SCHEMA = "void.apollyon.opponent-runtime-realization.v1"
 REALIZATION_SET_SCHEMA = "void.apollyon.opponent-runtime-realization-set.v1"
@@ -68,9 +70,9 @@ V10 = {
     "runtime_class": "promoted_loopback_openai_runtime",
     "historical_game_facing_runtime_proven": True,
     "runtime_surface_realized": True,
-    "warm_start_input_surface_compatible": False,
+    "warm_start_input_surface_compatible": True,
     "portable_current_checkout_binding_complete": True,
-    "current_campaign_runtime_realized": False,
+    "current_campaign_runtime_realized": True,
     "identity": {
         "candidate_sha256":
             "c351d98912dfe18ff8552da5e620b0e3ba6d9877dbc185c45be0dda0fd7d4025",
@@ -82,6 +84,10 @@ V10 = {
             "fe62a8488454e0974179519a53f79a2c823182daa5225b2ea455518a3489fcfe",
         "openai_bridge_v7_sha256":
             "c197f3b75016dd7c4c25346f98aafdb1f631e2ee6e8b3514f9ebb650490b4510",
+        "campaign_translation_source_sha256":
+            "2d32351dff8d96a3254436305c2c402ea06c9a344b6b3ea67cb70c512eef2d53",
+        "campaign_translation_contract_sha256":
+            "69c862387dad806681c5d066fea8e87836d2c0825f792ae293177c23cddee38b",
         "promotion_record_sha256":
             "5a5e857d253f986eae0bda5187638ca6547d874db840fb24ea30ec550306f444",
         "active_runtime_unit_sha256":
@@ -96,12 +102,14 @@ V10 = {
         "accepted_kind": "turn_briefing_plus_recent_tool_results",
         "campaign_kind": "legacy_current_tool_list_plus_compact_state_json",
         "translation_required": True,
-        "translation_reviewed": False,
+        "translation_reviewed": True,
+        "output_translation_reviewed": True,
+        "current_state_only": True,
+        "current_tool_list_authoritative": True,
+        "host_validation_unchanged": True,
         "fabricated_information_allowed": False,
     },
-    "blockers": [
-        "V10_WARM_START_INPUT_TRANSLATION_NOT_REVIEWED",
-    ],
+    "blockers": [],
 }
 
 V8 = {
@@ -202,6 +210,65 @@ def validate_realization(value: Mapping[str, Any]) -> None:
 
 def reviewed_opponent_runtime_realizations() -> dict[str, Any]:
     snapshot_set = reviewed_snapshot_set()
+    translation = translation_contract()
+    translation_path = Path(__file__).with_name("apollyon_v10_campaign_translation.py")
+    _require(translation_path.is_file(), "V10 campaign translation source missing")
+    translation_source_sha256 = hashlib.sha256(translation_path.read_bytes()).hexdigest()
+    _require(
+        translation_source_sha256
+        == V10["identity"]["campaign_translation_source_sha256"],
+        "V10 campaign translation source digest drift",
+    )
+    _require(
+        translation["translation_contract_sha256"]
+        == V10["identity"]["campaign_translation_contract_sha256"],
+        "V10 campaign translation contract digest drift",
+    )
+    _require(
+        translation["v10_candidate_sha256"] == V10["identity"]["candidate_sha256"],
+        "V10 translation candidate binding drift",
+    )
+    _require(
+        translation["v10_live_input_adapter_sha256"]
+        == V10["identity"]["live_input_adapter_v4_sha256"],
+        "V10 translation adapter binding drift",
+    )
+    _require(
+        translation["v10_live_input_contract_sha256"]
+        == V10["identity"]["live_input_contract_v6_sha256"],
+        "V10 translation input-contract binding drift",
+    )
+    _require(
+        translation["v10_openai_bridge_sha256"]
+        == V10["identity"]["openai_bridge_v7_sha256"],
+        "V10 translation bridge binding drift",
+    )
+    _require(
+        translation["campaign_input_kind"] == V10["input_surface"]["campaign_kind"],
+        "V10 campaign input kind drift",
+    )
+    _require(
+        translation["accepted_input_kind"] == V10["input_surface"]["accepted_kind"],
+        "V10 accepted input kind drift",
+    )
+    for key in (
+        "input_translation_reviewed",
+        "output_translation_reviewed",
+        "current_state_only",
+        "current_tool_list_authoritative",
+        "host_validation_unchanged",
+    ):
+        _require(translation[key] is True, f"V10 translation contract lacks {key}")
+    _require(
+        translation["fabricated_information_allowed"] is False,
+        "V10 translation permits fabricated information",
+    )
+    _require(
+        translation["runtime_execution_performed"] is False
+        and translation["model_execution_performed"] is False
+        and translation["game_started"] is False,
+        "V10 translation review crossed execution boundary",
+    )
     snapshots = {
         row["snapshot_id"]: row
         for row in snapshot_set["snapshots"]
