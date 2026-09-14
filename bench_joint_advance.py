@@ -350,12 +350,51 @@ def _retire_runtime_process_group(
     return "sigkill_retired"
 
 
+class RuntimeChildUnboundRetirementError(ContractError):
+    """Preserve TERM/KILL failures while still attempting bounded retirement."""
+
+    def __init__(
+        self,
+        terminate_error: BaseException | None,
+        kill_error: BaseException | None,
+        child_alive: bool,
+    ) -> None:
+        def outcome(error: BaseException | None) -> dict[str, str]:
+            if error is None:
+                return {"status": "ok"}
+            return {
+                "status": "error",
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+
+        self.terminate_error = terminate_error
+        self.kill_error = kill_error
+        self.child_alive = child_alive
+        self.details = {
+            "terminate": outcome(terminate_error),
+            "kill": outcome(kill_error),
+            "child_alive": child_alive,
+        }
+        encoded = _BootstrapJson.dumps(
+            self.details,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        super().__init__(f"unbound runtime child retirement failed:{encoded}")
+
+
 def _retire_unbound_runtime_child(
     process: Any,
     *,
     signal_grace_s: float = _RUNTIME_CHILD_SIGNAL_GRACE_S,
 ) -> None:
-    """Retire an unbound child within one monotonic TERM/KILL budget."""
+    """Retire an unbound child within one monotonic TERM/KILL budget.
+
+    TERM and KILL are independent cleanup opportunities.  A TERM call failure
+    cannot skip the KILL attempt.  Any signal-call failure remains observable
+    after the strongest bounded retirement attempt has completed.
+    """
     if (
         type(signal_grace_s) not in (int, float)
         or not math.isfinite(signal_grace_s)
@@ -379,14 +418,39 @@ def _retire_unbound_runtime_child(
     process.join(0)
     if not process.is_alive():
         return
-    process.terminate()
-    process.join(_runtime_retirement_remaining(term_deadline))
-    if process.is_alive():
-        process.kill()
-        process.join(_runtime_retirement_remaining(kill_deadline))
-    if process.is_alive():
-        raise ContractError("unbound runtime child could not be retired")
 
+    terminate_error: BaseException | None = None
+    kill_error: BaseException | None = None
+
+    try:
+        process.terminate()
+    except BaseException as error:
+        terminate_error = error
+    else:
+        process.join(_runtime_retirement_remaining(term_deadline))
+        if not process.is_alive():
+            return
+
+    try:
+        process.kill()
+    except BaseException as error:
+        kill_error = error
+    else:
+        process.join(_runtime_retirement_remaining(kill_deadline))
+
+    child_alive = process.is_alive()
+    if terminate_error is not None or kill_error is not None:
+        failure = RuntimeChildUnboundRetirementError(
+            terminate_error,
+            kill_error,
+            child_alive,
+        )
+        cause = terminate_error or kill_error
+        assert cause is not None
+        raise failure from cause
+
+    if child_alive:
+        raise ContractError("unbound runtime child could not be retired")
 
 
 class RuntimeChildStartCleanupError(ContractError):
