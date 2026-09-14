@@ -724,13 +724,15 @@ def _retire_unbound_runtime_child(
         raise ContractError("unbound runtime child could not be retired")
 
 class RuntimeChildStartCleanupError(ContractError):
-    """Retain a construction/start failure plus both endpoint-close outcomes."""
+    """Retain start failure plus endpoint/start-state/retirement cleanup outcomes."""
 
     def __init__(
         self,
         primary: BaseException,
         receiver_close_error: BaseException | None,
         sender_close_error: BaseException | None,
+        start_state_error: BaseException | None = None,
+        retirement_error: BaseException | None = None,
     ) -> None:
         def outcome(error: BaseException | None) -> dict[str, str]:
             if error is None:
@@ -744,11 +746,15 @@ class RuntimeChildStartCleanupError(ContractError):
         self.primary = primary
         self.receiver_close_error = receiver_close_error
         self.sender_close_error = sender_close_error
+        self.start_state_error = start_state_error
+        self.retirement_error = retirement_error
         self.details = {
             "primary": outcome(primary),
             "cleanup": {
                 "receiver_close": outcome(receiver_close_error),
                 "sender_close": outcome(sender_close_error),
+                "start_state": outcome(start_state_error),
+                "child_retirement": outcome(retirement_error),
             },
         }
         encoded = _BootstrapJson.dumps(
@@ -795,30 +801,58 @@ class RuntimeChildParentCleanupError(ContractError):
         super().__init__(f"runtime child parent cleanup failed:{encoded}")
 
 
-def _close_unstarted_runtime_pipe_endpoints(
+def _cleanup_runtime_child_start_failure(
     receiver: Any,
     sender: Any,
+    process: Any | None,
     primary: BaseException,
 ) -> None:
-    """Close both unstarted endpoints without letting cleanup mask the primary."""
+    """Close endpoints and retire a child when start state is partial or uncertain."""
 
     receiver_close_error: BaseException | None = None
     sender_close_error: BaseException | None = None
+    start_state_error: BaseException | None = None
+    retirement_error: BaseException | None = None
+
     try:
         receiver.close()
     except BaseException as error:
         receiver_close_error = error
+
     try:
         sender.close()
     except BaseException as error:
         sender_close_error = error
-    if receiver_close_error is not None or sender_close_error is not None:
+
+    should_retire = False
+    if process is not None:
+        try:
+            child_pid = process.pid
+        except BaseException as error:
+            start_state_error = error
+            should_retire = True
+        else:
+            should_retire = child_pid is not None
+
+    if should_retire:
+        try:
+            _retire_unbound_runtime_child(process)
+        except BaseException as error:
+            retirement_error = error
+
+    if (
+        receiver_close_error is not None
+        or sender_close_error is not None
+        or start_state_error is not None
+        or retirement_error is not None
+    ):
         raise RuntimeChildStartCleanupError(
             primary,
             receiver_close_error,
             sender_close_error,
+            start_state_error,
+            retirement_error,
         ) from primary
-
 
 def _close_receiver_and_retire_runtime_child(
     receiver: Any,
@@ -1003,6 +1037,7 @@ def _execute_runtime_contained(
 
     context = _BootstrapMultiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
+    process: Any | None = None
     try:
         process = context.Process(
             target=_runtime_child_entry,
@@ -1011,7 +1046,12 @@ def _execute_runtime_contained(
         )
         process.start()
     except BaseException as primary:
-        _close_unstarted_runtime_pipe_endpoints(receiver, sender, primary)
+        _cleanup_runtime_child_start_failure(
+            receiver,
+            sender,
+            process,
+            primary,
+        )
         raise
     try:
         sender.close()
