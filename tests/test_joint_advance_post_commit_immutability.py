@@ -155,5 +155,128 @@ class PostCommitImmutabilityTests(unittest.TestCase):
             self.assertFalse(bench._commit_receipt_path(output).exists())
 
 
+    def test_reservation_close_failures_after_receipt_are_diagnostics_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = EvidencePublicationTests.payload()
+            reservation = bench.reserve_evidence_namespace(output)
+            descriptor = reservation.descriptor
+            parent_descriptor = reservation.parent_descriptor
+            self.assertIsNotNone(descriptor)
+            self.assertIsNotNone(parent_descriptor)
+            real_close = os.close
+            attempted_owned_closes = []
+
+            def close_then_report_failure(fd):
+                if fd in (descriptor, parent_descriptor):
+                    attempted_owned_closes.append(fd)
+                    real_close(fd)
+                    label = (
+                        "descriptor"
+                        if fd == descriptor
+                        else "parent descriptor"
+                    )
+                    raise OSError(f"fixture {label} close failure")
+                return real_close(fd)
+
+            with mock.patch(
+                "bench_joint_advance.os.close",
+                side_effect=close_then_report_failure,
+            ):
+                publication = bench.publish_evidence_create_only(
+                    output,
+                    payload,
+                    reservation=reservation,
+                )
+
+            self.assertEqual(
+                attempted_owned_closes,
+                [descriptor, parent_descriptor],
+            )
+            self.assertIsNone(reservation.descriptor)
+            self.assertIsNone(reservation.parent_descriptor)
+            self.assertEqual(output.read_bytes(), payload)
+            self.assertEqual(
+                hashlib.sha256(output.read_bytes()).hexdigest(),
+                hashlib.sha256(payload).hexdigest(),
+            )
+            self.assertTrue(publication["commit_receipt"])
+            self.assertFalse(publication["post_commit_report_mutation"])
+            errors = publication["post_commit_verification_errors"]
+            self.assertTrue(
+                any(
+                    error.startswith(
+                        "reservation_descriptor_close:OSError:"
+                    )
+                    for error in errors
+                )
+            )
+            self.assertTrue(
+                any(
+                    error.startswith(
+                        "reservation_parent_descriptor_close:OSError:"
+                    )
+                    for error in errors
+                )
+            )
+            local = bench.load_locally_committed_evidence(
+                output,
+                EvidencePublicationTests.operation(payload),
+            )
+            self.assertEqual(
+                local["report"]["run"]["terminal"],
+                "completed",
+            )
+
+    def test_single_post_commit_close_failure_does_not_skip_other_handle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            payload = EvidencePublicationTests.payload()
+            reservation = bench.reserve_evidence_namespace(output)
+            descriptor = reservation.descriptor
+            parent_descriptor = reservation.parent_descriptor
+            self.assertIsNotNone(descriptor)
+            self.assertIsNotNone(parent_descriptor)
+            real_close = os.close
+            attempted_owned_closes = []
+
+            def fail_first_owned_close(fd):
+                if fd in (descriptor, parent_descriptor):
+                    attempted_owned_closes.append(fd)
+                if fd == descriptor:
+                    real_close(fd)
+                    raise OSError("fixture first retained close failure")
+                return real_close(fd)
+
+            with mock.patch(
+                "bench_joint_advance.os.close",
+                side_effect=fail_first_owned_close,
+            ):
+                publication = bench.publish_evidence_create_only(
+                    output,
+                    payload,
+                    reservation=reservation,
+                )
+
+            self.assertEqual(
+                attempted_owned_closes,
+                [descriptor, parent_descriptor],
+            )
+            self.assertIsNone(reservation.descriptor)
+            self.assertIsNone(reservation.parent_descriptor)
+            self.assertEqual(output.read_bytes(), payload)
+            self.assertTrue(publication["commit_receipt"])
+            self.assertTrue(
+                any(
+                    error.startswith(
+                        "reservation_descriptor_close:OSError:"
+                    )
+                    for error in publication[
+                        "post_commit_verification_errors"
+                    ]
+                )
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
