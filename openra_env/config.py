@@ -348,7 +348,8 @@ TOOL_CATEGORIES: dict[str, str] = {
     "get_opponent_intel": "planning",
     "start_planning_phase": "planning",
     "end_planning_phase": "planning",
-    "get_planning_status": "planning",
+    # Host-readable phase status is required even when planning actions are disabled.
+    "get_planning_status": "read",
     # Game Control
     "advance": "game_control",
     # Movement

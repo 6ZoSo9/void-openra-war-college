@@ -354,6 +354,18 @@ class TestPlanningSync:
         cfg = OpenRARLConfig(planning=PlanningConfig(enabled=True))
         assert cfg.tools.categories.planning is True
 
+    def test_planning_disabled_keeps_status_readable(self):
+        cfg = OpenRARLConfig(planning=PlanningConfig(enabled=False))
+
+        assert TOOL_CATEGORIES["get_planning_status"] == "read"
+        assert should_register_tool("get_planning_status", cfg.tools) is True
+        for tool_name in (
+            "get_opponent_intel",
+            "start_planning_phase",
+            "end_planning_phase",
+        ):
+            assert should_register_tool(tool_name, cfg.tools) is False
+
     def test_planning_disabled_via_yaml(self):
         data = {"planning": {"enabled": False}}
         with _temp_yaml(data) as path, _clean_env():
