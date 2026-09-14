@@ -115,6 +115,207 @@ def _open_artifact_descriptor(parent_descriptor: int, name: str) -> int:
         )
 
 
+def _matrix_summary(
+    report: dict[str, Any],
+) -> tuple[list[str], dict[str, Any]]:
+    cells_by_key = {cell["key"]: cell for cell in report["cells"]}
+    planned_keys = [
+        f"c{planned['concurrency']}-t{planned['ticks_per_joint_advance']}"
+        for planned in bench.build_matrix(
+            tuple(report["parameters"]["concurrency"]),
+            tuple(report["parameters"]["tick_batches"]),
+        )
+    ]
+    ordered_cells = [
+        cells_by_key[key] for key in planned_keys if key in cells_by_key
+    ]
+    missing_keys = [key for key in planned_keys if key not in cells_by_key]
+    first_non_success = next(
+        (
+            {"key": cell["key"], "terminal": cell["terminal"]}
+            for cell in ordered_cells
+            if cell["terminal"] != "success"
+        ),
+        None,
+    )
+    first_failure = next(
+        (
+            {"key": cell["key"], "terminal": cell["terminal"]}
+            for cell in ordered_cells
+            if cell["terminal"] not in {"success", "not_executed"}
+        ),
+        None,
+    )
+    first_incomplete = next(
+        (
+            {"key": key, "state": "missing"}
+            if key not in cells_by_key
+            else {
+                "key": key,
+                "state": "present",
+                "terminal": cells_by_key[key]["terminal"],
+            }
+            for key in planned_keys
+            if key not in cells_by_key
+            or cells_by_key[key]["terminal"] != "success"
+        ),
+        None,
+    )
+    return (
+        [cell["terminal"] for cell in ordered_cells],
+        {
+            "planned_cell_count": len(planned_keys),
+            "cell_count": len(ordered_cells),
+            "executed_cell_count": sum(
+                cell["terminal"] != "not_executed" for cell in ordered_cells
+            ),
+            "missing_cell_count": len(missing_keys),
+            "first_missing": missing_keys[0] if missing_keys else None,
+            "first_incomplete": first_incomplete,
+            "success_count": sum(
+                cell["terminal"] == "success" for cell in ordered_cells
+            ),
+            "non_success_count": sum(
+                cell["terminal"] != "success" for cell in ordered_cells
+            ),
+            "failure_count": sum(
+                cell["terminal"] not in {"success", "not_executed"}
+                for cell in ordered_cells
+            ),
+            "blocked_cell_count": sum(
+                cell["terminal"] == "not_executed" for cell in ordered_cells
+            ),
+            "first_non_success": first_non_success,
+            "first_failure": first_failure,
+        },
+    )
+
+
+def _require_run_terminal_stage_consistent(report: dict[str, Any]) -> None:
+    run = report["run"]
+    terminal = run["terminal"]
+    stage = run["stage"]
+    startup_stages = {
+        "host_attestation",
+        "runtime_provenance",
+        "endpoint_preflight",
+        "runtime_import",
+        "daemon_startup",
+    }
+    planned = bench.build_matrix(
+        tuple(report["parameters"]["concurrency"]),
+        tuple(report["parameters"]["tick_batches"]),
+    )
+    planned_keys = [
+        f"c{cell['concurrency']}-t{cell['ticks_per_joint_advance']}"
+        for cell in planned
+    ]
+    planned_cell_stages = {f"cell:{key}" for key in planned_keys}
+    allowed_stages = {
+        "startup_error": startup_stages,
+        "readiness_timeout": {"readiness"},
+        "channel_error": startup_stages | {"readiness"} | planned_cell_stages,
+        "cleanup_error": {"cleanup"},
+        "output_error": {"evidence_publication"},
+        "completed": {"matrix_complete"},
+    }[terminal]
+    if stage not in allowed_stages:
+        raise bench.ContractError(
+            f"run terminal/stage mismatch: {terminal}/{stage}"
+        )
+    pre_matrix_stages = startup_stages | {"readiness"}
+    if stage in pre_matrix_stages and report["cells"]:
+        raise bench.ContractError(
+            f"pre-matrix run terminal carries matrix cells: {terminal}/{stage}"
+        )
+    provenance_forbidden_stages = {"host_attestation", "runtime_provenance"}
+    if (
+        stage in provenance_forbidden_stages
+        and run["runtime_provenance"] is not None
+    ):
+        raise bench.ContractError(
+            "run stage carries premature runtime provenance: "
+            f"{terminal}/{stage}"
+        )
+    if stage in pre_matrix_stages and run["listener_identity"] is not None:
+        raise bench.ContractError(
+            "run stage carries premature listener identity: "
+            f"{terminal}/{stage}"
+        )
+    if terminal == "channel_error" and stage in planned_cell_stages:
+        if run["listener_identity"] is None or run["runtime_provenance"] is None:
+            raise bench.ContractError(
+                "cell-stage channel error lacks established runtime identity"
+            )
+        current_key = stage.removeprefix("cell:")
+        current_index = planned_keys.index(current_key)
+        predecessor_keys = planned_keys[:current_index]
+        cells_by_key = {cell["key"]: cell for cell in report["cells"]}
+        if (
+            set(cells_by_key) != set(predecessor_keys)
+            or any(
+                cells_by_key[key]["terminal"] != "success"
+                for key in predecessor_keys
+            )
+        ):
+            raise bench.ContractError(
+                "channel-error stage does not bind exact successful "
+                f"predecessor prefix: {stage}"
+            )
+    provenance_required_stages = {
+        "endpoint_preflight",
+        "runtime_import",
+        "daemon_startup",
+        "readiness",
+        "cleanup",
+        "matrix_complete",
+    } | planned_cell_stages
+    if (
+        stage in provenance_required_stages
+        and run["runtime_provenance"] is None
+    ):
+        raise bench.ContractError(
+            "run stage lacks established runtime provenance: "
+            f"{terminal}/{stage}"
+        )
+    if stage == "cleanup" and run["listener_identity"] is None:
+        raise bench.ContractError(
+            "run stage lacks established listener identity: "
+            f"{terminal}/{stage}"
+        )
+    if terminal == "output_error" and report["cells"] and (
+        run["listener_identity"] is None
+        or run["runtime_provenance"] is None
+    ):
+        raise bench.ContractError(
+            "output-error matrix evidence lacks established runtime identity"
+        )
+    if terminal == "cleanup_error":
+        actual_keys = [cell["key"] for cell in report["cells"]]
+        if actual_keys != sorted(planned_keys):
+            raise bench.ContractError(
+                "cleanup-error evidence does not close the planned matrix"
+            )
+        bench._validate_completed_matrix_causality(report["cells"], planned)
+    if terminal == "output_error":
+        cells_by_key = {cell["key"]: cell for cell in report["cells"]}
+        if len(cells_by_key) == len(planned_keys):
+            bench._validate_completed_matrix_causality(report["cells"], planned)
+        else:
+            predecessor_keys = planned_keys[:len(cells_by_key)]
+            if (
+                set(cells_by_key) != set(predecessor_keys)
+                or any(
+                    cells_by_key[key]["terminal"] != "success"
+                    for key in predecessor_keys
+                )
+            ):
+                raise bench.ContractError(
+                    "output-error evidence does not bind a valid "
+                    "pre-publication matrix state"
+                )
+
+
 def _artifact(
     parent_descriptor: int,
     name: str,
@@ -140,6 +341,10 @@ def _artifact(
         "report_schema_compatible": None,
         "report_schema_version": None,
         "report_terminal": None,
+        "report_run_stage": None,
+        "report_cell_terminals": None,
+        "report_matrix_summary": None,
+        "report_attempt_failure": None,
         "validation_error": None,
     }
     if not generation["regular_file"] or generation["symlink"]:
@@ -164,6 +369,7 @@ def _artifact(
         else:
             try:
                 report = bench._validate_recoverable_evidence(payload)
+                _require_run_terminal_stage_consistent(report)
             except bench.IncompatibleEvidenceSchemaError as error:
                 row["report_schema_valid"] = False
                 row["report_schema_compatible"] = False
@@ -177,6 +383,22 @@ def _artifact(
                 row["report_schema_compatible"] = True
                 row["report_schema_version"] = report["schema_version"]
                 row["report_terminal"] = report["run"]["terminal"]
+                row["report_run_stage"] = report["run"]["stage"]
+                (
+                    row["report_cell_terminals"],
+                    row["report_matrix_summary"],
+                ) = _matrix_summary(report)
+                if report["run"]["terminal"] != "completed":
+                    row["report_attempt_failure"] = {
+                        "scope": "run",
+                        "terminal": report["run"]["terminal"],
+                        "stage": report["run"]["stage"],
+                    }
+                elif row["report_matrix_summary"]["first_failure"] is not None:
+                    row["report_attempt_failure"] = {
+                        "scope": "matrix",
+                        **row["report_matrix_summary"]["first_failure"],
+                    }
     return row, payload, descriptor
 
 
