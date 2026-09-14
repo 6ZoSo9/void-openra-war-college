@@ -51,16 +51,17 @@ def analyze_trajectory(
         trajectory_path,
         expected_trajectory_sha256=trajectory_sha,
     )
-    abaddon_candidate = validate_abaddon_policy_candidate_evidence(
-        trajectory_path,
-        expected_trajectory_sha256=trajectory_sha,
-    )
     present_count = sum(
         generation.get("present") is True
         for generation in (v2, v21, v22)
     )
     if present_count > 1:
         raise ContractError("trajectory contains multiple Conditional Engagement generations")
+
+    abaddon_candidate = validate_abaddon_policy_candidate_evidence(
+        trajectory_path,
+        expected_trajectory_sha256=trajectory_sha,
+    )
     if abaddon_candidate.get("present") is True and present_count:
         raise ContractError(
             "trajectory contains simultaneous Apollyon and Abaddon candidate evidence"
