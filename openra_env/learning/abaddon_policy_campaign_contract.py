@@ -12,6 +12,7 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+from .abaddon_policy_campaign_plan import precommitted_campaign_plan
 from .apollyon_opponent_snapshots import reviewed_snapshot_set
 
 CONTRACT_SCHEMA = "void.abaddon.policy-campaign-contract.v1"
@@ -84,12 +85,14 @@ def stable_json(value: Mapping[str, Any]) -> str:
 def reviewed_plan() -> dict[str, Any]:
     """Return the frozen pre-execution requirements for one Abaddon generation."""
     snapshots = reviewed_snapshot_set()
+    campaign_plan = precommitted_campaign_plan()
     return {
         "schema": CONTRACT_SCHEMA,
         "abaddon_refiner_sha256": ABADDON_REFINER_SHA256,
         "candidate_only": True,
         "status": "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF",
         "opponent_snapshot_set": snapshots,
+        "precommitted_campaign_plan": campaign_plan,
         "requirements": {
             "full_abaddon_controller_active": True,
             "safety_invariants_green": True,
@@ -114,6 +117,10 @@ def reviewed_plan() -> dict[str, Any]:
             "previous_champion_binding_required": True,
             "previous_champion_binding_complete": False,
             "campaign_attempt_ledger_required": True,
+            "campaign_attempt_ledger_complete": True,
+            "candidate_frozen_before_campaign_evidence": True,
+            "pair_arms_precommitted": True,
+            "opponent_runtime_realization_complete": False,
             "pair_evidence_required": True,
             "manual_review_required": True,
         },

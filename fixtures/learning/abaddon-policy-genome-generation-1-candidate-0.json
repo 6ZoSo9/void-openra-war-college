@@ -1,0 +1,126 @@
+{
+  "candidate_index": 0,
+  "controller_version": 1,
+  "generation": 1,
+  "genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+  "identity": "Abaddon",
+  "mutations": [
+    {
+      "doctrine": "FEINTER",
+      "key": "scout_current_min",
+      "new": 12,
+      "old": 10
+    },
+    {
+      "doctrine": "FEINTER",
+      "key": "weap_power_min",
+      "new": 60,
+      "old": 50
+    }
+  ],
+  "parent_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+  "profiles": {
+    "AMBUSHER": {
+      "advance_ticks": 50,
+      "group": 4,
+      "inf": 5,
+      "power_margin_min": 35,
+      "scout_current_min": 10,
+      "scout_history_min": 16,
+      "veh": 1,
+      "weap_power_min": 50
+    },
+    "ATTRITION": {
+      "advance_ticks": 50,
+      "group": 4,
+      "inf": 6,
+      "power_margin_min": 35,
+      "scout_current_min": 10,
+      "scout_history_min": 16,
+      "veh": 2,
+      "weap_power_min": 50
+    },
+    "COUNTERPUNCHER": {
+      "advance_ticks": 50,
+      "group": 4,
+      "inf": 5,
+      "power_margin_min": 35,
+      "scout_current_min": 10,
+      "scout_history_min": 16,
+      "veh": 2,
+      "weap_power_min": 50
+    },
+    "ECONOMIST": {
+      "advance_ticks": 50,
+      "group": 4,
+      "inf": 4,
+      "power_margin_min": 35,
+      "scout_current_min": 10,
+      "scout_history_min": 16,
+      "veh": 1,
+      "weap_power_min": 50
+    },
+    "FEINTER": {
+      "advance_ticks": 50,
+      "group": 4,
+      "inf": 6,
+      "power_margin_min": 35,
+      "scout_current_min": 12,
+      "scout_history_min": 16,
+      "veh": 2,
+      "weap_power_min": 60
+    },
+    "FLANKER": {
+      "advance_ticks": 50,
+      "group": 4,
+      "inf": 5,
+      "power_margin_min": 35,
+      "scout_current_min": 10,
+      "scout_history_min": 16,
+      "veh": 2,
+      "weap_power_min": 50
+    },
+    "FORTRESS": {
+      "advance_ticks": 50,
+      "group": 6,
+      "inf": 6,
+      "power_margin_min": 35,
+      "scout_current_min": 10,
+      "scout_history_min": 16,
+      "veh": 3,
+      "weap_power_min": 50
+    },
+    "MOBILE_DEFENSE": {
+      "advance_ticks": 50,
+      "group": 4,
+      "inf": 5,
+      "power_margin_min": 35,
+      "scout_current_min": 10,
+      "scout_history_min": 16,
+      "veh": 3,
+      "weap_power_min": 50
+    },
+    "RUSHER": {
+      "advance_ticks": 50,
+      "group": 4,
+      "inf": 5,
+      "power_margin_min": 35,
+      "scout_current_min": 10,
+      "scout_history_min": 16,
+      "veh": 1,
+      "weap_power_min": 50
+    },
+    "TURTLE": {
+      "advance_ticks": 50,
+      "group": 5,
+      "inf": 5,
+      "power_margin_min": 35,
+      "scout_current_min": 10,
+      "scout_history_min": 16,
+      "veh": 2,
+      "weap_power_min": 50
+    }
+  },
+  "schema": "void.abaddon.policy-genome.v1",
+  "source": "bounded_deterministic_mutation"
+}
