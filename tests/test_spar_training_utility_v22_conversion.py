@@ -29,6 +29,11 @@ def v22_present() -> dict:
 
 def install_base(monkeypatch):
     monkeypatch.setattr(utility, "_analyze_trajectory_base", lambda *args, **kwargs: base_report())
+    monkeypatch.setattr(
+        utility,
+        "validate_abaddon_policy_candidate_evidence",
+        lambda *args, **kwargs: absent(),
+    )
 
 
 def test_v22_trajectory_attaches_exact_conversion_utility(monkeypatch):
