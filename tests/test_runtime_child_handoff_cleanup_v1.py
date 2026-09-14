@@ -745,5 +745,271 @@ class RuntimeChildHandoffCleanupTests(unittest.TestCase):
         self.assertIs(error.__cause__, verification_failure)
 
 
+    def test_bound_natural_group_probe_failure_still_attempts_term(self) -> None:
+        process = mock.Mock()
+        process.pid = 4242
+        process.is_alive.side_effect = (False, False)
+        probe_failure = PermissionError("natural group probe refused")
+
+        with (
+            mock.patch.object(
+                bench.time,
+                "monotonic",
+                return_value=0.0,
+            ),
+            mock.patch.object(
+                bench,
+                "_process_group_exists",
+                side_effect=probe_failure,
+            ),
+            mock.patch.object(
+                bench,
+                "_signal_process_group",
+                return_value=None,
+            ) as signal_group,
+            mock.patch.object(
+                bench,
+                "_wait_process_group_absent",
+                return_value=True,
+            ),
+        ):
+            with self.assertRaises(
+                bench.RuntimeProcessGroupSignalCleanupError
+            ) as raised:
+                bench._retire_runtime_process_group(
+                    process,
+                    4242,
+                    natural_grace_s=0.0,
+                    signal_grace_s=0.1,
+                )
+
+        error = raised.exception
+        self.assertIs(error.verification_error, probe_failure)
+        self.assertFalse(error.child_alive)
+        self.assertTrue(error.group_absent)
+        self.assertIs(error.__cause__, probe_failure)
+        signal_group.assert_called_once_with(
+            4242, bench._BootstrapSignal.SIGTERM
+        )
+
+    def test_bound_natural_join_failure_cannot_skip_kill_escalation(self) -> None:
+        process = mock.Mock()
+        process.pid = 4242
+        join_failure = RuntimeError("natural join refused")
+        process.join.side_effect = (join_failure, None, None)
+        process.is_alive.side_effect = (True, True, False)
+
+        with (
+            mock.patch.object(
+                bench.time,
+                "monotonic",
+                return_value=0.0,
+            ),
+            mock.patch.object(
+                bench,
+                "_signal_process_group",
+                return_value=None,
+            ) as signal_group,
+            mock.patch.object(
+                bench,
+                "_wait_process_group_absent",
+                return_value=True,
+            ),
+        ):
+            with self.assertRaises(
+                bench.RuntimeProcessGroupSignalCleanupError
+            ) as raised:
+                bench._retire_runtime_process_group(
+                    process,
+                    4242,
+                    natural_grace_s=0.0,
+                    signal_grace_s=0.1,
+                )
+
+        error = raised.exception
+        self.assertEqual(error.observation_errors[0][0], "natural_join")
+        self.assertIs(error.observation_errors[0][1], join_failure)
+        self.assertEqual(
+            signal_group.call_args_list,
+            [
+                mock.call(4242, bench._BootstrapSignal.SIGTERM),
+                mock.call(4242, bench._BootstrapSignal.SIGKILL),
+            ],
+        )
+
+    def test_bound_term_join_failure_cannot_skip_sigkill(self) -> None:
+        process = mock.Mock()
+        process.pid = 4242
+        join_failure = RuntimeError("term join refused")
+        process.join.side_effect = (None, join_failure, None)
+        process.is_alive.side_effect = (True, True, False)
+
+        with (
+            mock.patch.object(
+                bench.time,
+                "monotonic",
+                return_value=0.0,
+            ),
+            mock.patch.object(
+                bench,
+                "_signal_process_group",
+                return_value=None,
+            ) as signal_group,
+            mock.patch.object(
+                bench,
+                "_wait_process_group_absent",
+                return_value=True,
+            ),
+        ):
+            with self.assertRaises(
+                bench.RuntimeProcessGroupSignalCleanupError
+            ) as raised:
+                bench._retire_runtime_process_group(
+                    process,
+                    4242,
+                    natural_grace_s=0.0,
+                    signal_grace_s=0.1,
+                )
+
+        self.assertEqual(
+            raised.exception.observation_errors[0][0],
+            "sigterm_join",
+        )
+        self.assertEqual(
+            signal_group.call_args_list,
+            [
+                mock.call(4242, bench._BootstrapSignal.SIGTERM),
+                mock.call(4242, bench._BootstrapSignal.SIGKILL),
+            ],
+        )
+
+    def test_bound_term_liveness_failure_cannot_skip_sigkill(self) -> None:
+        process = mock.Mock()
+        process.pid = 4242
+        liveness_failure = RuntimeError("term liveness refused")
+        process.is_alive.side_effect = (
+            True,
+            liveness_failure,
+            False,
+        )
+
+        with (
+            mock.patch.object(
+                bench.time,
+                "monotonic",
+                return_value=0.0,
+            ),
+            mock.patch.object(
+                bench,
+                "_signal_process_group",
+                return_value=None,
+            ) as signal_group,
+            mock.patch.object(
+                bench,
+                "_wait_process_group_absent",
+                return_value=True,
+            ),
+        ):
+            with self.assertRaises(
+                bench.RuntimeProcessGroupSignalCleanupError
+            ) as raised:
+                bench._retire_runtime_process_group(
+                    process,
+                    4242,
+                    natural_grace_s=0.0,
+                    signal_grace_s=0.1,
+                )
+
+        self.assertEqual(
+            raised.exception.observation_errors[0][0],
+            "sigterm_is_alive",
+        )
+        self.assertIs(
+            raised.exception.observation_errors[0][1],
+            liveness_failure,
+        )
+        self.assertEqual(signal_group.call_count, 2)
+
+    def test_unbound_natural_join_failure_cannot_skip_kill(self) -> None:
+        process = mock.Mock()
+        join_failure = RuntimeError("natural join refused")
+        process.join.side_effect = (join_failure, None, None)
+        process.is_alive.side_effect = (True, True, False)
+
+        with mock.patch.object(
+            bench.time,
+            "monotonic",
+            return_value=0.0,
+        ):
+            with self.assertRaises(
+                bench.RuntimeChildUnboundRetirementError
+            ) as raised:
+                bench._retire_unbound_runtime_child(
+                    process,
+                    signal_grace_s=0.1,
+                )
+
+        self.assertEqual(
+            raised.exception.observation_errors[0][0],
+            "natural_join",
+        )
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+
+    def test_unbound_term_join_failure_cannot_skip_kill(self) -> None:
+        process = mock.Mock()
+        join_failure = RuntimeError("terminate join refused")
+        process.join.side_effect = (None, join_failure, None)
+        process.is_alive.side_effect = (True, True, False)
+
+        with mock.patch.object(
+            bench.time,
+            "monotonic",
+            return_value=0.0,
+        ):
+            with self.assertRaises(
+                bench.RuntimeChildUnboundRetirementError
+            ) as raised:
+                bench._retire_unbound_runtime_child(
+                    process,
+                    signal_grace_s=0.1,
+                )
+
+        self.assertEqual(
+            raised.exception.observation_errors[0][0],
+            "terminate_join",
+        )
+        process.kill.assert_called_once_with()
+
+    def test_unbound_initial_liveness_failure_still_attempts_terminate(self) -> None:
+        process = mock.Mock()
+        liveness_failure = RuntimeError("initial liveness refused")
+        process.is_alive.side_effect = (liveness_failure, False)
+
+        with mock.patch.object(
+            bench.time,
+            "monotonic",
+            return_value=0.0,
+        ):
+            with self.assertRaises(
+                bench.RuntimeChildUnboundRetirementError
+            ) as raised:
+                bench._retire_unbound_runtime_child(
+                    process,
+                    signal_grace_s=0.1,
+                )
+
+        self.assertEqual(
+            raised.exception.observation_errors[0][0],
+            "natural_is_alive",
+        )
+        self.assertIs(
+            raised.exception.observation_errors[0][1],
+            liveness_failure,
+        )
+        process.terminate.assert_called_once_with()
+        process.kill.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
