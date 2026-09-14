@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from ._spar_abaddon_policy_candidate import validate_abaddon_policy_candidate_evidence
 from ._spar_analyzer import analyze_trajectory as _analyze_trajectory_base
 from ._spar_conditional_v2 import validate_conditional_v2_evidence
 from ._spar_conditional_v2_1 import validate_conditional_v21_evidence
@@ -50,12 +51,20 @@ def analyze_trajectory(
         trajectory_path,
         expected_trajectory_sha256=trajectory_sha,
     )
+    abaddon_candidate = validate_abaddon_policy_candidate_evidence(
+        trajectory_path,
+        expected_trajectory_sha256=trajectory_sha,
+    )
     present_count = sum(
         generation.get("present") is True
         for generation in (v2, v21, v22)
     )
     if present_count > 1:
         raise ContractError("trajectory contains multiple Conditional Engagement generations")
+    if abaddon_candidate.get("present") is True and present_count:
+        raise ContractError(
+            "trajectory contains simultaneous Apollyon and Abaddon candidate evidence"
+        )
 
     conversion: dict[str, Any] = {"present": False}
     if v22.get("present") is True:
@@ -71,6 +80,7 @@ def analyze_trajectory(
     report["conditional_engagement_v2_1"] = v21
     report["conditional_engagement_v2_2"] = v22
     report["conditional_engagement_v2_2_conversion_utility"] = conversion
+    report["abaddon_policy_candidate_v1"] = abaddon_candidate
     return report
 
 

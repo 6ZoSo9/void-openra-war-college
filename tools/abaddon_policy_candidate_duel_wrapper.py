@@ -62,6 +62,10 @@ def sha256_file(path: Path) -> str:
     return sha256_bytes(path.read_bytes())
 
 
+def wrapper_source_sha256() -> str:
+    return sha256_file(Path(__file__).resolve())
+
+
 def _load_exact_module(path: Path, expected_sha256: str, module_name: str):
     path = path.expanduser().resolve()
     _require(path.is_file() and not path.is_symlink(), f"exact source missing: {path}")
@@ -248,6 +252,8 @@ class AbaddonCandidateHooks:
                 "schema": RUN_SCHEMA,
                 **self.binding,
                 "candidate_only": True,
+                "review_required": True,
+                "training_use_approved": False,
                 "candidate_general": "abaddon",
                 "opponent_general": "apollyon",
                 "apollyon_policy_mutated": False,
@@ -304,6 +310,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     binding = {
         **candidate_binding,
+        "wrapper_sha256": wrapper_source_sha256(),
         "legacy_runner_sha256": LEGACY_RUNNER_SHA256,
         "abaddon_controller_sha256": ABADDON_CONTROLLER_SHA256,
         "abaddon_refiner_sha256": ABADDON_REFINER_SHA256,
@@ -312,6 +319,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     hooks = AbaddonCandidateHooks(legacy, refiner, candidate, binding)
 
     print(MARK)
+    print(f"wrapper_sha256={binding['wrapper_sha256']}")
     print(f"legacy_runner_sha256={LEGACY_RUNNER_SHA256}")
     print(f"abaddon_controller_sha256={ABADDON_CONTROLLER_SHA256}")
     print(f"abaddon_refiner_sha256={ABADDON_REFINER_SHA256}")
