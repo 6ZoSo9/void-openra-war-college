@@ -58,7 +58,17 @@ def test_plan_mirrors_recovered_refiner_policy_and_stays_nonexecuting():
         plan["requirements"]["maximum_single_fundamental_regression"]
         == MAX_SINGLE_FUNDAMENTAL_REGRESSION
     )
+    assert plan["status"] == "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF"
+    snapshots = plan["opponent_snapshot_set"]
+    assert snapshots["snapshot_count"] == 3
+    assert snapshots["source_identity_binding_complete"] is True
+    assert snapshots["current_promoted_snapshot_proven"] is True
+    assert snapshots["previous_champion_proven"] is False
+    assert snapshots["qualified_for_campaign_opponent_set"] is False
     assert plan["pre_execution_gates"]["opponent_snapshot_binding_required"] is True
+    assert plan["pre_execution_gates"]["opponent_snapshot_source_binding_complete"] is True
+    assert plan["pre_execution_gates"]["previous_champion_binding_required"] is True
+    assert plan["pre_execution_gates"]["previous_champion_binding_complete"] is False
     assert plan["authority"]["runtime_execution_authorized"] is False
     assert plan["authority"]["automatic_training_admission"] is False
     assert plan["authority"]["automatic_policy_promotion"] is False
