@@ -58,7 +58,9 @@ def test_plan_mirrors_recovered_refiner_policy_and_stays_nonexecuting():
         plan["requirements"]["maximum_single_fundamental_regression"]
         == MAX_SINGLE_FUNDAMENTAL_REGRESSION
     )
-    assert plan["status"] == "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF"
+    assert plan["status"] == (
+        "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF_AND_RUNTIME_REALIZATION"
+    )
     snapshots = plan["opponent_snapshot_set"]
     assert snapshots["snapshot_count"] == 3
     assert snapshots["source_identity_binding_complete"] is True
@@ -79,6 +81,16 @@ def test_plan_mirrors_recovered_refiner_policy_and_stays_nonexecuting():
     assert plan["pre_execution_gates"]["campaign_attempt_ledger_complete"] is True
     assert plan["pre_execution_gates"]["candidate_frozen_before_campaign_evidence"] is True
     assert plan["pre_execution_gates"]["pair_arms_precommitted"] is True
+    realizations = plan["opponent_runtime_realizations"]
+    assert realizations["realization_set_sha256"] == (
+        "b229f445a9f53d45abf56ca3d4e2f76620da1f2b465f1b6942ab66b92eec493d"
+    )
+    assert realizations["source_binding_complete"] is True
+    assert realizations["current_campaign_runtime_realized_count"] == 0
+    assert realizations["opponent_runtime_realization_complete"] is False
+    assert plan["pre_execution_gates"][
+        "opponent_runtime_realization_source_binding_complete"
+    ] is True
     assert plan["pre_execution_gates"]["opponent_runtime_realization_complete"] is False
     assert plan["authority"]["runtime_execution_authorized"] is False
     assert plan["authority"]["automatic_training_admission"] is False

@@ -13,6 +13,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from .abaddon_policy_campaign_plan import precommitted_campaign_plan
+from .apollyon_opponent_runtime_realizations import (
+    reviewed_opponent_runtime_realizations,
+)
 from .apollyon_opponent_snapshots import reviewed_snapshot_set
 
 CONTRACT_SCHEMA = "void.abaddon.policy-campaign-contract.v1"
@@ -86,12 +89,16 @@ def reviewed_plan() -> dict[str, Any]:
     """Return the frozen pre-execution requirements for one Abaddon generation."""
     snapshots = reviewed_snapshot_set()
     campaign_plan = precommitted_campaign_plan()
+    runtime_realizations = reviewed_opponent_runtime_realizations()
     return {
         "schema": CONTRACT_SCHEMA,
         "abaddon_refiner_sha256": ABADDON_REFINER_SHA256,
         "candidate_only": True,
-        "status": "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF",
+        "status": (
+            "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF_AND_RUNTIME_REALIZATION"
+        ),
         "opponent_snapshot_set": snapshots,
+        "opponent_runtime_realizations": runtime_realizations,
         "precommitted_campaign_plan": campaign_plan,
         "requirements": {
             "full_abaddon_controller_active": True,
@@ -120,7 +127,10 @@ def reviewed_plan() -> dict[str, Any]:
             "campaign_attempt_ledger_complete": True,
             "candidate_frozen_before_campaign_evidence": True,
             "pair_arms_precommitted": True,
-            "opponent_runtime_realization_complete": False,
+            "opponent_runtime_realization_source_binding_complete": True,
+            "opponent_runtime_realization_complete": (
+                runtime_realizations["opponent_runtime_realization_complete"]
+            ),
             "pair_evidence_required": True,
             "manual_review_required": True,
         },
