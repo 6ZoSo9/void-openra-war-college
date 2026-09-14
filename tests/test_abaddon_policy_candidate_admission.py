@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from openra_env.learning.abaddon_policy_candidate_admission import (
+    PAIR_LEVEL_ADMISSION_DISABLED_REASON,
     REVIEW_SCHEMA,
     classify_abaddon_policy_candidate_pair_for_training,
     pair_sha256,
@@ -61,6 +62,7 @@ def test_raw_pair_without_review_stays_ineligible():
     result = classify_abaddon_policy_candidate_pair_for_training(pair())
     assert result["eligible"] is False
     assert "ABADDON_REVIEW_REQUIRED" in result["reasons"]
+    assert PAIR_LEVEL_ADMISSION_DISABLED_REASON in result["reasons"]
     assert result["automatic_corpus_admission"] is False
     assert result["automatic_weight_mutation"] is False
     assert result["automatic_promotion"] is False
@@ -76,23 +78,24 @@ def test_review_pair_digest_mismatch_is_rejected():
     )
     assert result["eligible"] is False
     assert "ABADDON_REVIEW_PAIR_SHA_MISMATCH" in result["reasons"]
+    assert PAIR_LEVEL_ADMISSION_DISABLED_REASON in result["reasons"]
 
 
-def test_complete_manual_review_can_admit_valid_better_pair():
+def test_complete_manual_pair_review_still_requires_campaign():
     value = pair()
     result = classify_abaddon_policy_candidate_pair_for_training(
         value,
         review=review_for(value),
     )
-    assert result["eligible"] is True
-    assert result["training_role"] == "positive_tactical_example"
-    assert result["candidate_trajectory_sha256"] == "1" * 64
-    assert result["candidate_genome_sha256"] == "2" * 64
-    assert result["reviewed_pair_sha256"] == pair_sha256(value)
-    assert result["authority_envelope_trainable"] is False
+    assert result["eligible"] is False
+    assert result["training_role"] == "diagnostic_only"
+    assert result["candidate_trajectory_sha256"] is None
+    assert result["candidate_genome_sha256"] is None
+    assert result["reviewed_pair_sha256"] is None
+    assert result["reasons"] == [PAIR_LEVEL_ADMISSION_DISABLED_REASON]
 
 
-def test_failed_comparison_remains_ineligible_even_with_review():
+def test_failed_comparison_remains_diagnostic_and_campaign_blocked():
     value = pair(good=False)
     result = classify_abaddon_policy_candidate_pair_for_training(
         value,
@@ -101,6 +104,7 @@ def test_failed_comparison_remains_ineligible_even_with_review():
     assert result["eligible"] is False
     assert "ABADDON_NOT_BETTER" in result["reasons"]
     assert "ABADDON_REVIEW_CANDIDATE_FAILED" in result["reasons"]
+    assert PAIR_LEVEL_ADMISSION_DISABLED_REASON in result["reasons"]
 
 
 def test_legacy_apollyon_pair_classifier_remains_fail_closed():

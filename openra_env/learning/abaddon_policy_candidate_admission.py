@@ -12,6 +12,11 @@ from openra_env.analysis.spar_abaddon_policy_candidate_pair import PAIR_SCHEMA
 ELIGIBILITY_SCHEMA = "void.general-brain-training-eligibility.v1"
 REVIEW_SCHEMA = "void.abaddon.policy-candidate-review.v1"
 
+# One symmetric pair is useful diagnostic evidence, but the recovered Abaddon
+# refiner requires a reviewed campaign before policy/training admission:
+# >=12 reviewed matches, >=6 seeds, >=2 Apollyon snapshots, zero infra failures.
+PAIR_LEVEL_ADMISSION_DISABLED_REASON = "ABADDON_REVIEWED_CAMPAIGN_REQUIRED"
+
 
 def stable_json_bytes(value: Mapping[str, Any]) -> bytes:
     return (
@@ -43,11 +48,8 @@ def classify_abaddon_policy_candidate_pair_for_training(
     *,
     review: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Admit only manually reviewed, symmetric, utility-positive Abaddon evidence."""
+    """Validate one pair for diagnostics, but never admit it by itself."""
     reasons: list[str] = []
-    candidate_trajectory_sha256: str | None = None
-    candidate_genome_sha256: str | None = None
-    reviewed_pair_sha256: str | None = None
 
     if not isinstance(pair, Mapping):
         reasons.append("ABADDON_PAIR_REQUIRED")
@@ -81,15 +83,9 @@ def classify_abaddon_policy_candidate_pair_for_training(
         if not isinstance(candidate, Mapping):
             reasons.append("ABADDON_CANDIDATE_IDENTITY_MISSING")
         else:
-            candidate_trajectory_sha256 = candidate.get("trajectory_sha256")
-            candidate_genome_sha256 = candidate.get("candidate_genome_sha256")
-            if not _sha256(candidate_trajectory_sha256):
-                reasons.append("ABADDON_TRAJECTORY_SHA_INVALID")
-                candidate_trajectory_sha256 = None
-            if not _sha256(candidate_genome_sha256):
-                reasons.append("ABADDON_GENOME_SHA_INVALID")
-                candidate_genome_sha256 = None
             for key in (
+                "trajectory_sha256",
+                "candidate_genome_sha256",
                 "candidate_file_sha256",
                 "wrapper_sha256",
                 "legacy_runner_sha256",
@@ -135,20 +131,22 @@ def classify_abaddon_policy_candidate_pair_for_training(
 
         if isinstance(pair, Mapping):
             expected_pair_sha = pair_sha256(pair)
-            reviewed_pair_sha256 = review.get("pair_sha256")
-            if reviewed_pair_sha256 != expected_pair_sha:
+            if review.get("pair_sha256") != expected_pair_sha:
                 reasons.append("ABADDON_REVIEW_PAIR_SHA_MISMATCH")
-                reviewed_pair_sha256 = None
 
-    eligible = not reasons
+    # Critical fail-closed correction: no single pair can satisfy the recovered
+    # Abaddon campaign/refiner review requirements.
+    if PAIR_LEVEL_ADMISSION_DISABLED_REASON not in reasons:
+        reasons.append(PAIR_LEVEL_ADMISSION_DISABLED_REASON)
+
     return {
         "schema": ELIGIBILITY_SCHEMA,
         "general_id": "abaddon",
-        "eligible": eligible,
-        "training_role": "positive_tactical_example" if eligible else None,
-        "candidate_trajectory_sha256": candidate_trajectory_sha256 if eligible else None,
-        "candidate_genome_sha256": candidate_genome_sha256 if eligible else None,
-        "reviewed_pair_sha256": reviewed_pair_sha256 if eligible else None,
+        "eligible": False,
+        "training_role": "diagnostic_only",
+        "candidate_trajectory_sha256": None,
+        "candidate_genome_sha256": None,
+        "reviewed_pair_sha256": None,
         "reasons": reasons,
         "authority_envelope_trainable": False,
         "automatic_corpus_admission": False,
