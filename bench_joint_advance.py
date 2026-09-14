@@ -296,6 +296,46 @@ def _runtime_retirement_remaining(deadline_s: float) -> float:
     return max(0.0, deadline_s - time.monotonic())
 
 
+class RuntimeProcessGroupSignalCleanupError(ContractError):
+    """Preserve process-group signal failures after the strongest retirement attempt."""
+
+    def __init__(
+        self,
+        term_error: BaseException | None,
+        kill_error: BaseException | None,
+        verification_error: BaseException | None,
+        child_alive: bool,
+        group_absent: bool,
+    ) -> None:
+        def outcome(error: BaseException | None) -> dict[str, str]:
+            if error is None:
+                return {"status": "ok"}
+            return {
+                "status": "error",
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+
+        self.term_error = term_error
+        self.kill_error = kill_error
+        self.verification_error = verification_error
+        self.child_alive = child_alive
+        self.group_absent = group_absent
+        self.details = {
+            "sigterm": outcome(term_error),
+            "sigkill": outcome(kill_error),
+            "verification": outcome(verification_error),
+            "child_alive": child_alive,
+            "group_absent": group_absent,
+        }
+        encoded = _BootstrapJson.dumps(
+            self.details,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        super().__init__(f"runtime process-group signal cleanup failed:{encoded}")
+
+
 def _retire_runtime_process_group(
     process: Any,
     pgid: int,
@@ -303,7 +343,12 @@ def _retire_runtime_process_group(
     natural_grace_s: float = _RUNTIME_CHILD_NATURAL_RETIREMENT_S,
     signal_grace_s: float = _RUNTIME_CHILD_SIGNAL_GRACE_S,
 ) -> str:
-    """Retire one process group without multiplying phase-local wait budgets."""
+    """Retire one process group without multiplying phase-local wait budgets.
+
+    SIGTERM and SIGKILL are independent cleanup opportunities. A SIGTERM
+    delivery failure cannot skip SIGKILL. Signal/verification failures remain
+    observable only after the strongest bounded retirement attempt completes.
+    """
     for label, value in (
         ("natural_grace_s", natural_grace_s),
         ("signal_grace_s", signal_grace_s),
@@ -329,26 +374,65 @@ def _retire_runtime_process_group(
     if not process.is_alive() and not _process_group_exists(pgid):
         return "natural_exit"
 
-    _signal_process_group(pgid, _BootstrapSignal.SIGTERM)
-    process.join(_runtime_retirement_remaining(term_deadline))
-    if (
-        not process.is_alive()
-        and _wait_process_group_absent(
-            pgid, _runtime_retirement_remaining(term_deadline)
-        )
-    ):
-        return "sigterm_retired"
+    term_error: BaseException | None = None
+    kill_error: BaseException | None = None
+    verification_error: BaseException | None = None
 
-    _signal_process_group(pgid, _BootstrapSignal.SIGKILL)
-    process.join(_runtime_retirement_remaining(kill_deadline))
-    if process.is_alive() or not _wait_process_group_absent(
-        pgid, _runtime_retirement_remaining(kill_deadline)
+    try:
+        _signal_process_group(pgid, _BootstrapSignal.SIGTERM)
+    except BaseException as error:
+        term_error = error
+    else:
+        process.join(_runtime_retirement_remaining(term_deadline))
+        if not process.is_alive():
+            try:
+                if _wait_process_group_absent(
+                    pgid,
+                    _runtime_retirement_remaining(term_deadline),
+                ):
+                    return "sigterm_retired"
+            except BaseException as error:
+                verification_error = error
+
+    try:
+        _signal_process_group(pgid, _BootstrapSignal.SIGKILL)
+    except BaseException as error:
+        kill_error = error
+    else:
+        process.join(_runtime_retirement_remaining(kill_deadline))
+
+    child_alive = process.is_alive()
+    group_absent = False
+    try:
+        group_absent = _wait_process_group_absent(
+            pgid,
+            _runtime_retirement_remaining(kill_deadline),
+        )
+    except BaseException as error:
+        if verification_error is None:
+            verification_error = error
+
+    if (
+        term_error is not None
+        or kill_error is not None
+        or verification_error is not None
     ):
+        failure = RuntimeProcessGroupSignalCleanupError(
+            term_error,
+            kill_error,
+            verification_error,
+            child_alive,
+            group_absent,
+        )
+        cause = term_error or kill_error or verification_error
+        assert cause is not None
+        raise failure from cause
+
+    if child_alive or not group_absent:
         raise ContractError(
             f"runtime process-group containment failed to retire pgid={pgid}"
         )
     return "sigkill_retired"
-
 
 class RuntimeChildUnboundRetirementError(ContractError):
     """Preserve TERM/KILL failures while still attempting bounded retirement."""
@@ -382,7 +466,6 @@ class RuntimeChildUnboundRetirementError(ContractError):
             separators=(",", ":"),
         )
         super().__init__(f"unbound runtime child retirement failed:{encoded}")
-
 
 def _retire_unbound_runtime_child(
     process: Any,
