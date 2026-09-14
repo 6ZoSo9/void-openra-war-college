@@ -5,6 +5,7 @@ on:
     paths:
       - tools/inspect_joint_advance_evidence.py
       - tests/test_inspect_joint_advance_evidence.py
+      - tests/test_inspect_joint_advance_semantics_v1.py
       - test_bench_joint_advance.py
       - bench_joint_advance.py
       - bench_joint_advance_core.py
@@ -16,6 +17,7 @@ on:
     paths:
       - tools/inspect_joint_advance_evidence.py
       - tests/test_inspect_joint_advance_evidence.py
+      - tests/test_inspect_joint_advance_semantics_v1.py
       - test_bench_joint_advance.py
       - bench_joint_advance.py
       - bench_joint_advance_core.py
@@ -99,6 +101,7 @@ jobs:
           paths = (
               "tools/inspect_joint_advance_evidence.py",
               "tests/test_inspect_joint_advance_evidence.py",
+              "tests/test_inspect_joint_advance_semantics_v1.py",
               "test_bench_joint_advance.py",
               "bench_joint_advance.py",
               "bench_joint_advance_core.py",
@@ -156,21 +159,21 @@ jobs:
             git -C exact-head diff --check HEAD
           fi
       - name: Compile integration inspection source
-        run: python -m py_compile tools/inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_evidence.py test_bench_joint_advance.py bench_joint_advance.py bench_joint_advance_core.py
+        run: python -m py_compile tools/inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_semantics_v1.py test_bench_joint_advance.py bench_joint_advance.py bench_joint_advance_core.py
       - name: Run integration read-only inspection tests
-        run: python -m unittest -v tests/test_inspect_joint_advance_evidence.py
+        run: python -m unittest -v tests/test_inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_semantics_v1.py
       - name: Compile exact-head inspection source
         shell: bash
         run: |
           set -euo pipefail
           cd exact-head
-          python -m py_compile tools/inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_evidence.py test_bench_joint_advance.py bench_joint_advance.py bench_joint_advance_core.py
+          python -m py_compile tools/inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_semantics_v1.py test_bench_joint_advance.py bench_joint_advance.py bench_joint_advance_core.py
       - name: Run exact-head read-only inspection tests
         shell: bash
         run: |
           set -euo pipefail
           cd exact-head
-          python -m unittest -v tests/test_inspect_joint_advance_evidence.py
+          python -m unittest -v tests/test_inspect_joint_advance_evidence.py tests/test_inspect_joint_advance_semantics_v1.py
       - name: Prove no recovery or countability authority
         run: |
           python - <<'PY'
