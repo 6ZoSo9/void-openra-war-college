@@ -1167,5 +1167,105 @@ class RuntimeChildHandoffCleanupTests(unittest.TestCase):
         retire.assert_called_once_with(process)
 
 
+
+class RuntimeChildTerminalOnceTests(unittest.TestCase):
+    def test_post_outcome_shutdown_failure_is_not_a_second_error_terminal(self) -> None:
+        sender = mock.Mock()
+        outcome = {"cells": [], "run": {}, "host": {}}
+        shutdown_failure = RuntimeError("fixture asyncio shutdown failure")
+        real_run = bench.asyncio.run
+
+        async def execute_runtime(args, parameters, provenance):
+            del args, parameters, provenance
+            return outcome
+
+        def run_then_fail(coroutine):
+            real_run(coroutine)
+            raise shutdown_failure
+
+        with (
+            mock.patch.object(bench.os, "setsid"),
+            mock.patch.object(bench.os, "getpid", return_value=4242),
+            mock.patch.object(bench.os, "getpgrp", return_value=4242),
+            mock.patch.object(
+                bench,
+                "_CORE_EXECUTE_RUNTIME",
+                new=execute_runtime,
+            ),
+            mock.patch.object(
+                bench.asyncio,
+                "run",
+                side_effect=run_then_fail,
+            ),
+        ):
+            with self.assertRaises(RuntimeError) as raised:
+                bench._runtime_child_entry(
+                    sender,
+                    _authorized_args(),
+                    _parameters(),
+                    {},
+                )
+
+        self.assertIs(raised.exception, shutdown_failure)
+        self.assertEqual(
+            sender.send.call_args_list,
+            [
+                mock.call(("STARTED", 4242, 4242)),
+                mock.call(("OUTCOME", outcome)),
+            ],
+        )
+        sender.close.assert_called_once_with()
+
+    def test_natural_zero_exit_is_accepted_after_group_disappears(self) -> None:
+        process = mock.Mock()
+        process.pid = 4242
+        process.exitcode = 0
+        process.is_alive.return_value = False
+
+        with (
+            mock.patch.object(
+                bench,
+                "_process_group_exists",
+                return_value=False,
+            ),
+            mock.patch.object(bench, "_signal_process_group") as signal_group,
+        ):
+            terminal = bench._retire_runtime_process_group(
+                process,
+                4242,
+                natural_grace_s=0.0,
+                signal_grace_s=0.0,
+            )
+
+        self.assertEqual(terminal, "natural_exit")
+        signal_group.assert_not_called()
+
+    def test_natural_nonzero_exit_is_rejected_before_supervisor_success(self) -> None:
+        process = mock.Mock()
+        process.pid = 4242
+        process.exitcode = 17
+        process.is_alive.return_value = False
+
+        with (
+            mock.patch.object(
+                bench,
+                "_process_group_exists",
+                return_value=False,
+            ),
+            mock.patch.object(bench, "_signal_process_group") as signal_group,
+        ):
+            with self.assertRaisesRegex(
+                bench.ContractError,
+                r"natural exit is not successful: exitcode=17",
+            ):
+                bench._retire_runtime_process_group(
+                    process,
+                    4242,
+                    natural_grace_s=0.0,
+                    signal_grace_s=0.0,
+                )
+
+        signal_group.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()
