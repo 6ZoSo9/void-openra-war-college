@@ -388,6 +388,142 @@ def _retire_unbound_runtime_child(
         raise ContractError("unbound runtime child could not be retired")
 
 
+
+class RuntimeChildStartCleanupError(ContractError):
+    """Retain a construction/start failure plus both endpoint-close outcomes."""
+
+    def __init__(
+        self,
+        primary: BaseException,
+        receiver_close_error: BaseException | None,
+        sender_close_error: BaseException | None,
+    ) -> None:
+        def outcome(error: BaseException | None) -> dict[str, str]:
+            if error is None:
+                return {"status": "ok"}
+            return {
+                "status": "error",
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+
+        self.primary = primary
+        self.receiver_close_error = receiver_close_error
+        self.sender_close_error = sender_close_error
+        self.details = {
+            "primary": outcome(primary),
+            "cleanup": {
+                "receiver_close": outcome(receiver_close_error),
+                "sender_close": outcome(sender_close_error),
+            },
+        }
+        encoded = _BootstrapJson.dumps(
+            self.details,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        super().__init__(f"runtime child start cleanup failed:{encoded}")
+
+
+class RuntimeChildParentCleanupError(ContractError):
+    """Retain parent-loop failure plus receiver-close/retirement outcomes."""
+
+    def __init__(
+        self,
+        primary: BaseException | None,
+        receiver_close_error: BaseException | None,
+        retirement_error: BaseException | None,
+    ) -> None:
+        def outcome(error: BaseException | None) -> dict[str, str]:
+            if error is None:
+                return {"status": "ok"}
+            return {
+                "status": "error",
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+
+        self.primary = primary
+        self.receiver_close_error = receiver_close_error
+        self.retirement_error = retirement_error
+        self.details = {
+            "primary": outcome(primary),
+            "cleanup": {
+                "receiver_close": outcome(receiver_close_error),
+                "child_retirement": outcome(retirement_error),
+            },
+        }
+        encoded = _BootstrapJson.dumps(
+            self.details,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        super().__init__(f"runtime child parent cleanup failed:{encoded}")
+
+
+def _close_unstarted_runtime_pipe_endpoints(
+    receiver: Any,
+    sender: Any,
+    primary: BaseException,
+) -> None:
+    """Close both unstarted endpoints without letting cleanup mask the primary."""
+
+    receiver_close_error: BaseException | None = None
+    sender_close_error: BaseException | None = None
+    try:
+        receiver.close()
+    except BaseException as error:
+        receiver_close_error = error
+    try:
+        sender.close()
+    except BaseException as error:
+        sender_close_error = error
+    if receiver_close_error is not None or sender_close_error is not None:
+        raise RuntimeChildStartCleanupError(
+            primary,
+            receiver_close_error,
+            sender_close_error,
+        ) from primary
+
+
+def _close_receiver_and_retire_runtime_child(
+    receiver: Any,
+    process: Any,
+    pgid: int | None,
+    *,
+    primary: BaseException | None,
+) -> str | None:
+    """Attempt receiver close and child retirement independently, then report."""
+
+    receiver_close_error: BaseException | None = None
+    retirement_error: BaseException | None = None
+    retirement_terminal: str | None = None
+
+    try:
+        receiver.close()
+    except BaseException as error:
+        receiver_close_error = error
+
+    try:
+        if pgid is None:
+            _retire_unbound_runtime_child(process)
+        else:
+            retirement_terminal = _retire_runtime_process_group(process, pgid)
+    except BaseException as error:
+        retirement_error = error
+
+    if receiver_close_error is not None or retirement_error is not None:
+        cause = primary or receiver_close_error or retirement_error
+        assert cause is not None
+        raise RuntimeChildParentCleanupError(
+            primary,
+            receiver_close_error,
+            retirement_error,
+        ) from cause
+
+    return retirement_terminal
+
+
 class RuntimeChildHandoffError(ContractError):
     """Retain the sender-handoff cause plus every secondary cleanup outcome."""
 
@@ -540,9 +676,8 @@ def _execute_runtime_contained(
             name="void-war-college-runtime",
         )
         process.start()
-    except BaseException:
-        receiver.close()
-        sender.close()
+    except BaseException as primary:
+        _close_unstarted_runtime_pipe_endpoints(receiver, sender, primary)
         raise
     try:
         sender.close()
@@ -632,11 +767,12 @@ def _execute_runtime_contained(
                 )
                 break
     finally:
-        receiver.close()
-        if pgid is None:
-            _retire_unbound_runtime_child(process)
-        else:
-            retirement_terminal = _retire_runtime_process_group(process, pgid)
+        retirement_terminal = _close_receiver_and_retire_runtime_child(
+            receiver,
+            process,
+            pgid,
+            primary=_BootstrapSys.exc_info()[1],
+        )
 
     if outcome is None:
         raise ContractError(child_error or "runtime child produced no outcome")
