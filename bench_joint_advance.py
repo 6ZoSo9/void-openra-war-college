@@ -41,6 +41,33 @@ def _post_commit_error(error: BaseException, stage: str) -> str:
     return f"{stage}:{type(error).__name__}:{error}"
 
 
+def _close_committed_evidence_reservation(
+    reservation: EvidenceReservation,
+    post_commit_errors: list[str],
+) -> None:
+    """Close retained publication descriptors without crossing the commit boundary.
+
+    Each descriptor is attempted independently. Once close has been attempted,
+    ownership is dropped even if close reports an error: retrying a failed
+    ``close(2)`` can target a reused descriptor on some platforms. After the
+    durable receipt commit, close failures are diagnostics only.
+    """
+
+    for attribute, stage in (
+        ("descriptor", "reservation_descriptor_close"),
+        ("parent_descriptor", "reservation_parent_descriptor_close"),
+    ):
+        descriptor = getattr(reservation, attribute)
+        if descriptor is None:
+            continue
+        try:
+            os.close(descriptor)
+        except OSError as error:
+            post_commit_errors.append(_post_commit_error(error, stage))
+        finally:
+            setattr(reservation, attribute, None)
+
+
 def _retire_pending(
     parent_descriptor: int,
     staging_name: str,
@@ -229,7 +256,11 @@ def publish_evidence_create_only(
             raise
         post_commit_errors.append(_post_commit_error(error, "unexpected_post_commit"))
     finally:
-        if owns_reservation or committed:
+        if committed:
+            _close_committed_evidence_reservation(
+                reservation, post_commit_errors,
+            )
+        elif owns_reservation:
             reservation.close()
 
     if not committed or commit_receipt is None:
