@@ -11,21 +11,32 @@ from openra_env.learning.apollyon_opponent_runtime_realizations import (
 )
 
 
-def test_v2r13_historical_warm_start_is_proven_but_not_portable():
+def test_v2r13_portable_frozen_checkout_binding_is_reviewed_and_source_bound():
     assert V2R13["historical_game_facing_runtime_proven"] is True
     assert V2R13["runtime_surface_realized"] is True
     assert V2R13["warm_start_input_surface_compatible"] is True
-    assert V2R13["portable_current_checkout_binding_complete"] is False
-    assert V2R13["current_campaign_runtime_realized"] is False
+    assert V2R13["portable_current_checkout_binding_complete"] is True
+    assert V2R13["current_campaign_runtime_realized"] is True
     assert V2R13["identity"]["legacy_warm_start_runner_sha256"] == (
         "ad7655e3ebfee198aed4ec879aa630f1fa4676eb75d8be432e6e5242dbc3d901"
+    )
+    assert V2R13["identity"]["portable_checkout_binding_source_sha256"] == (
+        "92e16e281d5a9036d78d900f35d854c6fb9783b2bf156c2acab69408d13a015d"
+    )
+    assert V2R13["identity"]["portable_checkout_binding_contract_sha256"] == (
+        "677e503e8d4827a9d8950a177f308ad08982f612d70881f16de2c271e3b10e49"
     )
     assert V2R13["identity"]["frozen_war_college_commit"] == (
         "973802ef0a614e5afa782ff20e231e18966ae3e5"
     )
-    assert V2R13["blockers"] == [
-        "V2R13_FROZEN_CHECKOUT_BINDING_NOT_PORTABLE"
-    ]
+    assert V2R13["identity"]["frozen_war_college_tree"] == (
+        "d8a2af418af00e95ca0f203a2f0264851f2308c6"
+    )
+    assert V2R13["input_surface"]["portable_checkout_binding_reviewed"] is True
+    assert V2R13["input_surface"]["source_materialization"] == "detached_git_worktree"
+    assert V2R13["input_surface"]["canonical_checkout_mutation_required"] is False
+    assert V2R13["input_surface"]["host_validation_unchanged"] is True
+    assert V2R13["blockers"] == []
 
 
 def test_v10_campaign_translation_is_reviewed_and_source_bound():
@@ -66,14 +77,13 @@ def test_v8_has_no_frozen_war_college_tool_runtime():
 
 def test_realization_set_is_exact_and_fail_closed():
     result = reviewed_opponent_runtime_realizations()
-    assert result["realization_set_sha256"] == "755039d427ddb32a733e05e7ae76ef6f23911c3d1c13c083867313d936cb41f6"
+    assert result["realization_set_sha256"] == "1da6d280460fb1136dd1dbcb8d5ec47cf63a445378ff7112399d7aef3bbb5c0b"
     assert result["source_binding_complete"] is True
     assert result["historical_game_facing_runtime_count"] == 2
     assert result["runtime_surface_realized_count"] == 2
-    assert result["current_campaign_runtime_realized_count"] == 1
+    assert result["current_campaign_runtime_realized_count"] == 2
     assert result["opponent_runtime_realization_complete"] is False
     assert result["blockers"] == [
-        "V2R13_FROZEN_CHECKOUT_BINDING_NOT_PORTABLE",
         "V8_WAR_COLLEGE_TOOL_RUNTIME_NOT_FROZEN",
     ]
     assert result["authority"] == {
