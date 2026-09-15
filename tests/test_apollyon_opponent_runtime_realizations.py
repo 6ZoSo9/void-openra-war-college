@@ -64,28 +64,37 @@ def test_v10_campaign_translation_is_reviewed_and_source_bound():
     assert V10["blockers"] == []
 
 
-def test_v8_has_no_frozen_war_college_tool_runtime():
+def test_v8_tool_runtime_is_frozen_reviewed_and_source_bound():
     assert V8["historical_game_facing_runtime_proven"] is False
-    assert V8["runtime_surface_realized"] is False
-    assert V8["warm_start_input_surface_compatible"] is False
-    assert V8["current_campaign_runtime_realized"] is False
-    assert V8["input_surface"]["tool_transport_frozen"] is False
-    assert V8["blockers"] == [
-        "V8_WAR_COLLEGE_TOOL_RUNTIME_NOT_FROZEN"
-    ]
+    assert V8["runtime_surface_realized"] is True
+    assert V8["warm_start_input_surface_compatible"] is True
+    assert V8["portable_current_checkout_binding_complete"] is True
+    assert V8["current_campaign_runtime_realized"] is True
+    assert V8["input_surface"]["tool_transport_frozen"] is True
+    assert V8["input_surface"]["translation_required"] is True
+    assert V8["input_surface"]["translation_reviewed"] is True
+    assert V8["input_surface"]["output_translation_reviewed"] is True
+    assert V8["input_surface"]["current_state_only"] is True
+    assert V8["input_surface"]["current_tool_list_authoritative"] is True
+    assert V8["input_surface"]["host_validation_unchanged"] is True
+    assert V8["input_surface"]["fabricated_information_allowed"] is False
+    assert V8["identity"]["tool_runtime_source_sha256"] == "98a37ce59cabead530fb90f696b32081789ae8b5db61a7fd29df7c01137fbe16"
+    assert V8["identity"]["tool_runtime_contract_sha256"] == "0f05d823981340847960b57533541a3c380a1807f43566da9fb65de23f1dc850"
+    assert V8["identity"]["accepted_evaluator_sha256"] == (
+        "8c39267872ba797b30ce2ff7a2174863d7a5d4c8061afc6db8571786a7ea5f27"
+    )
+    assert V8["blockers"] == []
 
 
 def test_realization_set_is_exact_and_fail_closed():
     result = reviewed_opponent_runtime_realizations()
-    assert result["realization_set_sha256"] == "1da6d280460fb1136dd1dbcb8d5ec47cf63a445378ff7112399d7aef3bbb5c0b"
+    assert result["realization_set_sha256"] == "b077e3020ceafe39cda6befce7eda14582021207c741177d90e2a72ba1853f39"
     assert result["source_binding_complete"] is True
     assert result["historical_game_facing_runtime_count"] == 2
-    assert result["runtime_surface_realized_count"] == 2
-    assert result["current_campaign_runtime_realized_count"] == 2
-    assert result["opponent_runtime_realization_complete"] is False
-    assert result["blockers"] == [
-        "V8_WAR_COLLEGE_TOOL_RUNTIME_NOT_FROZEN",
-    ]
+    assert result["runtime_surface_realized_count"] == 3
+    assert result["current_campaign_runtime_realized_count"] == 3
+    assert result["opponent_runtime_realization_complete"] is True
+    assert result["blockers"] == []
     assert result["authority"] == {
         "runtime_execution_authorized": False,
         "game_started": False,

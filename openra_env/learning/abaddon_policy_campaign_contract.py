@@ -95,7 +95,9 @@ def reviewed_plan() -> dict[str, Any]:
         "abaddon_refiner_sha256": ABADDON_REFINER_SHA256,
         "candidate_only": True,
         "status": (
-            "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF_AND_RUNTIME_REALIZATION"
+            "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF"
+            if runtime_realizations["opponent_runtime_realization_complete"]
+            else "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF_AND_RUNTIME_REALIZATION"
         ),
         "opponent_snapshot_set": snapshots,
         "opponent_runtime_realizations": runtime_realizations,
