@@ -95,9 +95,12 @@ def reviewed_plan() -> dict[str, Any]:
         "abaddon_refiner_sha256": ABADDON_REFINER_SHA256,
         "candidate_only": True,
         "status": (
-            "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF"
-            if runtime_realizations["opponent_runtime_realization_complete"]
-            else "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF_AND_RUNTIME_REALIZATION"
+            "READY_PENDING_RUNTIME_EXECUTION_AUTHORIZATION"
+            if snapshots["previous_champion_proven"]
+            and runtime_realizations["opponent_runtime_realization_complete"]
+            else "BLOCKED_PENDING_OPPONENT_RUNTIME_REALIZATION"
+            if snapshots["previous_champion_proven"]
+            else "BLOCKED_PENDING_PREVIOUS_CHAMPION_PROOF"
         ),
         "opponent_snapshot_set": snapshots,
         "opponent_runtime_realizations": runtime_realizations,
@@ -124,7 +127,7 @@ def reviewed_plan() -> dict[str, Any]:
             "opponent_snapshot_binding_required": True,
             "opponent_snapshot_source_binding_complete": True,
             "previous_champion_binding_required": True,
-            "previous_champion_binding_complete": False,
+            "previous_champion_binding_complete": snapshots["previous_champion_proven"],
             "campaign_attempt_ledger_required": True,
             "campaign_attempt_ledger_complete": True,
             "candidate_frozen_before_campaign_evidence": True,

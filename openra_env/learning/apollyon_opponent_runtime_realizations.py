@@ -15,6 +15,9 @@ from typing import Any
 
 from .apollyon_opponent_snapshots import reviewed_snapshot_set
 from .apollyon_v10_campaign_translation import translation_contract
+from .apollyon_v14_campaign_translation_binding import (
+    v14_campaign_translation_binding_contract,
+)
 from .apollyon_v2r13_portable_checkout import portable_binding_contract
 from .apollyon_v8_campaign_runtime import v8_tool_runtime_contract
 
@@ -72,11 +75,46 @@ V2R13 = {
     "blockers": [],
 }
 
+V14 = {'schema': 'void.apollyon.opponent-runtime-realization.v1',
+ 'snapshot_id': 'apollyon-v13-v14-promoted',
+ 'snapshot_sha256': '457d0516ac22072ee4f69064763d002461fe056539be996a503b8c8fdefd0173',
+ 'runtime_class': 'promoted_loopback_openai_runtime',
+ 'historical_game_facing_runtime_proven': True,
+ 'runtime_surface_realized': True,
+ 'warm_start_input_surface_compatible': True,
+ 'portable_current_checkout_binding_complete': True,
+ 'current_campaign_runtime_realized': True,
+ 'identity': {'candidate_sha256': '9d7c5a4121d2926e32955f9c7ee1b6cb6da3c6bf7f705c455ad4cb54f7f509db',
+              'v8_adapter_sha256': 'ba792bd9472b0f9ee8e7acb5b40115a41c4def378fe74438b2f33d43b742b0e6',
+              'live_input_adapter_v4_sha256': '9ba6cfa75bea5ac708f7dd690f67640d3f84e03335de09c8a4514eb5c3437686',
+              'live_input_contract_v6_sha256': 'fe62a8488454e0974179519a53f79a2c823182daa5225b2ea455518a3489fcfe',
+              'promoted_openai_bridge_v1_sha256': 'd5e99d9d9aecbf27f90dc7716dedc11127339ea1b7f5331cdfe7d906d3afbd25',
+              'campaign_translation_source_sha256': '2d32351dff8d96a3254436305c2c402ea06c9a344b6b3ea67cb70c512eef2d53',
+              'campaign_translation_contract_sha256': '69c862387dad806681c5d066fea8e87836d2c0825f792ae293177c23cddee38b',
+              'v14_campaign_translation_binding_fixture_sha256': '19321230b0a555b7d848be686768dc05773089b53ad5c580312a74bf49f90876',
+              'v14_campaign_translation_binding_contract_sha256': 'f91c9b89155bb09eadf24d9491573fb8f8c364886cb2609c62616b7b355de677',
+              'promotion_record_sha256': 'c7195d13f0579ff07da0cdfe98522dd64f4b4ffc3a86c67a91a19d7b61d1fd66',
+              'current_policy_record_sha256': '0a87058db61ce79d58157f197e35a1a8061716eb189e682618ebbdd2edb4a40c',
+              'promotion_reconciliation_sha256': '274833334fad538717630b9575c7e1c4f04ae210237124663f33bed3ab6139d4',
+              'active_runtime_unit_sha256': '5ff3a1279f8cf387b9ff27975463c63f0d33da5b16998cfd8993fe2c88990b30',
+              'model_id': 'void-apollyon-v3-v13-guard-first-v14-promoted',
+              'chat_completions_url': 'http://127.0.0.1:11435/v1/chat/completions'},
+ 'input_surface': {'accepted_kind': 'turn_briefing_plus_recent_tool_results',
+                   'campaign_kind': 'legacy_current_tool_list_plus_compact_state_json',
+                   'translation_required': True,
+                   'translation_reviewed': True,
+                   'output_translation_reviewed': True,
+                   'current_state_only': True,
+                   'current_tool_list_authoritative': True,
+                   'host_validation_unchanged': True,
+                   'fabricated_information_allowed': False},
+ 'blockers': []}
+
 V10 = {
     "schema": REALIZATION_SCHEMA,
     "snapshot_id": "apollyon-v13-v10-promoted",
     "snapshot_sha256":
-        "2c7c6a87908bf16ac3f3daab53faaa6e808f00be65f9c362f42af9595f540bf8",
+        "be50560fd21f400bf72d5dfcf1312d86c3d1911b1bcc691cc1f1cc0aa0259239",
     "runtime_class": "promoted_loopback_openai_runtime",
     "historical_game_facing_runtime_proven": True,
     "runtime_surface_realized": True,
@@ -178,7 +216,7 @@ V8 = {
     "blockers": [],
 }
 
-REVIEWED_REALIZATIONS = (V2R13, V10, V8)
+REVIEWED_REALIZATIONS = (V14, V10, V2R13, V8)
 
 
 class RuntimeRealizationError(ValueError):
@@ -244,6 +282,9 @@ def validate_realization(value: Mapping[str, Any]) -> None:
 
 def reviewed_opponent_runtime_realizations() -> dict[str, Any]:
     snapshot_set = reviewed_snapshot_set()
+    v14_binding = v14_campaign_translation_binding_contract()
+    _require(v14_binding['binding_complete'] is True, 'V14 binding incomplete')
+    _require(v14_binding['runtime_execution_authorized'] is False, 'V14 binding unexpectedly grants execution')
     translation = translation_contract()
     translation_path = Path(__file__).with_name("apollyon_v10_campaign_translation.py")
     _require(translation_path.is_file(), "V10 campaign translation source missing")
@@ -497,7 +538,7 @@ def reviewed_opponent_runtime_realizations() -> dict[str, Any]:
         )
 
     ids = [row["snapshot_id"] for row in descriptors]
-    _require(len(ids) == len(set(ids)) == 3, "exactly three unique realizations required")
+    _require(len(ids) == len(set(ids)) == 4, "exactly four unique realizations required")
 
     realized = [
         row for row in descriptors
@@ -525,7 +566,7 @@ def reviewed_opponent_runtime_realizations() -> dict[str, Any]:
             if row["runtime_surface_realized"]
         ),
         "current_campaign_runtime_realized_count": len(realized),
-        "opponent_runtime_realization_complete": len(realized) == 3,
+        "opponent_runtime_realization_complete": len(realized) == 4,
         "blockers": blockers,
         "authority": {
             "runtime_execution_authorized": False,

@@ -14,37 +14,39 @@ from typing import Any
 SNAPSHOT_SCHEMA = "void.apollyon.opponent-snapshot.v1"
 SNAPSHOT_SET_SCHEMA = "void.apollyon.opponent-snapshot-set.v1"
 
-CURRENT_PROMOTED = {
-    "schema": SNAPSHOT_SCHEMA,
-    "snapshot_id": "apollyon-v13-v10-promoted",
-    "role": "current_promoted",
-    "promotion_proven": True,
-    "runtime_activation_proven": True,
-    "identity": {
-        "candidate_sha256":
-            "c351d98912dfe18ff8552da5e620b0e3ba6d9877dbc185c45be0dda0fd7d4025",
-        "candidate_manifest_sha256":
-            "dad33e3adad915b10110f2220ed7c3b0e951a9d85e639a15791513ae22628bba",
-        "final_freeze_sha256":
-            "b49e03b4e622f9251f5fb87735d40039a9d6db30abe57fd296feb8f43179a094",
-        "final_acceptance_v7_report_sha256":
-            "143f2f12d72245ebf80beac6a4e1d3e846c558aa274c8a000e509dbcea879367",
-        "v8_adapter_sha256":
-            "ba792bd9472b0f9ee8e7acb5b40115a41c4def378fe74438b2f33d43b742b0e6",
-        "live_input_adapter_v4_sha256":
-            "9ba6cfa75bea5ac708f7dd690f67640d3f84e03335de09c8a4514eb5c3437686",
-        "live_input_contract_v6_sha256":
-            "fe62a8488454e0974179519a53f79a2c823182daa5225b2ea455518a3489fcfe",
-        "openai_bridge_v7_sha256":
-            "c197f3b75016dd7c4c25346f98aafdb1f631e2ee6e8b3514f9ebb650490b4510",
-        "promotion_record_sha256":
-            "5a5e857d253f986eae0bda5187638ca6547d874db840fb24ea30ec550306f444",
-        "active_runtime_unit_sha256":
-            "407f5f8514502005ecbaefd7e7df7caf90d8024e496f948c3db90d6405d6f320",
-        "active_runtime_record_sha256":
-            "46045916b96ed53ff7abb06a198358a500d50226beb46c72df16ed5d45309b9f",
-    },
-}
+CURRENT_PROMOTED = {'identity': {'active_runtime_unit_sha256': '5ff3a1279f8cf387b9ff27975463c63f0d33da5b16998cfd8993fe2c88990b30',
+              'candidate_manifest_sha256': 'c83456034d5059723824eb440b8ba607fd15fe4229f1d8f26304421e2c744a49',
+              'candidate_sha256': '9d7c5a4121d2926e32955f9c7ee1b6cb6da3c6bf7f705c455ad4cb54f7f509db',
+              'current_policy_record_sha256': '0a87058db61ce79d58157f197e35a1a8061716eb189e682618ebbdd2edb4a40c',
+              'final_acceptance_report_sha256': '0c2c546a08d871551025ff0333916bd273ab527e33d9fecfc4898ee853eb6e23',
+              'live_input_adapter_v4_sha256': '9ba6cfa75bea5ac708f7dd690f67640d3f84e03335de09c8a4514eb5c3437686',
+              'promoted_openai_bridge_v1_sha256': 'd5e99d9d9aecbf27f90dc7716dedc11127339ea1b7f5331cdfe7d906d3afbd25',
+              'promotion_reconciliation_sha256': '274833334fad538717630b9575c7e1c4f04ae210237124663f33bed3ab6139d4',
+              'promotion_record_sha256': 'c7195d13f0579ff07da0cdfe98522dd64f4b4ffc3a86c67a91a19d7b61d1fd66',
+              'source_freeze_sha256': '768ad9bbf845d691537994f3b38d925ed58edf0e8a9a2aaa65d41401c89851a9',
+              'v8_adapter_sha256': 'ba792bd9472b0f9ee8e7acb5b40115a41c4def378fe74438b2f33d43b742b0e6'},
+ 'promotion_proven': True,
+ 'role': 'current_promoted',
+ 'runtime_activation_proven': True,
+ 'schema': 'void.apollyon.opponent-snapshot.v1',
+ 'snapshot_id': 'apollyon-v13-v14-promoted'}
+
+PREVIOUS_PROMOTED_CHAMPION = {'identity': {'candidate_manifest_sha256': 'dad33e3adad915b10110f2220ed7c3b0e951a9d85e639a15791513ae22628bba',
+              'candidate_sha256': 'c351d98912dfe18ff8552da5e620b0e3ba6d9877dbc185c45be0dda0fd7d4025',
+              'final_acceptance_v7_report_sha256': '143f2f12d72245ebf80beac6a4e1d3e846c558aa274c8a000e509dbcea879367',
+              'final_freeze_sha256': 'b49e03b4e622f9251f5fb87735d40039a9d6db30abe57fd296feb8f43179a094',
+              'live_input_adapter_v4_sha256': '9ba6cfa75bea5ac708f7dd690f67640d3f84e03335de09c8a4514eb5c3437686',
+              'openai_bridge_v7_sha256': 'c197f3b75016dd7c4c25346f98aafdb1f631e2ee6e8b3514f9ebb650490b4510',
+              'pre_promotion_runtime_unit_sha256': '407f5f8514502005ecbaefd7e7df7caf90d8024e496f948c3db90d6405d6f320',
+              'previous_champion_record_sha256': '1115aa2230c294839787aaff93cf3db107a613d4268d580c08086587b6aa3fc0',
+              'promotion_record_sha256': '5a5e857d253f986eae0bda5187638ca6547d874db840fb24ea30ec550306f444',
+              'superseded_by_v14_promotion_record_sha256': 'c7195d13f0579ff07da0cdfe98522dd64f4b4ffc3a86c67a91a19d7b61d1fd66',
+              'v8_adapter_sha256': 'ba792bd9472b0f9ee8e7acb5b40115a41c4def378fe74438b2f33d43b742b0e6'},
+ 'promotion_proven': True,
+ 'role': 'previous_promoted_champion',
+ 'runtime_activation_proven': True,
+ 'schema': 'void.apollyon.opponent-snapshot.v1',
+ 'snapshot_id': 'apollyon-v13-v10-promoted'}
 
 PRIOR_QUALIFIED_PREDECESSOR = {
     "schema": SNAPSHOT_SCHEMA,
@@ -95,6 +97,7 @@ PRIOR_ACCEPTED_MODEL_CONTROL = {
 
 REVIEWED_SNAPSHOTS = (
     CURRENT_PROMOTED,
+    PREVIOUS_PROMOTED_CHAMPION,
     PRIOR_QUALIFIED_PREDECESSOR,
     PRIOR_ACCEPTED_MODEL_CONTROL,
 )

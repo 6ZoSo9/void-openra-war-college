@@ -21,7 +21,8 @@
     "target_doctrine": "FEINTER"
   },
   "execution_eligible": false,
-  "opponent_snapshot_set_sha256": "ed5b2e325b14171301899ff0c1890df3670f41a7e8cf1da73746c5e1a96dbb00",
+  "opponent_runtime_realization_set_sha256": "1dbb861a3bc03a4423187846a519f228726cc890f4452c3b1d8607614288a7d8",
+  "opponent_snapshot_set_sha256": "d7bfce0cb1456ec440f6ab362c781057837c3912c557f865ae95b7ddc6278526",
   "pair_slots": [
     {
       "abaddon_doctrine": "FEINTER",
@@ -40,8 +41,8 @@
       "execution_state": "NOT_EXECUTED",
       "held_out": false,
       "opponent_role": "current_promoted",
-      "opponent_snapshot_id": "apollyon-v13-v10-promoted",
-      "opponent_snapshot_sha256": "2c7c6a87908bf16ac3f3daab53faaa6e808f00be65f9c362f42af9595f540bf8",
+      "opponent_snapshot_id": "apollyon-v13-v14-promoted",
+      "opponent_snapshot_sha256": "457d0516ac22072ee4f69064763d002461fe056539be996a503b8c8fdefd0173",
       "pair_binding": {
         "same_abaddon_doctrine": true,
         "same_opponent_snapshot": true,
@@ -73,9 +74,9 @@
       },
       "execution_state": "NOT_EXECUTED",
       "held_out": false,
-      "opponent_role": "prior_qualified_predecessor",
-      "opponent_snapshot_id": "apollyon-v2r13-qualified-predecessor",
-      "opponent_snapshot_sha256": "731da9720a3e3aecd7fe455cb951f9e1f0fbda7b2f9acc6be4ddfebe74ec4be6",
+      "opponent_role": "previous_promoted_champion",
+      "opponent_snapshot_id": "apollyon-v13-v10-promoted",
+      "opponent_snapshot_sha256": "be50560fd21f400bf72d5dfcf1312d86c3d1911b1bcc691cc1f1cc0aa0259239",
       "pair_binding": {
         "same_abaddon_doctrine": true,
         "same_opponent_snapshot": true,
@@ -107,9 +108,9 @@
       },
       "execution_state": "NOT_EXECUTED",
       "held_out": false,
-      "opponent_role": "current_promoted",
-      "opponent_snapshot_id": "apollyon-v13-v10-promoted",
-      "opponent_snapshot_sha256": "2c7c6a87908bf16ac3f3daab53faaa6e808f00be65f9c362f42af9595f540bf8",
+      "opponent_role": "prior_qualified_predecessor",
+      "opponent_snapshot_id": "apollyon-v2r13-qualified-predecessor",
+      "opponent_snapshot_sha256": "731da9720a3e3aecd7fe455cb951f9e1f0fbda7b2f9acc6be4ddfebe74ec4be6",
       "pair_binding": {
         "same_abaddon_doctrine": true,
         "same_opponent_snapshot": true,
@@ -120,7 +121,7 @@
       },
       "pair_slot": 3,
       "rounds": 36,
-      "seed": 924793853,
+      "seed": 929035763,
       "staging_max_ticks": 800,
       "starter_infantry": 4,
       "ticks_per_round": 25
@@ -141,9 +142,9 @@
       },
       "execution_state": "NOT_EXECUTED",
       "held_out": false,
-      "opponent_role": "prior_accepted_model_control",
-      "opponent_snapshot_id": "apollyon-v3-v8-accepted-model-control",
-      "opponent_snapshot_sha256": "5c51082219530a302ce25b28daba9928f56a436c11d1508ca0bef755f4a86667",
+      "opponent_role": "current_promoted",
+      "opponent_snapshot_id": "apollyon-v13-v14-promoted",
+      "opponent_snapshot_sha256": "457d0516ac22072ee4f69064763d002461fe056539be996a503b8c8fdefd0173",
       "pair_binding": {
         "same_abaddon_doctrine": true,
         "same_opponent_snapshot": true,
@@ -175,9 +176,9 @@
       },
       "execution_state": "NOT_EXECUTED",
       "held_out": false,
-      "opponent_role": "current_promoted",
+      "opponent_role": "previous_promoted_champion",
       "opponent_snapshot_id": "apollyon-v13-v10-promoted",
-      "opponent_snapshot_sha256": "2c7c6a87908bf16ac3f3daab53faaa6e808f00be65f9c362f42af9595f540bf8",
+      "opponent_snapshot_sha256": "be50560fd21f400bf72d5dfcf1312d86c3d1911b1bcc691cc1f1cc0aa0259239",
       "pair_binding": {
         "same_abaddon_doctrine": true,
         "same_opponent_snapshot": true,
@@ -188,75 +189,7 @@
       },
       "pair_slot": 5,
       "rounds": 36,
-      "seed": 2019762597,
-      "staging_max_ticks": 800,
-      "starter_infantry": 4,
-      "ticks_per_round": 25
-    },
-    {
-      "abaddon_doctrine": "FEINTER",
-      "baseline_arm": {
-        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
-        "arm": "champion_baseline",
-        "candidate_fixture_sha256": null,
-        "policy_source": "controller_defaults"
-      },
-      "candidate_arm": {
-        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
-        "arm": "generation_1_candidate_0",
-        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
-        "policy_source": "bounded_deterministic_mutation"
-      },
-      "execution_state": "NOT_EXECUTED",
-      "held_out": false,
-      "opponent_role": "prior_qualified_predecessor",
-      "opponent_snapshot_id": "apollyon-v2r13-qualified-predecessor",
-      "opponent_snapshot_sha256": "731da9720a3e3aecd7fe455cb951f9e1f0fbda7b2f9acc6be4ddfebe74ec4be6",
-      "pair_binding": {
-        "same_abaddon_doctrine": true,
-        "same_opponent_snapshot": true,
-        "same_round_limit": true,
-        "same_seed": true,
-        "same_ticks_per_round": true,
-        "same_warm_start_contract_required": true
-      },
-      "pair_slot": 6,
-      "rounds": 36,
-      "seed": 2019762597,
-      "staging_max_ticks": 800,
-      "starter_infantry": 4,
-      "ticks_per_round": 25
-    },
-    {
-      "abaddon_doctrine": "FEINTER",
-      "baseline_arm": {
-        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
-        "arm": "champion_baseline",
-        "candidate_fixture_sha256": null,
-        "policy_source": "controller_defaults"
-      },
-      "candidate_arm": {
-        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
-        "arm": "generation_1_candidate_0",
-        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
-        "policy_source": "bounded_deterministic_mutation"
-      },
-      "execution_state": "NOT_EXECUTED",
-      "held_out": false,
-      "opponent_role": "current_promoted",
-      "opponent_snapshot_id": "apollyon-v13-v10-promoted",
-      "opponent_snapshot_sha256": "2c7c6a87908bf16ac3f3daab53faaa6e808f00be65f9c362f42af9595f540bf8",
-      "pair_binding": {
-        "same_abaddon_doctrine": true,
-        "same_opponent_snapshot": true,
-        "same_round_limit": true,
-        "same_seed": true,
-        "same_ticks_per_round": true,
-        "same_warm_start_contract_required": true
-      },
-      "pair_slot": 7,
-      "rounds": 36,
-      "seed": 1484361610,
+      "seed": 924793853,
       "staging_max_ticks": 800,
       "starter_infantry": 4,
       "ticks_per_round": 25
@@ -288,7 +221,143 @@
         "same_ticks_per_round": true,
         "same_warm_start_contract_required": true
       },
+      "pair_slot": 6,
+      "rounds": 36,
+      "seed": 924793853,
+      "staging_max_ticks": 800,
+      "starter_infantry": 4,
+      "ticks_per_round": 25
+    },
+    {
+      "abaddon_doctrine": "FEINTER",
+      "baseline_arm": {
+        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+        "arm": "champion_baseline",
+        "candidate_fixture_sha256": null,
+        "policy_source": "controller_defaults"
+      },
+      "candidate_arm": {
+        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+        "arm": "generation_1_candidate_0",
+        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
+        "policy_source": "bounded_deterministic_mutation"
+      },
+      "execution_state": "NOT_EXECUTED",
+      "held_out": false,
+      "opponent_role": "current_promoted",
+      "opponent_snapshot_id": "apollyon-v13-v14-promoted",
+      "opponent_snapshot_sha256": "457d0516ac22072ee4f69064763d002461fe056539be996a503b8c8fdefd0173",
+      "pair_binding": {
+        "same_abaddon_doctrine": true,
+        "same_opponent_snapshot": true,
+        "same_round_limit": true,
+        "same_seed": true,
+        "same_ticks_per_round": true,
+        "same_warm_start_contract_required": true
+      },
+      "pair_slot": 7,
+      "rounds": 36,
+      "seed": 2019762597,
+      "staging_max_ticks": 800,
+      "starter_infantry": 4,
+      "ticks_per_round": 25
+    },
+    {
+      "abaddon_doctrine": "FEINTER",
+      "baseline_arm": {
+        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+        "arm": "champion_baseline",
+        "candidate_fixture_sha256": null,
+        "policy_source": "controller_defaults"
+      },
+      "candidate_arm": {
+        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+        "arm": "generation_1_candidate_0",
+        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
+        "policy_source": "bounded_deterministic_mutation"
+      },
+      "execution_state": "NOT_EXECUTED",
+      "held_out": false,
+      "opponent_role": "previous_promoted_champion",
+      "opponent_snapshot_id": "apollyon-v13-v10-promoted",
+      "opponent_snapshot_sha256": "be50560fd21f400bf72d5dfcf1312d86c3d1911b1bcc691cc1f1cc0aa0259239",
+      "pair_binding": {
+        "same_abaddon_doctrine": true,
+        "same_opponent_snapshot": true,
+        "same_round_limit": true,
+        "same_seed": true,
+        "same_ticks_per_round": true,
+        "same_warm_start_contract_required": true
+      },
       "pair_slot": 8,
+      "rounds": 36,
+      "seed": 2019762597,
+      "staging_max_ticks": 800,
+      "starter_infantry": 4,
+      "ticks_per_round": 25
+    },
+    {
+      "abaddon_doctrine": "FEINTER",
+      "baseline_arm": {
+        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+        "arm": "champion_baseline",
+        "candidate_fixture_sha256": null,
+        "policy_source": "controller_defaults"
+      },
+      "candidate_arm": {
+        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+        "arm": "generation_1_candidate_0",
+        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
+        "policy_source": "bounded_deterministic_mutation"
+      },
+      "execution_state": "NOT_EXECUTED",
+      "held_out": false,
+      "opponent_role": "prior_qualified_predecessor",
+      "opponent_snapshot_id": "apollyon-v2r13-qualified-predecessor",
+      "opponent_snapshot_sha256": "731da9720a3e3aecd7fe455cb951f9e1f0fbda7b2f9acc6be4ddfebe74ec4be6",
+      "pair_binding": {
+        "same_abaddon_doctrine": true,
+        "same_opponent_snapshot": true,
+        "same_round_limit": true,
+        "same_seed": true,
+        "same_ticks_per_round": true,
+        "same_warm_start_contract_required": true
+      },
+      "pair_slot": 9,
+      "rounds": 36,
+      "seed": 2019762597,
+      "staging_max_ticks": 800,
+      "starter_infantry": 4,
+      "ticks_per_round": 25
+    },
+    {
+      "abaddon_doctrine": "FEINTER",
+      "baseline_arm": {
+        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+        "arm": "champion_baseline",
+        "candidate_fixture_sha256": null,
+        "policy_source": "controller_defaults"
+      },
+      "candidate_arm": {
+        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+        "arm": "generation_1_candidate_0",
+        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
+        "policy_source": "bounded_deterministic_mutation"
+      },
+      "execution_state": "NOT_EXECUTED",
+      "held_out": false,
+      "opponent_role": "current_promoted",
+      "opponent_snapshot_id": "apollyon-v13-v14-promoted",
+      "opponent_snapshot_sha256": "457d0516ac22072ee4f69064763d002461fe056539be996a503b8c8fdefd0173",
+      "pair_binding": {
+        "same_abaddon_doctrine": true,
+        "same_opponent_snapshot": true,
+        "same_round_limit": true,
+        "same_seed": true,
+        "same_ticks_per_round": true,
+        "same_warm_start_contract_required": true
+      },
+      "pair_slot": 10,
       "rounds": 36,
       "seed": 1484361610,
       "staging_max_ticks": 800,
@@ -310,78 +379,10 @@
         "policy_source": "bounded_deterministic_mutation"
       },
       "execution_state": "NOT_EXECUTED",
-      "held_out": true,
-      "opponent_role": "current_promoted",
+      "held_out": false,
+      "opponent_role": "previous_promoted_champion",
       "opponent_snapshot_id": "apollyon-v13-v10-promoted",
-      "opponent_snapshot_sha256": "2c7c6a87908bf16ac3f3daab53faaa6e808f00be65f9c362f42af9595f540bf8",
-      "pair_binding": {
-        "same_abaddon_doctrine": true,
-        "same_opponent_snapshot": true,
-        "same_round_limit": true,
-        "same_seed": true,
-        "same_ticks_per_round": true,
-        "same_warm_start_contract_required": true
-      },
-      "pair_slot": 9,
-      "rounds": 36,
-      "seed": 1196095085,
-      "staging_max_ticks": 800,
-      "starter_infantry": 4,
-      "ticks_per_round": 25
-    },
-    {
-      "abaddon_doctrine": "FEINTER",
-      "baseline_arm": {
-        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
-        "arm": "champion_baseline",
-        "candidate_fixture_sha256": null,
-        "policy_source": "controller_defaults"
-      },
-      "candidate_arm": {
-        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
-        "arm": "generation_1_candidate_0",
-        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
-        "policy_source": "bounded_deterministic_mutation"
-      },
-      "execution_state": "NOT_EXECUTED",
-      "held_out": true,
-      "opponent_role": "prior_qualified_predecessor",
-      "opponent_snapshot_id": "apollyon-v2r13-qualified-predecessor",
-      "opponent_snapshot_sha256": "731da9720a3e3aecd7fe455cb951f9e1f0fbda7b2f9acc6be4ddfebe74ec4be6",
-      "pair_binding": {
-        "same_abaddon_doctrine": true,
-        "same_opponent_snapshot": true,
-        "same_round_limit": true,
-        "same_seed": true,
-        "same_ticks_per_round": true,
-        "same_warm_start_contract_required": true
-      },
-      "pair_slot": 10,
-      "rounds": 36,
-      "seed": 1196095085,
-      "staging_max_ticks": 800,
-      "starter_infantry": 4,
-      "ticks_per_round": 25
-    },
-    {
-      "abaddon_doctrine": "FEINTER",
-      "baseline_arm": {
-        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
-        "arm": "champion_baseline",
-        "candidate_fixture_sha256": null,
-        "policy_source": "controller_defaults"
-      },
-      "candidate_arm": {
-        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
-        "arm": "generation_1_candidate_0",
-        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
-        "policy_source": "bounded_deterministic_mutation"
-      },
-      "execution_state": "NOT_EXECUTED",
-      "held_out": true,
-      "opponent_role": "current_promoted",
-      "opponent_snapshot_id": "apollyon-v13-v10-promoted",
-      "opponent_snapshot_sha256": "2c7c6a87908bf16ac3f3daab53faaa6e808f00be65f9c362f42af9595f540bf8",
+      "opponent_snapshot_sha256": "be50560fd21f400bf72d5dfcf1312d86c3d1911b1bcc691cc1f1cc0aa0259239",
       "pair_binding": {
         "same_abaddon_doctrine": true,
         "same_opponent_snapshot": true,
@@ -392,7 +393,7 @@
       },
       "pair_slot": 11,
       "rounds": 36,
-      "seed": 1722084633,
+      "seed": 1484361610,
       "staging_max_ticks": 800,
       "starter_infantry": 4,
       "ticks_per_round": 25
@@ -412,7 +413,7 @@
         "policy_source": "bounded_deterministic_mutation"
       },
       "execution_state": "NOT_EXECUTED",
-      "held_out": true,
+      "held_out": false,
       "opponent_role": "prior_accepted_model_control",
       "opponent_snapshot_id": "apollyon-v3-v8-accepted-model-control",
       "opponent_snapshot_sha256": "5c51082219530a302ce25b28daba9928f56a436c11d1508ca0bef755f4a86667",
@@ -426,25 +427,227 @@
       },
       "pair_slot": 12,
       "rounds": 36,
+      "seed": 1484361610,
+      "staging_max_ticks": 800,
+      "starter_infantry": 4,
+      "ticks_per_round": 25
+    },
+    {
+      "abaddon_doctrine": "FEINTER",
+      "baseline_arm": {
+        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+        "arm": "champion_baseline",
+        "candidate_fixture_sha256": null,
+        "policy_source": "controller_defaults"
+      },
+      "candidate_arm": {
+        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+        "arm": "generation_1_candidate_0",
+        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
+        "policy_source": "bounded_deterministic_mutation"
+      },
+      "execution_state": "NOT_EXECUTED",
+      "held_out": true,
+      "opponent_role": "current_promoted",
+      "opponent_snapshot_id": "apollyon-v13-v14-promoted",
+      "opponent_snapshot_sha256": "457d0516ac22072ee4f69064763d002461fe056539be996a503b8c8fdefd0173",
+      "pair_binding": {
+        "same_abaddon_doctrine": true,
+        "same_opponent_snapshot": true,
+        "same_round_limit": true,
+        "same_seed": true,
+        "same_ticks_per_round": true,
+        "same_warm_start_contract_required": true
+      },
+      "pair_slot": 13,
+      "rounds": 36,
+      "seed": 1196095085,
+      "staging_max_ticks": 800,
+      "starter_infantry": 4,
+      "ticks_per_round": 25
+    },
+    {
+      "abaddon_doctrine": "FEINTER",
+      "baseline_arm": {
+        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+        "arm": "champion_baseline",
+        "candidate_fixture_sha256": null,
+        "policy_source": "controller_defaults"
+      },
+      "candidate_arm": {
+        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+        "arm": "generation_1_candidate_0",
+        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
+        "policy_source": "bounded_deterministic_mutation"
+      },
+      "execution_state": "NOT_EXECUTED",
+      "held_out": true,
+      "opponent_role": "previous_promoted_champion",
+      "opponent_snapshot_id": "apollyon-v13-v10-promoted",
+      "opponent_snapshot_sha256": "be50560fd21f400bf72d5dfcf1312d86c3d1911b1bcc691cc1f1cc0aa0259239",
+      "pair_binding": {
+        "same_abaddon_doctrine": true,
+        "same_opponent_snapshot": true,
+        "same_round_limit": true,
+        "same_seed": true,
+        "same_ticks_per_round": true,
+        "same_warm_start_contract_required": true
+      },
+      "pair_slot": 14,
+      "rounds": 36,
+      "seed": 1196095085,
+      "staging_max_ticks": 800,
+      "starter_infantry": 4,
+      "ticks_per_round": 25
+    },
+    {
+      "abaddon_doctrine": "FEINTER",
+      "baseline_arm": {
+        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+        "arm": "champion_baseline",
+        "candidate_fixture_sha256": null,
+        "policy_source": "controller_defaults"
+      },
+      "candidate_arm": {
+        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+        "arm": "generation_1_candidate_0",
+        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
+        "policy_source": "bounded_deterministic_mutation"
+      },
+      "execution_state": "NOT_EXECUTED",
+      "held_out": true,
+      "opponent_role": "prior_qualified_predecessor",
+      "opponent_snapshot_id": "apollyon-v2r13-qualified-predecessor",
+      "opponent_snapshot_sha256": "731da9720a3e3aecd7fe455cb951f9e1f0fbda7b2f9acc6be4ddfebe74ec4be6",
+      "pair_binding": {
+        "same_abaddon_doctrine": true,
+        "same_opponent_snapshot": true,
+        "same_round_limit": true,
+        "same_seed": true,
+        "same_ticks_per_round": true,
+        "same_warm_start_contract_required": true
+      },
+      "pair_slot": 15,
+      "rounds": 36,
+      "seed": 1196095085,
+      "staging_max_ticks": 800,
+      "starter_infantry": 4,
+      "ticks_per_round": 25
+    },
+    {
+      "abaddon_doctrine": "FEINTER",
+      "baseline_arm": {
+        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+        "arm": "champion_baseline",
+        "candidate_fixture_sha256": null,
+        "policy_source": "controller_defaults"
+      },
+      "candidate_arm": {
+        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+        "arm": "generation_1_candidate_0",
+        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
+        "policy_source": "bounded_deterministic_mutation"
+      },
+      "execution_state": "NOT_EXECUTED",
+      "held_out": true,
+      "opponent_role": "current_promoted",
+      "opponent_snapshot_id": "apollyon-v13-v14-promoted",
+      "opponent_snapshot_sha256": "457d0516ac22072ee4f69064763d002461fe056539be996a503b8c8fdefd0173",
+      "pair_binding": {
+        "same_abaddon_doctrine": true,
+        "same_opponent_snapshot": true,
+        "same_round_limit": true,
+        "same_seed": true,
+        "same_ticks_per_round": true,
+        "same_warm_start_contract_required": true
+      },
+      "pair_slot": 16,
+      "rounds": 36,
+      "seed": 1722084633,
+      "staging_max_ticks": 800,
+      "starter_infantry": 4,
+      "ticks_per_round": 25
+    },
+    {
+      "abaddon_doctrine": "FEINTER",
+      "baseline_arm": {
+        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+        "arm": "champion_baseline",
+        "candidate_fixture_sha256": null,
+        "policy_source": "controller_defaults"
+      },
+      "candidate_arm": {
+        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+        "arm": "generation_1_candidate_0",
+        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
+        "policy_source": "bounded_deterministic_mutation"
+      },
+      "execution_state": "NOT_EXECUTED",
+      "held_out": true,
+      "opponent_role": "previous_promoted_champion",
+      "opponent_snapshot_id": "apollyon-v13-v10-promoted",
+      "opponent_snapshot_sha256": "be50560fd21f400bf72d5dfcf1312d86c3d1911b1bcc691cc1f1cc0aa0259239",
+      "pair_binding": {
+        "same_abaddon_doctrine": true,
+        "same_opponent_snapshot": true,
+        "same_round_limit": true,
+        "same_seed": true,
+        "same_ticks_per_round": true,
+        "same_warm_start_contract_required": true
+      },
+      "pair_slot": 17,
+      "rounds": 36,
+      "seed": 1722084633,
+      "staging_max_ticks": 800,
+      "starter_infantry": 4,
+      "ticks_per_round": 25
+    },
+    {
+      "abaddon_doctrine": "FEINTER",
+      "baseline_arm": {
+        "abaddon_genome_sha256": "3c4346e0c92ea7225425d9ff4fd7ae12daa44162b06d471530179325b7d38a26",
+        "arm": "champion_baseline",
+        "candidate_fixture_sha256": null,
+        "policy_source": "controller_defaults"
+      },
+      "candidate_arm": {
+        "abaddon_genome_sha256": "e30ede820f031bd99b7a49cc390a9629d9c7cf27ca5aac205420fbc6e7ab37c9",
+        "arm": "generation_1_candidate_0",
+        "candidate_fixture_sha256": "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5",
+        "policy_source": "bounded_deterministic_mutation"
+      },
+      "execution_state": "NOT_EXECUTED",
+      "held_out": true,
+      "opponent_role": "prior_accepted_model_control",
+      "opponent_snapshot_id": "apollyon-v3-v8-accepted-model-control",
+      "opponent_snapshot_sha256": "5c51082219530a302ce25b28daba9928f56a436c11d1508ca0bef755f4a86667",
+      "pair_binding": {
+        "same_abaddon_doctrine": true,
+        "same_opponent_snapshot": true,
+        "same_round_limit": true,
+        "same_seed": true,
+        "same_ticks_per_round": true,
+        "same_warm_start_contract_required": true
+      },
+      "pair_slot": 18,
+      "rounds": 36,
       "seed": 1722084633,
       "staging_max_ticks": 800,
       "starter_infantry": 4,
       "ticks_per_round": 25
     }
   ],
-  "plan_sha256": "b6cc6395861e87beb69e9c811e63d1946e76b73ecd7289852ab9433271fc8cf2",
+  "plan_sha256": "2a3f13699b29f1f8fcc4a5d4e31609ada0bc8524f42e0cf9e86642dc1d374e98",
   "pre_execution_gates": {
     "campaign_attempt_ledger_complete": true,
     "candidate_frozen_before_campaign_evidence": true,
-    "opponent_runtime_realization_complete": false,
+    "opponent_runtime_realization_complete": true,
     "opponent_snapshot_source_binding_complete": true,
     "pair_arms_precommitted": true,
-    "previous_champion_binding_complete": false,
+    "previous_champion_binding_complete": true,
     "runtime_execution_authorized": false
   },
   "reasons": [
-    "PREVIOUS_APOLLYON_CHAMPION_NOT_CRYPTOGRAPHICALLY_PROVEN",
-    "OPPONENT_RUNTIME_REALIZATION_NOT_BOUND",
     "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED"
   ],
   "schema": "void.abaddon.policy-campaign-plan.v1",
@@ -465,16 +668,17 @@
     ]
   },
   "summary": {
-    "baseline_execution_count": 12,
-    "candidate_execution_count": 12,
+    "baseline_execution_count": 18,
+    "candidate_execution_count": 18,
     "current_promoted_pair_slots": 6,
-    "held_out_eventual_game_executions": 8,
-    "held_out_pair_slot_count": 4,
-    "opponent_snapshot_count": 3,
-    "pair_slot_count": 12,
+    "held_out_eventual_game_executions": 12,
+    "held_out_pair_slot_count": 6,
+    "opponent_snapshot_count": 4,
+    "pair_slot_count": 18,
+    "previous_promoted_champion_pair_slots": 6,
     "prior_accepted_model_control_pair_slots": 3,
     "prior_qualified_predecessor_pair_slots": 3,
-    "total_eventual_game_executions": 24,
+    "total_eventual_game_executions": 36,
     "unique_seed_count": 6
   }
 }
