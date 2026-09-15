@@ -7,6 +7,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .apollyon_opponent_runtime_realizations import (
+    reviewed_opponent_runtime_realizations,
+)
 from .apollyon_opponent_snapshots import reviewed_snapshot_set
 
 PLAN_SCHEMA = "void.abaddon.policy-campaign-plan.v1"
@@ -34,15 +37,10 @@ CANDIDATE_GENOME_SHA256 = (
 CANDIDATE_FIXTURE_SHA256 = (
     "66dc0a93036a4f1119e45b8de197e0f05d5d217a44656680b9849d994fc0c1f5"
 )
-PLAN_FIXTURE_SHA256 = (
-    "6f139d14eeb78df68c22778a0837fd51129f79c750f67f54e6f36a7d4adddee9"
-)
-PLAN_INTERNAL_SHA256 = (
-    "b6cc6395861e87beb69e9c811e63d1946e76b73ecd7289852ab9433271fc8cf2"
-)
-SNAPSHOT_SET_SHA256 = (
-    "ed5b2e325b14171301899ff0c1890df3670f41a7e8cf1da73746c5e1a96dbb00"
-)
+PLAN_FIXTURE_SHA256 = "3831b36e7e44dcc9705ca51102905e117258f2be696ce4c25ada770fcbd35034"
+PLAN_INTERNAL_SHA256 = "2a3f13699b29f1f8fcc4a5d4e31609ada0bc8524f42e0cf9e86642dc1d374e98"
+SNAPSHOT_SET_SHA256 = "d7bfce0cb1456ec440f6ab362c781057837c3912c557f865ae95b7ddc6278526"
+RUNTIME_REALIZATION_SET_SHA256 = "1dbb861a3bc03a4423187846a519f228726cc890f4452c3b1d8607614288a7d8"
 
 EXPECTED_SEEDS = (
     929035763,
@@ -182,6 +180,7 @@ def _snapshot_index() -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
         if isinstance(row, dict) and isinstance(row.get("snapshot_id"), str)
     }
     expected = {
+        "apollyon-v13-v14-promoted",
         "apollyon-v13-v10-promoted",
         "apollyon-v2r13-qualified-predecessor",
         "apollyon-v3-v8-accepted-model-control",
@@ -193,6 +192,9 @@ def _snapshot_index() -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
 def _computed_plan() -> dict[str, Any]:
     validate_candidate_fixture()
     snapshot_set, by_id = _snapshot_index()
+    realizations = reviewed_opponent_runtime_realizations()
+    _require(realizations['realization_set_sha256'] == RUNTIME_REALIZATION_SET_SHA256, 'runtime realization-set SHA drift')
+    _require(realizations['opponent_runtime_realization_complete'] is True, 'opponent runtime realization incomplete')
 
     for index, expected in enumerate(EXPECTED_SEEDS):
         _require(derive_seed(index) == expected, f"seed derivation drift at index {index}")
@@ -206,6 +208,7 @@ def _computed_plan() -> dict[str, Any]:
             else "apollyon-v3-v8-accepted-model-control"
         )
         for opponent_id in (
+            "apollyon-v13-v14-promoted",
             "apollyon-v13-v10-promoted",
             historical_id,
         ):
@@ -269,22 +272,19 @@ def _computed_plan() -> dict[str, Any]:
             "target_doctrine": "FEINTER",
         },
         "execution_eligible": False,
+        "opponent_runtime_realization_set_sha256": realizations["realization_set_sha256"],
         "opponent_snapshot_set_sha256": snapshot_set["snapshot_set_sha256"],
         "pair_slots": pair_slots,
         "pre_execution_gates": {
             "campaign_attempt_ledger_complete": True,
             "candidate_frozen_before_campaign_evidence": True,
-            "opponent_runtime_realization_complete": False,
+            "opponent_runtime_realization_complete": True,
             "opponent_snapshot_source_binding_complete": True,
             "pair_arms_precommitted": True,
-            "previous_champion_binding_complete": False,
+            "previous_champion_binding_complete": True,
             "runtime_execution_authorized": False,
         },
-        "reasons": [
-            "PREVIOUS_APOLLYON_CHAMPION_NOT_CRYPTOGRAPHICALLY_PROVEN",
-            "OPPONENT_RUNTIME_REALIZATION_NOT_BOUND",
-            "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED",
-        ],
+        "reasons": ["RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED"],
         "schema": PLAN_SCHEMA,
         "seed_derivation": {
             "formula": (
@@ -297,16 +297,17 @@ def _computed_plan() -> dict[str, Any]:
             "seeds": list(EXPECTED_SEEDS),
         },
         "summary": {
-            "baseline_execution_count": 12,
-            "candidate_execution_count": 12,
+            "baseline_execution_count": 18,
+            "candidate_execution_count": 18,
             "current_promoted_pair_slots": 6,
-            "held_out_eventual_game_executions": 8,
-            "held_out_pair_slot_count": 4,
-            "opponent_snapshot_count": 3,
-            "pair_slot_count": 12,
+            "held_out_eventual_game_executions": 12,
+            "held_out_pair_slot_count": 6,
+            "opponent_snapshot_count": 4,
+            "pair_slot_count": 18,
+            "previous_promoted_champion_pair_slots": 6,
             "prior_accepted_model_control_pair_slots": 3,
             "prior_qualified_predecessor_pair_slots": 3,
-            "total_eventual_game_executions": 24,
+            "total_eventual_game_executions": 36,
             "unique_seed_count": 6,
         },
     }

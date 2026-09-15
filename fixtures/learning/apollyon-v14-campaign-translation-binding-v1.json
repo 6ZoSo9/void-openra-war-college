@@ -1,0 +1,63 @@
+{
+  "authority": {
+    "abaddon_campaign_execution": false,
+    "game_mutation": false,
+    "game_started": false,
+    "model_execution": false,
+    "runtime_execution": false,
+    "runtime_execution_authorized": false,
+    "training": false,
+    "weights_updated": false
+  },
+  "canonical": {
+    "engine_head": "1607a7a6501d42a47638393ecef8b22831064932",
+    "source_head": "d1b257fbdbab2f00ef51520d9f064982a4bff208",
+    "source_tree": "854298e14ce1a5ac280b2a174fce99e5482e7f16"
+  },
+  "compatibility": {
+    "deterministic_vectors_green": 6,
+    "legacy_scouting_alert_fabricated": false,
+    "movement_identity_green": true,
+    "opponent_runtime_realization_complete": true,
+    "unoffered_deterministic_tool_refused_by_v14_bridge_before_mutation": true,
+    "v14_campaign_translation_binding_complete": true,
+    "v8_fallback_transport_source_bound": true
+  },
+  "next_boundary": "integrate_v14_translation_binding_into_regenerated_source_precommit",
+  "regenerated_precommit": {
+    "old_opponent_runtime_realization_complete": false,
+    "plan_sha256": "1502ec248f2d658c68e02d3d5c8e77d6ec98390e7c5dd816e2ce5c48ccbfd597",
+    "previous_champion_binding_complete": true,
+    "runtime_realization_set_sha256": "5ed7b1b1c66670d4704b8694f581bbb819dadea6f3197b770e3426aa08198d1f",
+    "snapshot_set_sha256": "d7bfce0cb1456ec440f6ab362c781057837c3912c557f865ae95b7ddc6278526"
+  },
+  "schema": "VOID_APOLLYON_V14_CAMPAIGN_TRANSLATION_BINDING_V1",
+  "source_only": true,
+  "translation": {
+    "accepted_input_kind": "turn_briefing_plus_recent_tool_results",
+    "campaign_input_kind": "legacy_current_tool_list_plus_compact_state_json",
+    "contract_sha256": "69c862387dad806681c5d066fea8e87836d2c0825f792ae293177c23cddee38b",
+    "host_validation_unchanged": true,
+    "input_translation_reviewed": true,
+    "output_translation_reviewed": true,
+    "source_sha256": "2d32351dff8d96a3254436305c2c402ea06c9a344b6b3ea67cb70c512eef2d53"
+  },
+  "v14": {
+    "accepted_input_kind": "turn_briefing_plus_recent_tool_results",
+    "candidate_sha256": "9d7c5a4121d2926e32955f9c7ee1b6cb6da3c6bf7f705c455ad4cb54f7f509db",
+    "deterministic_action_universe": [
+      "advance",
+      "build_and_place",
+      "build_unit",
+      "cancel_production",
+      "deploy_unit",
+      "get_exploration_status",
+      "get_game_state",
+      "move_units"
+    ],
+    "live_input_adapter_sha256": "9ba6cfa75bea5ac708f7dd690f67640d3f84e03335de09c8a4514eb5c3437686",
+    "promoted_bridge_sha256": "d5e99d9d9aecbf27f90dc7716dedc11127339ea1b7f5331cdfe7d906d3afbd25",
+    "promotion_reconciliation_sha256": "274833334fad538717630b9575c7e1c4f04ae210237124663f33bed3ab6139d4",
+    "promotion_record_sha256": "c7195d13f0579ff07da0cdfe98522dd64f4b4ffc3a86c67a91a19d7b61d1fd66"
+  }
+}
