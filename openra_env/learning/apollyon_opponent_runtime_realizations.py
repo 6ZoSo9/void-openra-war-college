@@ -15,6 +15,7 @@ from typing import Any
 
 from .apollyon_opponent_snapshots import reviewed_snapshot_set
 from .apollyon_v10_campaign_translation import translation_contract
+from .apollyon_v2r13_portable_checkout import portable_binding_contract
 
 REALIZATION_SCHEMA = "void.apollyon.opponent-runtime-realization.v1"
 REALIZATION_SET_SCHEMA = "void.apollyon.opponent-runtime-realization-set.v1"
@@ -28,8 +29,8 @@ V2R13 = {
     "historical_game_facing_runtime_proven": True,
     "runtime_surface_realized": True,
     "warm_start_input_surface_compatible": True,
-    "portable_current_checkout_binding_complete": False,
-    "current_campaign_runtime_realized": False,
+    "portable_current_checkout_binding_complete": True,
+    "current_campaign_runtime_realized": True,
     "identity": {
         "legacy_warm_start_runner_sha256":
             "ad7655e3ebfee198aed4ec879aa630f1fa4676eb75d8be432e6e5242dbc3d901",
@@ -37,6 +38,10 @@ V2R13 = {
             "c59faac3833ce4bffeb20e3d60625bcb3c63ecc520658660e19a8deefd2db615",
         "apollyon_boundary_runner_sha256":
             "72fb0e9909dcdddb6c4a7713a5aa55568d2bef43020e6478945ca69247590abc",
+        "portable_checkout_binding_source_sha256":
+            "92e16e281d5a9036d78d900f35d854c6fb9783b2bf156c2acab69408d13a015d",
+        "portable_checkout_binding_contract_sha256":
+            "677e503e8d4827a9d8950a177f308ad08982f612d70881f16de2c271e3b10e49",
         "model_alias": "void-apollyon-candidate-v2r13:latest",
         "model_digest":
             "b52834ea46c10362e9bb20cd2e721716016bb36f800ddbc62e7fbaa24fb40932",
@@ -47,6 +52,8 @@ V2R13 = {
         "engine_commit": "1607a7a6501d42a47638393ecef8b22831064932",
         "frozen_war_college_commit":
             "973802ef0a614e5afa782ff20e231e18966ae3e5",
+        "frozen_war_college_tree":
+            "d8a2af418af00e95ca0f203a2f0264851f2308c6",
         "runtime_image_id":
             "sha256:79f2f6800382489a2a648839fc0d58e546384938439378aeea06461363de25f5",
         "chat_completions_url":
@@ -56,10 +63,12 @@ V2R13 = {
         "kind": "legacy_current_tool_list_plus_compact_state_json",
         "same_as_frozen_warm_start_runner": True,
         "translation_required": False,
+        "portable_checkout_binding_reviewed": True,
+        "source_materialization": "detached_git_worktree",
+        "canonical_checkout_mutation_required": False,
+        "host_validation_unchanged": True,
     },
-    "blockers": [
-        "V2R13_FROZEN_CHECKOUT_BINDING_NOT_PORTABLE",
-    ],
+    "blockers": [],
 }
 
 V10 = {
@@ -268,6 +277,79 @@ def reviewed_opponent_runtime_realizations() -> dict[str, Any]:
         and translation["model_execution_performed"] is False
         and translation["game_started"] is False,
         "V10 translation review crossed execution boundary",
+    )
+    portable = portable_binding_contract()
+    portable_path = Path(__file__).with_name("apollyon_v2r13_portable_checkout.py")
+    _require(portable_path.is_file(), "V2R13 portable checkout binding source missing")
+    portable_source_sha256 = hashlib.sha256(portable_path.read_bytes()).hexdigest()
+    _require(
+        portable_source_sha256
+        == V2R13["identity"]["portable_checkout_binding_source_sha256"],
+        "V2R13 portable checkout binding source digest drift",
+    )
+    _require(
+        portable["binding_contract_sha256"]
+        == V2R13["identity"]["portable_checkout_binding_contract_sha256"],
+        "V2R13 portable checkout binding contract digest drift",
+    )
+    _require(
+        portable["frozen_war_college_commit"]
+        == V2R13["identity"]["frozen_war_college_commit"],
+        "V2R13 frozen source commit drift",
+    )
+    _require(
+        portable["frozen_war_college_tree"]
+        == V2R13["identity"]["frozen_war_college_tree"],
+        "V2R13 frozen source tree drift",
+    )
+    _require(
+        portable["frozen_engine_commit"] == V2R13["identity"]["engine_commit"],
+        "V2R13 frozen engine commit drift",
+    )
+    _require(
+        portable["legacy_warm_start_runner_sha256"]
+        == V2R13["identity"]["legacy_warm_start_runner_sha256"],
+        "V2R13 legacy runner binding drift",
+    )
+    _require(
+        portable["base_joint_runner_sha256"]
+        == V2R13["identity"]["base_joint_runner_sha256"],
+        "V2R13 base runner binding drift",
+    )
+    _require(
+        portable["apollyon_boundary_runner_sha256"]
+        == V2R13["identity"]["apollyon_boundary_runner_sha256"],
+        "V2R13 boundary runner binding drift",
+    )
+    _require(
+        portable["broker_v11_soak_v14_sha256"]
+        == V2R13["identity"]["broker_v11_soak_v14_sha256"],
+        "V2R13 broker qualification binding drift",
+    )
+    for key in (
+        "source_worktree_must_be_clean",
+        "source_worktree_detached",
+        "canonical_checkout_must_remain_unchanged",
+        "legacy_source_root_rebound",
+        "base_source_root_rebound",
+        "joint_proto_rebound_to_frozen_source",
+        "engine_root_rebound_to_exact_engine_worktree",
+        "runtime_image_identity_unchanged",
+        "host_validation_unchanged",
+        "input_surface_unchanged",
+        "current_main_head_independent",
+        "worktree_cleanup_required",
+    ):
+        _require(portable[key] is True, f"V2R13 portable binding lacks {key}")
+    _require(
+        portable["canonical_checkout_mutation_required"] is False,
+        "V2R13 portable binding requires canonical checkout mutation",
+    )
+    _require(
+        portable["runtime_execution_performed"] is False
+        and portable["model_execution_performed"] is False
+        and portable["game_started"] is False,
+        "V2R13 portable binding review crossed execution boundary",
     )
     snapshots = {
         row["snapshot_id"]: row
