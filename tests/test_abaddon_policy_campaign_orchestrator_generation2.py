@@ -6,7 +6,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-REPO = Path("/home/zoso/dev/openra-rl-war-college")
+REPO = Path(__file__).resolve().parents[1]
 SOURCE = REPO / "tools/abaddon_policy_campaign_orchestrator_generation2.py"
 EXPECTED_SOURCE_SHA256 = (
     "a9ce01b55a0cab07ceb3c07047f17f537a9d288c8c209f89528360c996d7240b"
