@@ -16,6 +16,7 @@ from typing import Any
 from .apollyon_opponent_snapshots import reviewed_snapshot_set
 from .apollyon_v10_campaign_translation import translation_contract
 from .apollyon_v2r13_portable_checkout import portable_binding_contract
+from .apollyon_v8_campaign_runtime import v8_tool_runtime_contract
 
 REALIZATION_SCHEMA = "void.apollyon.opponent-runtime-realization.v1"
 REALIZATION_SET_SCHEMA = "void.apollyon.opponent-runtime-realization-set.v1"
@@ -126,12 +127,12 @@ V8 = {
     "snapshot_id": "apollyon-v3-v8-accepted-model-control",
     "snapshot_sha256":
         "5c51082219530a302ce25b28daba9928f56a436c11d1508ca0bef755f4a86667",
-    "runtime_class": "accepted_adapter_without_frozen_war_college_tool_runtime",
+    "runtime_class": "accepted_v8_adapter_frozen_chat_template_tool_runtime",
     "historical_game_facing_runtime_proven": False,
-    "runtime_surface_realized": False,
-    "warm_start_input_surface_compatible": False,
-    "portable_current_checkout_binding_complete": False,
-    "current_campaign_runtime_realized": False,
+    "runtime_surface_realized": True,
+    "warm_start_input_surface_compatible": True,
+    "portable_current_checkout_binding_complete": True,
+    "current_campaign_runtime_realized": True,
     "identity": {
         "adapter_model_sha256":
             "ba792bd9472b0f9ee8e7acb5b40115a41c4def378fe74438b2f33d43b742b0e6",
@@ -141,16 +142,40 @@ V8 = {
             "61935b744187c272bd1d5f920b8b3031728a534a66fd74a72befaadee18bb239",
         "final_acceptance_driver_sha256":
             "8ab9e197ba605799cf511407f9e95042935264b18a6bb5af056fee07df2284e8",
+        "accepted_evaluator_sha256":
+            "8c39267872ba797b30ce2ff7a2174863d7a5d4c8061afc6db8571786a7ea5f27",
+        "tool_runtime_source_sha256": "faf4b64ea4755fabdbdfc778f3df534a87f056a638763aa1560c7965c482b5af",
+        "tool_runtime_contract_sha256": "ef28f9bf884d882ccbe40bb9774ea0010782791717ad527d5b01c649bdcbd334",
+        "base_model_revision": "3764fa359b9082ea5a1e4a5e3ac3aaf6e9671636",
+        "base_model_config_sha256":
+            "14687c353af8012cc1b563b3aeeefaa0b78d8780d8ea5270c73fe9fcdb7387f2",
+        "base_model_shard1_sha256":
+            "26a93f066e1916adb13453dae5a0c707c0fbc71299ed98779571a907b8e74c61",
+        "base_model_shard2_sha256":
+            "cb544bd9bfae93dc59b0f22b292f5933573854a7f9b97835c67060d7d910e188",
+        "chat_template_sha256":
+            "8452ca85cb1e0ff04304c02f417a53305d5ba17f6eb9d5693343ad8355f985a8",
+        "tokenizer_json_sha256":
+            "87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4",
+        "v10_campaign_translation_source_sha256":
+            "2d32351dff8d96a3254436305c2c402ea06c9a344b6b3ea67cb70c512eef2d53",
+        "v10_campaign_translation_contract_sha256":
+            "69c862387dad806681c5d066fea8e87836d2c0825f792ae293177c23cddee38b",
     },
     "input_surface": {
-        "kind": None,
-        "tool_transport_frozen": False,
+        "accepted_kind": "current_state_fact_line_plus_canonical_tools",
+        "campaign_kind": "legacy_current_tool_list_plus_compact_state_json",
+        "tool_transport_frozen": True,
         "translation_required": True,
-        "translation_reviewed": False,
+        "translation_reviewed": True,
+        "output_translation_reviewed": True,
+        "current_state_only": True,
+        "current_tool_list_authoritative": True,
+        "tool_schema_narrowing_only": True,
+        "host_validation_unchanged": True,
+        "fabricated_information_allowed": False,
     },
-    "blockers": [
-        "V8_WAR_COLLEGE_TOOL_RUNTIME_NOT_FROZEN",
-    ],
+    "blockers": [],
 }
 
 REVIEWED_REALIZATIONS = (V2R13, V10, V8)
@@ -350,6 +375,104 @@ def reviewed_opponent_runtime_realizations() -> dict[str, Any]:
         and portable["model_execution_performed"] is False
         and portable["game_started"] is False,
         "V2R13 portable binding review crossed execution boundary",
+    )
+    v8_runtime = v8_tool_runtime_contract()
+    v8_runtime_path = Path(__file__).with_name("apollyon_v8_campaign_runtime.py")
+    _require(v8_runtime_path.is_file(), "V8 campaign tool runtime source missing")
+    v8_runtime_source_sha256 = hashlib.sha256(v8_runtime_path.read_bytes()).hexdigest()
+    _require(
+        v8_runtime_source_sha256 == V8["identity"]["tool_runtime_source_sha256"],
+        "V8 campaign tool runtime source digest drift",
+    )
+    _require(
+        v8_runtime["tool_runtime_contract_sha256"]
+        == V8["identity"]["tool_runtime_contract_sha256"],
+        "V8 campaign tool runtime contract digest drift",
+    )
+    _require(
+        v8_runtime["v8_adapter_sha256"] == V8["identity"]["adapter_model_sha256"],
+        "V8 adapter binding drift",
+    )
+    _require(
+        v8_runtime["v8_training_report_sha256"]
+        == V8["identity"]["training_report_v8_sha256"],
+        "V8 training report binding drift",
+    )
+    _require(
+        v8_runtime["v8_final_acceptance_pack_sha256"]
+        == V8["identity"]["final_acceptance_pack_sha256"],
+        "V8 final acceptance pack binding drift",
+    )
+    _require(
+        v8_runtime["v8_final_acceptance_driver_sha256"]
+        == V8["identity"]["final_acceptance_driver_sha256"],
+        "V8 final acceptance driver binding drift",
+    )
+    _require(
+        v8_runtime["v8_accepted_evaluator_sha256"]
+        == V8["identity"]["accepted_evaluator_sha256"],
+        "V8 accepted evaluator binding drift",
+    )
+    _require(
+        v8_runtime["base_model_resolved_revision"]
+        == V8["identity"]["base_model_revision"],
+        "V8 base model revision drift",
+    )
+    _require(
+        v8_runtime["base_model_config_sha256"]
+        == V8["identity"]["base_model_config_sha256"]
+        and v8_runtime["base_model_shard1_sha256"]
+        == V8["identity"]["base_model_shard1_sha256"]
+        and v8_runtime["base_model_shard2_sha256"]
+        == V8["identity"]["base_model_shard2_sha256"],
+        "V8 base model byte identity drift",
+    )
+    _require(
+        v8_runtime["chat_template_sha256"] == V8["identity"]["chat_template_sha256"]
+        and v8_runtime["tokenizer_json_sha256"]
+        == V8["identity"]["tokenizer_json_sha256"],
+        "V8 tokenizer/chat-template identity drift",
+    )
+    _require(
+        v8_runtime["v10_translation_source_sha256"]
+        == V8["identity"]["v10_campaign_translation_source_sha256"]
+        and v8_runtime["v10_translation_contract_sha256"]
+        == V8["identity"]["v10_campaign_translation_contract_sha256"],
+        "V8 campaign translation dependency drift",
+    )
+    _require(
+        v8_runtime["campaign_input_kind"] == V8["input_surface"]["campaign_kind"]
+        and v8_runtime["accepted_input_kind"] == V8["input_surface"]["accepted_kind"],
+        "V8 input-kind binding drift",
+    )
+    _require(
+        v8_runtime["accepted_user_prompt_prefix"] == "CURRENT STATE:",
+        "V8 accepted user-prompt prefix drift",
+    )
+    for key in (
+        "current_state_only",
+        "current_tool_list_authoritative",
+        "current_state_fact_renderer_reviewed",
+        "tool_schema_narrowing_only",
+        "local_runtime_loader_implemented",
+        "runtime_assets_hash_verified_before_load",
+        "runtime_environment_pip_freeze_verified_before_load",
+        "runtime_environment_live_pip_freeze_match_required",
+        "offline_only_model_load",
+        "accepted_chat_template_generation_implemented",
+        "campaign_decision_adapter_implemented",
+        "host_validation_unchanged",
+    ):
+        _require(v8_runtime[key] is True, f"V8 tool runtime lacks {key}")
+    _require(
+        v8_runtime["fabricated_information_allowed"] is False,
+        "V8 tool runtime permits fabricated information",
+    )
+    _require(
+        v8_runtime["runtime_execution_performed"] is False
+        and v8_runtime["model_execution_performed"] is False
+        and v8_runtime["game_started"] is False,
+        "V8 tool-runtime review crossed execution boundary",
     )
     snapshots = {
         row["snapshot_id"]: row
