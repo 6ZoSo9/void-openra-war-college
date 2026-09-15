@@ -11,6 +11,7 @@ from openra_env.learning.apollyon_v8_campaign_runtime import (
     TRANSFER_SYSTEM_PROMPT,
     V8CampaignRuntimeError,
     parse_v8_tool_output,
+    validate_v8_runtime_environment,
     translate_campaign_turn_for_v8,
     translate_v8_output_to_campaign,
     v8_tool_runtime_contract,
@@ -138,6 +139,9 @@ def test_contract_binds_accepted_v8_transport_and_stays_nonexecuting():
     assert result["offline_only_model_load"] is True
     assert result["accepted_chat_template_generation_implemented"] is True
     assert result["campaign_decision_adapter_implemented"] is True
+    assert result["runtime_python_major_minor"] == [3, 12]
+    assert result["runtime_environment_pip_freeze_verified_before_load"] is True
+    assert result["runtime_environment_live_pip_freeze_match_required"] is True
     assert result["advance_narrowed_to_shared_50_ticks"] is True
     assert result["host_validation_unchanged"] is True
     assert result["runtime_execution_performed"] is False
@@ -145,6 +149,33 @@ def test_contract_binds_accepted_v8_transport_and_stays_nonexecuting():
     assert result["game_started"] is False
     assert result["training"] is False
     assert result["weights_updated"] is False
+
+
+def test_runtime_environment_identity_accepts_only_exact_frozen_stack():
+    result = validate_v8_runtime_environment(
+        python_major_minor=(3, 12),
+        pip_freeze_sha256=(
+            "7799387d3ef2780f8d25b93169297d73984d44b1d8264566bd238ee6fdfc3f77"
+        ),
+    )
+    assert result["python_major_minor"] == [3, 12]
+    assert result["runtime_execution_performed"] is False
+    assert result["model_execution_performed"] is False
+
+
+def test_runtime_environment_identity_fails_closed_on_python_or_package_drift():
+    with pytest.raises(V8CampaignRuntimeError, match="Python"):
+        validate_v8_runtime_environment(
+            python_major_minor=(3, 11),
+            pip_freeze_sha256=(
+                "7799387d3ef2780f8d25b93169297d73984d44b1d8264566bd238ee6fdfc3f77"
+            ),
+        )
+    with pytest.raises(V8CampaignRuntimeError, match="pip-freeze"):
+        validate_v8_runtime_environment(
+            python_major_minor=(3, 12),
+            pip_freeze_sha256="0" * 64,
+        )
 
 
 def test_campaign_translation_uses_exact_accepted_prompt_and_current_two_message_shape():
@@ -349,4 +380,6 @@ def test_unavailable_accepted_tool_is_rejected_before_host_mapping():
 
 def test_source_hash_is_stable_for_runtime_realization_binding():
     path = Path(__file__).parents[1] / "openra_env/learning/apollyon_v8_campaign_runtime.py"
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == "98a37ce59cabead530fb90f696b32081789ae8b5db61a7fd29df7c01137fbe16"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == (
+        "faf4b64ea4755fabdbdfc778f3df534a87f056a638763aa1560c7965c482b5af"
+    )

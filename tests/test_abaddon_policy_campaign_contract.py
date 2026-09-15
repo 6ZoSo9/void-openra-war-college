@@ -81,7 +81,7 @@ def test_plan_mirrors_recovered_refiner_policy_and_stays_nonexecuting():
     assert plan["pre_execution_gates"]["pair_arms_precommitted"] is True
     realizations = plan["opponent_runtime_realizations"]
     assert realizations["realization_set_sha256"] == (
-        "b077e3020ceafe39cda6befce7eda14582021207c741177d90e2a72ba1853f39"
+        "0257201136edd2fd902b8f20cb081e1a65065fb418af5dc352b8e09dab0591c8"
     )
     assert realizations["source_binding_complete"] is True
     assert realizations["current_campaign_runtime_realized_count"] == 3

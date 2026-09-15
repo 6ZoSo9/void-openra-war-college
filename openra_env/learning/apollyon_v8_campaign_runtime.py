@@ -13,6 +13,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
@@ -94,6 +96,7 @@ V8_ADAPTER_TOKENIZER_CONFIG_SHA256 = (
 RUNTIME_PIP_FREEZE_SHA256 = (
     "7799387d3ef2780f8d25b93169297d73984d44b1d8264566bd238ee6fdfc3f77"
 )
+RUNTIME_PYTHON_MAJOR_MINOR = (3, 12)
 
 MAX_NEW_TOKENS = 128
 MAX_SEQUENCE_LENGTH = 1024
@@ -367,6 +370,44 @@ def _require_exact_file(path: Path, expected_sha256: str, label: str) -> None:
     _require(_sha256_file(path) == expected_sha256, f"{label} SHA-256 drift")
 
 
+def validate_v8_runtime_environment(
+    *,
+    python_major_minor: tuple[int, int],
+    pip_freeze_sha256: str,
+) -> dict[str, Any]:
+    """Validate the exact accepted V8 interpreter/package identity."""
+    _require(
+        python_major_minor == RUNTIME_PYTHON_MAJOR_MINOR,
+        "V8 runtime Python major/minor drift",
+    )
+    _require(
+        pip_freeze_sha256 == RUNTIME_PIP_FREEZE_SHA256,
+        "V8 runtime pip-freeze SHA-256 drift",
+    )
+    return {
+        "python_major_minor": list(python_major_minor),
+        "pip_freeze_sha256": pip_freeze_sha256,
+        "runtime_execution_performed": False,
+        "model_execution_performed": False,
+    }
+
+
+def verify_v8_runtime_environment() -> dict[str, Any]:
+    """Fail closed unless the executing Python stack is the accepted V8 stack."""
+    completed = subprocess.run(
+        [sys.executable, "-m", "pip", "freeze"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    _require(completed.returncode == 0, "V8 runtime pip freeze failed")
+    actual = hashlib.sha256(completed.stdout).hexdigest()
+    return validate_v8_runtime_environment(
+        python_major_minor=(sys.version_info.major, sys.version_info.minor),
+        pip_freeze_sha256=actual,
+    )
+
+
 def verify_v8_runtime_assets(*, model_dir: Path, adapter_dir: Path) -> dict[str, Any]:
     """Verify exact local runtime bytes without loading the model."""
     model = Path(model_dir).expanduser().resolve()
@@ -428,6 +469,7 @@ class FrozenV8LocalToolRuntime:
 
     @classmethod
     def load(cls, *, model_dir: Path, adapter_dir: Path):
+        verify_v8_runtime_environment()
         verify_v8_runtime_assets(model_dir=model_dir, adapter_dir=adapter_dir)
         import os
 
@@ -914,6 +956,9 @@ def v8_tool_runtime_contract() -> dict[str, Any]:
         "v8_adapter_config_sha256": V8_ADAPTER_CONFIG_SHA256,
         "v8_adapter_tokenizer_config_sha256": V8_ADAPTER_TOKENIZER_CONFIG_SHA256,
         "runtime_pip_freeze_sha256": RUNTIME_PIP_FREEZE_SHA256,
+        "runtime_python_major_minor": list(RUNTIME_PYTHON_MAJOR_MINOR),
+        "runtime_environment_pip_freeze_verified_before_load": True,
+        "runtime_environment_live_pip_freeze_match_required": True,
         "accepted_tool_names": list(ACCEPTED_TOOL_NAMES),
         "final_acceptance_transfer_correct": FINAL_ACCEPTANCE_TRANSFER_CORRECT,
         "final_acceptance_transfer_total": FINAL_ACCEPTANCE_TRANSFER_TOTAL,

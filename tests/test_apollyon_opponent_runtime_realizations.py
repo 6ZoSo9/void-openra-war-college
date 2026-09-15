@@ -78,8 +78,8 @@ def test_v8_tool_runtime_is_frozen_reviewed_and_source_bound():
     assert V8["input_surface"]["current_tool_list_authoritative"] is True
     assert V8["input_surface"]["host_validation_unchanged"] is True
     assert V8["input_surface"]["fabricated_information_allowed"] is False
-    assert V8["identity"]["tool_runtime_source_sha256"] == "98a37ce59cabead530fb90f696b32081789ae8b5db61a7fd29df7c01137fbe16"
-    assert V8["identity"]["tool_runtime_contract_sha256"] == "0f05d823981340847960b57533541a3c380a1807f43566da9fb65de23f1dc850"
+    assert V8["identity"]["tool_runtime_source_sha256"] == "faf4b64ea4755fabdbdfc778f3df534a87f056a638763aa1560c7965c482b5af"
+    assert V8["identity"]["tool_runtime_contract_sha256"] == "ef28f9bf884d882ccbe40bb9774ea0010782791717ad527d5b01c649bdcbd334"
     assert V8["identity"]["accepted_evaluator_sha256"] == (
         "8c39267872ba797b30ce2ff7a2174863d7a5d4c8061afc6db8571786a7ea5f27"
     )
@@ -88,7 +88,7 @@ def test_v8_tool_runtime_is_frozen_reviewed_and_source_bound():
 
 def test_realization_set_is_exact_and_fail_closed():
     result = reviewed_opponent_runtime_realizations()
-    assert result["realization_set_sha256"] == "b077e3020ceafe39cda6befce7eda14582021207c741177d90e2a72ba1853f39"
+    assert result["realization_set_sha256"] == "0257201136edd2fd902b8f20cb081e1a65065fb418af5dc352b8e09dab0591c8"
     assert result["source_binding_complete"] is True
     assert result["historical_game_facing_runtime_count"] == 2
     assert result["runtime_surface_realized_count"] == 3

@@ -144,8 +144,8 @@ V8 = {
             "8ab9e197ba605799cf511407f9e95042935264b18a6bb5af056fee07df2284e8",
         "accepted_evaluator_sha256":
             "8c39267872ba797b30ce2ff7a2174863d7a5d4c8061afc6db8571786a7ea5f27",
-        "tool_runtime_source_sha256": "98a37ce59cabead530fb90f696b32081789ae8b5db61a7fd29df7c01137fbe16",
-        "tool_runtime_contract_sha256": "0f05d823981340847960b57533541a3c380a1807f43566da9fb65de23f1dc850",
+        "tool_runtime_source_sha256": "faf4b64ea4755fabdbdfc778f3df534a87f056a638763aa1560c7965c482b5af",
+        "tool_runtime_contract_sha256": "ef28f9bf884d882ccbe40bb9774ea0010782791717ad527d5b01c649bdcbd334",
         "base_model_revision": "3764fa359b9082ea5a1e4a5e3ac3aaf6e9671636",
         "base_model_config_sha256":
             "14687c353af8012cc1b563b3aeeefaa0b78d8780d8ea5270c73fe9fcdb7387f2",
@@ -456,6 +456,8 @@ def reviewed_opponent_runtime_realizations() -> dict[str, Any]:
         "tool_schema_narrowing_only",
         "local_runtime_loader_implemented",
         "runtime_assets_hash_verified_before_load",
+        "runtime_environment_pip_freeze_verified_before_load",
+        "runtime_environment_live_pip_freeze_match_required",
         "offline_only_model_load",
         "accepted_chat_template_generation_implemented",
         "campaign_decision_adapter_implemented",
