@@ -16,9 +16,6 @@ from .abaddon_policy_campaign_contract import (
     MIN_COMPOSITE_GAIN,
     MIN_REVIEWED_MATCHES,
     MIN_VARIED_SEEDS,
-    promotion_recommendation,
-    stable_json,
-    validate_generation_review,
 )
 from .abaddon_policy_campaign_plan_generation2 import precommitted_campaign_plan
 from .apollyon_opponent_runtime_realizations import (
