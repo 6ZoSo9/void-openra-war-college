@@ -18,7 +18,7 @@ SOURCE = (
     / "openra_env/learning/"
     "abaddon_policy_campaign_runtime_v2r13_live_collection_backend_generation2.py"
 )
-EXPECTED_SOURCE_SHA256 = "fe41c893b95ad80035c6d9f25798555fa5b6ec24421424384569a338660843e2"
+EXPECTED_SOURCE_SHA256 = "1f8dacce44d355f2948359ff59c29b79d50c68e21a648814689ba6a85cce2c94"
 
 
 def _load():
