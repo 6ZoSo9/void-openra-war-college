@@ -21,7 +21,7 @@ SOURCE = (
     "abaddon_policy_campaign_runtime_primitive_provider_contract_generation2.py"
 )
 EXPECTED_SOURCE_SHA256 = (
-    "359ee7e8ebc5efd82c8071b2d0fbfceaaa044d4d6dad4b1b8998c791e299ff7a"
+    "d28867393c73ae4a570bc97a78a6d16b634f0026cdded6f567ee89aef47369e6"
 )
 EXPECTED_PROVIDER_CONTRACT_SHA256 = (
     "58e84a058c332de983ccaef19bd1383a92071966b653e699d032c9e9e86c1114"
