@@ -15,8 +15,8 @@ When invoked with authority, the implementation creates exactly two detached Git
 worktrees at the frozen War College and engine commits, verifies the frozen source
 tree, verifies both materialized worktrees are clean and detached, proves the
 canonical source/engine checkout snapshots are unchanged, and rolls back any
-partially created worktrees on failure. Cleanup is separately explicit and
-idempotent.
+partially created worktrees on failure. Cleanup is separately explicit,
+receipt-path-bound, ownership/identity revalidated, non-force, and idempotent.
 
 This source does not authorize runtime activation or execution, model loading or
 inference, game execution, training, deployment, VOID-chain mutation, or funds
@@ -373,13 +373,118 @@ def _remove_if_present(
         repository_root,
         "worktree",
         "remove",
-        "--force",
         worktree_path,
         label=label,
     )
     _require(
         path_exists(worktree_path) is False,
         f"{label}: worktree path remained after cleanup",
+    )
+    return True
+
+
+def _expected_tree_for_commit(
+    repository_root: str,
+    commit: str,
+    *,
+    run_git: GitRunner,
+    label: str,
+) -> str:
+    return _one_line(
+        _run(
+            run_git,
+            repository_root,
+            "rev-parse",
+            f"{commit}^{{tree}}",
+            label=label,
+        ),
+        label,
+    )
+
+
+def _cleanup_target_present_and_owned(
+    repository_root: str,
+    worktree_path: str,
+    *,
+    path_exists: PathExists,
+    run_git: GitRunner,
+    label: str,
+) -> bool:
+    exists = path_exists(worktree_path) is True
+    registered = worktree_path in _registered_worktrees(
+        repository_root,
+        run_git,
+    )
+    _require(
+        exists == registered,
+        f"{label}: path/registry presence drift",
+    )
+    return exists
+
+
+def _preflight_verified_cleanup_target(
+    repository_root: str,
+    worktree_path: str,
+    *,
+    expected_commit: str,
+    expected_tree: str,
+    path_exists: PathExists,
+    run_git: GitRunner,
+    label: str,
+) -> bool:
+    if not _cleanup_target_present_and_owned(
+        repository_root,
+        worktree_path,
+        path_exists=path_exists,
+        run_git=run_git,
+        label=label,
+    ):
+        return False
+
+    _verify_available_commit(
+        repository_root,
+        expected_commit,
+        run_git=run_git,
+        expected_tree=expected_tree,
+    )
+    verified = _verify_materialized_worktree(
+        worktree_path,
+        expected_commit=expected_commit,
+        expected_tree=expected_tree,
+        path_exists=path_exists,
+        run_git=run_git,
+    )
+    _require(verified["clean"] is True, f"{label}: worktree not clean")
+    _require(verified["detached"] is True, f"{label}: worktree not detached")
+    return True
+
+
+def _remove_preflighted_cleanup_target(
+    repository_root: str,
+    worktree_path: str,
+    *,
+    was_present: bool,
+    path_exists: PathExists,
+    run_git: GitRunner,
+    label: str,
+) -> bool:
+    if not was_present:
+        return False
+    _run(
+        run_git,
+        repository_root,
+        "worktree",
+        "remove",
+        worktree_path,
+        label=label,
+    )
+    _require(
+        path_exists(worktree_path) is False,
+        f"{label}: worktree path remained after cleanup",
+    )
+    _require(
+        worktree_path not in _registered_worktrees(repository_root, run_git),
+        f"{label}: worktree remained registered after cleanup",
     )
     return True
 
@@ -504,6 +609,11 @@ def v2r13_frozen_worktree_materializer_contract() -> dict[str, Any]:
         "partial_failure_rollback_implemented": True,
         "cleanup_implemented": True,
         "cleanup_idempotent": True,
+        "cleanup_receipt_path_binding_implemented": True,
+        "cleanup_registry_ownership_revalidation_implemented": True,
+        "cleanup_commit_tree_clean_detached_revalidation_implemented": True,
+        "cleanup_all_targets_preflight_before_removal_implemented": True,
+        "cleanup_non_force_removal_implemented": True,
         "materialization_requires_explicit_authority": True,
         "cleanup_requires_explicit_authority": True,
         "git_runner_backend_injected": True,
@@ -824,16 +934,87 @@ def cleanup_v2r13_frozen_worktrees(
         "exact_engine_root",
     )
 
-    engine_removed = _remove_if_present(
+    path_record = receipt.get("path_input_record")
+    _require(
+        isinstance(path_record, Mapping),
+        "V2R13 cleanup path_input_record missing",
+    )
+    validated_record = path_inputs.validate_explicit_path_inputs(
+        path_inputs.V2R13,
+        path_record,
+    )
+    record_paths = validated_record["paths"]
+    _require(
+        record_paths["frozen_source_root"] == source_destination,
+        "V2R13 cleanup source target not bound to path_input_record",
+    )
+    _require(
+        record_paths["exact_engine_root"] == engine_destination,
+        "V2R13 cleanup engine target not bound to path_input_record",
+    )
+
+    _require(
+        path_exists(source_repository_root) is True,
+        "V2R13 cleanup source repository root missing",
+    )
+    _require(
+        path_exists(engine_repository_root) is True,
+        "V2R13 cleanup engine repository root missing",
+    )
+    _repo_snapshot(source_repository_root, run_git)
+    _repo_snapshot(engine_repository_root, run_git)
+
+    source_expected_tree = _expected_tree_for_commit(
+        source_repository_root,
+        portable_checkout.FROZEN_WAR_COLLEGE_COMMIT,
+        run_git=run_git,
+        label="cleanup frozen source expected tree",
+    )
+    _require(
+        source_expected_tree == portable_checkout.FROZEN_WAR_COLLEGE_TREE,
+        "V2R13 cleanup frozen source tree drift",
+    )
+    engine_expected_tree = _expected_tree_for_commit(
+        engine_repository_root,
+        portable_checkout.FROZEN_ENGINE_COMMIT,
+        run_git=run_git,
+        label="cleanup frozen engine expected tree",
+    )
+
+    # Preflight both cleanup targets completely before removing either one.
+    # This prevents a valid first target from being deleted when the second
+    # target has drifted, is dirty/attached, or is owned by another registry.
+    source_present = _preflight_verified_cleanup_target(
+        source_repository_root,
+        source_destination,
+        expected_commit=portable_checkout.FROZEN_WAR_COLLEGE_COMMIT,
+        expected_tree=portable_checkout.FROZEN_WAR_COLLEGE_TREE,
+        path_exists=path_exists,
+        run_git=run_git,
+        label="frozen source cleanup",
+    )
+    engine_present = _preflight_verified_cleanup_target(
         engine_repository_root,
         engine_destination,
+        expected_commit=portable_checkout.FROZEN_ENGINE_COMMIT,
+        expected_tree=engine_expected_tree,
         path_exists=path_exists,
         run_git=run_git,
         label="exact engine cleanup",
     )
-    source_removed = _remove_if_present(
+
+    engine_removed = _remove_preflighted_cleanup_target(
+        engine_repository_root,
+        engine_destination,
+        was_present=engine_present,
+        path_exists=path_exists,
+        run_git=run_git,
+        label="exact engine cleanup",
+    )
+    source_removed = _remove_preflighted_cleanup_target(
         source_repository_root,
         source_destination,
+        was_present=source_present,
         path_exists=path_exists,
         run_git=run_git,
         label="frozen source cleanup",

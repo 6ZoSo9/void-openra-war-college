@@ -19,7 +19,7 @@ SOURCE = (
     / "openra_env/learning/"
     "abaddon_policy_campaign_runtime_v2r13_frozen_worktree_materializer_generation2.py"
 )
-EXPECTED_SOURCE_SHA256 = "64e6c5939564d5a861fd18d91716396749d6bd95bdaa779d5d1687c251234417"
+EXPECTED_SOURCE_SHA256 = "e1c189775b9b09d043f9e49d143d9f4ecab253ba5ea293fdf69820d0d2d86ff3"
 
 SOURCE_REPO = "/repos/war-college"
 ENGINE_REPO = "/repos/openra"
@@ -190,14 +190,19 @@ class FakeGit:
             }
             return self.result(stdout=f"Preparing worktree {destination}\n")
 
-        if len(key) == 4 and key[:3] == ("worktree", "remove", "--force"):
-            destination = key[3]
+        if len(key) == 3 and key[:2] == ("worktree", "remove"):
+            destination = key[2]
             state = self.worktrees.get(destination)
             if state is None or state["owner"] != repo:
                 return self.result(rc=1, stderr="unknown worktree")
+            if state.get("status", ""):
+                return self.result(rc=1, stderr="worktree contains modified files")
             del self.worktrees[destination]
             self.paths.discard(destination)
             return self.result()
+
+        if len(key) >= 3 and key[:2] == ("worktree", "remove") and "--force" in key:
+            return self.result(rc=99, stderr="force removal forbidden by test fake")
 
         raise AssertionError((repo, args))
 
@@ -297,6 +302,10 @@ def test_contract_implements_materializer_without_reviewing_itself():
     assert out["partial_failure_rollback_implemented"] is True
     assert out["cleanup_implemented"] is True
     assert out["cleanup_idempotent"] is True
+    assert out["cleanup_receipt_path_binding_implemented"] is True
+    assert out["cleanup_registry_ownership_revalidation_implemented"] is True
+    assert out["cleanup_commit_tree_clean_detached_revalidation_implemented"] is True
+    assert out["cleanup_non_force_removal_implemented"] is True
 
 
 def test_contract_preserves_runtime_and_activation_boundary():
@@ -481,8 +490,12 @@ def test_engine_add_failure_rolls_back_source_worktree():
     assert ENGINE_DEST not in fake.paths
     assert (
         SOURCE_REPO,
-        ("worktree", "remove", "--force", SOURCE_DEST),
+        ("worktree", "remove", SOURCE_DEST),
     ) in fake.events
+    assert not any(
+        event[1][:2] == ("worktree", "remove") and "--force" in event[1]
+        for event in fake.events
+    )
 
 
 def test_post_creation_detached_check_failure_rolls_back_source():
@@ -557,6 +570,129 @@ def test_cleanup_removes_both_worktrees_and_is_idempotent():
     assert second["removed_worktree_count"] == 0
     assert second["cleanup_performed"] is False
     assert second["cleanup_idempotent"] is True
+
+
+def test_cleanup_binds_top_level_targets_to_embedded_path_record():
+    m = _load()
+    fake = FakeGit(m)
+    receipt = _materialize(m, fake)
+    bad = dict(receipt)
+    bad["frozen_source_root"] = "/materialized/v2r13/other-source"
+    _expect_hold(
+        m.RuntimeV2R13FrozenWorktreeMaterializerHold,
+        "source target not bound to path_input_record",
+        lambda: m.cleanup_v2r13_frozen_worktrees(
+            bad,
+            cleanup_authorized=True,
+            path_exists=fake.exists,
+            run_git=fake,
+        ),
+    )
+    assert SOURCE_DEST in fake.paths
+    assert ENGINE_DEST in fake.paths
+    assert not any(event[1][:2] == ("worktree", "remove") for event in fake.events)
+
+
+def test_cleanup_rejects_unregistered_or_wrong_owner_target():
+    m = _load()
+    fake = FakeGit(m)
+    receipt = _materialize(m, fake)
+    fake.worktrees[SOURCE_DEST]["owner"] = ENGINE_REPO
+    _expect_hold(
+        m.RuntimeV2R13FrozenWorktreeMaterializerHold,
+        "path/registry presence drift",
+        lambda: m.cleanup_v2r13_frozen_worktrees(
+            receipt,
+            cleanup_authorized=True,
+            path_exists=fake.exists,
+            run_git=fake,
+        ),
+    )
+    assert SOURCE_DEST in fake.paths
+    assert ENGINE_DEST in fake.paths
+
+
+def test_cleanup_rejects_dirty_worktree_without_removal():
+    m = _load()
+    fake = FakeGit(m)
+    receipt = _materialize(m, fake)
+    fake.worktrees[ENGINE_DEST]["status"] = " M local-change\n"
+    _expect_hold(
+        m.RuntimeV2R13FrozenWorktreeMaterializerHold,
+        "materialized worktree is not clean",
+        lambda: m.cleanup_v2r13_frozen_worktrees(
+            receipt,
+            cleanup_authorized=True,
+            path_exists=fake.exists,
+            run_git=fake,
+        ),
+    )
+    assert SOURCE_DEST in fake.paths
+    assert ENGINE_DEST in fake.paths
+    assert not any(event[1][:2] == ("worktree", "remove") for event in fake.events)
+
+
+def test_cleanup_rejects_attached_worktree_without_removal():
+    m = _load()
+    fake = FakeGit(m)
+    receipt = _materialize(m, fake)
+    fake.worktrees[ENGINE_DEST]["detached"] = False
+    _expect_hold(
+        m.RuntimeV2R13FrozenWorktreeMaterializerHold,
+        "unexpectedly attached",
+        lambda: m.cleanup_v2r13_frozen_worktrees(
+            receipt,
+            cleanup_authorized=True,
+            path_exists=fake.exists,
+            run_git=fake,
+        ),
+    )
+    assert SOURCE_DEST in fake.paths
+    assert ENGINE_DEST in fake.paths
+    assert not any(event[1][:2] == ("worktree", "remove") for event in fake.events)
+
+
+def test_cleanup_rejects_commit_or_tree_drift_without_removal():
+    m = _load()
+    fake = FakeGit(m)
+    receipt = _materialize(m, fake)
+    fake.worktrees[ENGINE_DEST]["head"] = "cccccccccccccccccccccccccccccccccccccccc"
+    _expect_hold(
+        m.RuntimeV2R13FrozenWorktreeMaterializerHold,
+        "materialized worktree commit drift",
+        lambda: m.cleanup_v2r13_frozen_worktrees(
+            receipt,
+            cleanup_authorized=True,
+            path_exists=fake.exists,
+            run_git=fake,
+        ),
+    )
+    assert SOURCE_DEST in fake.paths
+    assert ENGINE_DEST in fake.paths
+    assert not any(event[1][:2] == ("worktree", "remove") for event in fake.events)
+
+
+def test_cleanup_uses_only_non_force_worktree_remove():
+    m = _load()
+    fake = FakeGit(m)
+    receipt = _materialize(m, fake)
+    out = m.cleanup_v2r13_frozen_worktrees(
+        receipt,
+        cleanup_authorized=True,
+        path_exists=fake.exists,
+        run_git=fake,
+    )
+    assert out["removed_worktree_count"] == 2
+    removes = [
+        event
+        for event in fake.events
+        if event[1][:2] == ("worktree", "remove")
+    ]
+    assert removes == [
+        (ENGINE_REPO, ("worktree", "remove", ENGINE_DEST)),
+        (SOURCE_REPO, ("worktree", "remove", SOURCE_DEST)),
+    ]
+    assert not any("--force" in event[1] for event in removes)
 
 
 def test_cleanup_preserves_runtime_training_chain_and_funds_boundaries():
