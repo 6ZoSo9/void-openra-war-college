@@ -164,6 +164,7 @@ def collect(args: argparse.Namespace) -> dict[str, Any]:
 
     proto = Path(preflight.EXPECTED_PROTO_PYTHON)
     isolated = path_row(isolated_root)
+    isolated["root"] = str(isolated_root)
     arm_paths: dict[str, Any] = {}
     for pair_slot in preflight.AUTHORIZED_PAIR_SLOTS:
         for arm in preflight.AUTHORIZED_ARMS:
