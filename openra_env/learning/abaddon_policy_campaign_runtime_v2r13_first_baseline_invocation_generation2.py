@@ -54,6 +54,13 @@ from openra_env.learning import (
     abaddon_policy_campaign_runtime_v2r13_rootless_docker_image_backend_generation2
     as docker_backend,
 )
+from openra_env.learning import (
+    abaddon_policy_campaign_runtime_observers_generation2 as runtime_observers,
+)
+from openra_env.learning import (
+    abaddon_policy_campaign_runtime_v2r13_worktree_observer_generation2
+    as worktree_observer,
+)
 from tools import (
     abaddon_policy_campaign_runtime_v2r13_precision_host_preflight_generation2
     as precision_preflight,
@@ -330,12 +337,38 @@ def _authority_check_factory(expected_head: str):
 
 def _fresh_readiness_provider(context: Mapping[str, Any]) -> Mapping[str, Any]:
     _require(isinstance(context, Mapping), "fresh readiness context missing")
+    materialization = context.get("materialization_receipt")
+    _require(
+        isinstance(materialization, Mapping),
+        "fresh readiness materialization receipt missing",
+    )
+    path_input_record = materialization.get("path_input_record")
+    _require(
+        isinstance(path_input_record, Mapping),
+        "fresh readiness path-input record missing",
+    )
+
+    worktree_receipt = worktree_observer.observe_v2r13_worktrees(
+        path_input_record,
+        observation_authorized=True,
+        lstat_path=os.lstat,
+        run_git=runtime_observers.host_git_runner,
+        resolve_path=runtime_observers.host_path_resolver,
+    )
+    worktree_validation = (
+        worktree_observer.validate_v2r13_worktree_observation(worktree_receipt)
+    )
+    _require(
+        worktree_validation.get("receipt_valid") is True,
+        "fresh worktree observation not valid",
+    )
+
     receipt = live_entrypoint.collect_v2r13_canonical_live_collection(
         collection_authorized=True,
         observation_authorized=True,
         http_get=ollama_observer.host_http_get,
         run_command=docker_backend.host_readonly_command_runner,
-        worktree_receipt=context["materialization_receipt"],
+        worktree_receipt=worktree_receipt,
         portable_binding_attestation=context["portable_binding_attestation"],
     )
     validation = (
