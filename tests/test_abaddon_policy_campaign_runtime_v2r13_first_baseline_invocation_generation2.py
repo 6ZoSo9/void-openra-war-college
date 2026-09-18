@@ -45,6 +45,14 @@ def test_contract_requires_current_preflight_cached_sudo_and_revocation_check():
 def test_contract_requires_fresh_readiness_before_inference():
     out = invocation.first_baseline_invocation_contract()
     assert out["fresh_canonical_live_readiness_before_inference_implemented"] is True
+    assert (
+        out["fresh_worktree_observation_from_materialization_path_record_implemented"]
+        is True
+    )
+    assert out["materialization_receipt_direct_worktree_admission"] is False
+    assert out["fresh_worktree_observation_uses_explicit_host_lstat_backend"] is True
+    assert out["fresh_worktree_observation_uses_reviewed_git_backend"] is True
+    assert out["fresh_worktree_observation_uses_reviewed_path_resolver"] is True
     assert out["fresh_readiness_uses_reviewed_ollama_http_backend"] is True
     assert out["fresh_readiness_uses_reviewed_rootless_docker_backend"] is True
 
