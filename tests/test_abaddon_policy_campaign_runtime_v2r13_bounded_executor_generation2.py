@@ -22,6 +22,7 @@ SOURCE = (
 def test_contract_exposes_exact_six_authorized_v2r13_arms():
     out = executor.bounded_v2r13_runtime_executor_contract()
     assert out["authorized_pair_slots"] == (3, 9, 15)
+    assert out["held_out_pair_slots"] == (15,)
     assert out["authorized_arms"] == ("baseline", "candidate")
     assert out["authorized_execution_arm_count"] == 6
     assert len(out["execution_plans"]) == 6
@@ -60,6 +61,7 @@ def test_execution_plan_preserves_exact_v2r13_authorization(pair_slot, arm):
     assert plan["arm"] == arm
     assert plan["runtime_selection_key"] == "apollyon-v2r13-qualified-predecessor"
     assert plan["runtime_execution_authorized"] is True
+    assert plan["held_out"] is (pair_slot == 15)
     assert plan["fresh_runtime_readiness_required"] is True
     assert plan["revocation_check_required"] is True
     assert plan["automatic_retry"] is False
@@ -214,6 +216,8 @@ def test_fresh_readiness_hook_runs_after_start_and_before_return(monkeypatch):
     assert calls == {"start": 1, "cleanup": 0}
     assert events == ["authority", "readiness", "authority"]
     assert hooks.runtime_started is True
+    assert hooks.runtime_cleanup_attempted is False
+    assert hooks.runtime_cleanup_completed is False
     assert hooks.readiness_admission["runtime_readiness_admitted"] is True
 
 
@@ -237,6 +241,8 @@ def test_fresh_readiness_failure_cleans_started_runtime(monkeypatch):
 
     assert calls == {"start": 1, "cleanup": 1}
     assert hooks.runtime_started is True
+    assert hooks.runtime_cleanup_attempted is True
+    assert hooks.runtime_cleanup_completed is True
     assert hooks.runtime_cleanup_after_hold is True
 
 
@@ -260,13 +266,35 @@ def test_revocation_after_readiness_cleans_started_runtime(monkeypatch):
         hooks.restore()
 
     assert calls == {"start": 1, "cleanup": 1}
+    assert hooks.runtime_cleanup_attempted is True
+    assert hooks.runtime_cleanup_completed is True
     assert hooks.runtime_cleanup_after_hold is True
+
+
+def test_normal_legacy_cleanup_is_observed_and_restored(monkeypatch):
+    hooks, legacy, runner_path, calls = _fresh_hook_fixture(
+        monkeypatch,
+        lambda context: {"schema": "fake-evidence"},
+        lambda pair_slot, arm: True,
+    )
+    hooks.install()
+    base = legacy.load_base()
+    helper = base.load_module(runner_path, "helper")
+    wrapped_cleanup = helper.cleanup
+    helper.start_ollama()
+    helper.cleanup()
+    assert calls == {"start": 1, "cleanup": 1}
+    assert hooks.runtime_cleanup_attempted is True
+    assert hooks.runtime_cleanup_completed is True
+    hooks.restore()
+    assert helper.cleanup is not wrapped_cleanup
 
 
 def test_contract_advances_to_separate_source_binding_review():
     out = executor.bounded_v2r13_runtime_executor_contract()
     assert out["bounded_v2r13_runtime_executor_implemented"] is True
     assert out["bounded_v2r13_runtime_executor_reviewed"] is False
+    assert out["successful_runtime_cleanup_observation_implemented"] is True
     assert out["next_gate"] == (
         "V2R13_RUNTIME_EXECUTION_IMPLEMENTATION_SOURCE_BINDING_REVIEW_REQUIRED"
     )
