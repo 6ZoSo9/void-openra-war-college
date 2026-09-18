@@ -75,6 +75,7 @@ CANDIDATE_FIXTURE_SHA256 = command_materializer.CANDIDATE_FIXTURE_SHA256
 CANDIDATE_GENOME_SHA256 = command_materializer.CANDIDATE_GENOME_SHA256
 
 AUTHORIZED_PAIR_SLOTS = (3, 9, 15)
+HELD_OUT_PAIR_SLOTS = (15,)
 AUTHORIZED_ARMS = ("baseline", "candidate")
 AUTHORIZED_EXECUTION_ARM_COUNT = 6
 
@@ -295,7 +296,7 @@ def execution_plan(*, pair_slot: int, arm: str) -> dict[str, Any]:
         "pair_slot": pair_slot,
         "arm": arm,
         "execution_index": authorized["execution_index"],
-        "held_out": bool(authorized.get("held_out")),
+        "held_out": pair_slot in HELD_OUT_PAIR_SLOTS,
         "runtime_selection_key": V2R13,
         "authorization_attestation_sha256": AUTHORIZATION_ATTESTATION_SHA256,
         "command_sha256": command["command_sha256"],
@@ -356,10 +357,15 @@ class _FreshReadinessHooks:
         self._original_load_base = legacy.load_base
         self._base: Any | None = None
         self._original_base_load_module: Any | None = None
+        self._helper: Any | None = None
+        self._original_helper_start: Any | None = None
+        self._original_helper_cleanup: Any | None = None
         self._installed = False
         self.readiness_evidence: dict[str, Any] | None = None
         self.readiness_admission: dict[str, Any] | None = None
         self.runtime_started = False
+        self.runtime_cleanup_attempted = False
+        self.runtime_cleanup_completed = False
         self.runtime_cleanup_after_hold = False
 
     def install(self) -> None:
@@ -368,10 +374,18 @@ class _FreshReadinessHooks:
         self._installed = True
 
     def restore(self) -> None:
+        if self._helper is not None:
+            if self._original_helper_start is not None:
+                self._helper.start_ollama = self._original_helper_start
+            if self._original_helper_cleanup is not None:
+                self._helper.cleanup = self._original_helper_cleanup
         if self._base is not None and self._original_base_load_module is not None:
             self._base.load_module = self._original_base_load_module
         if self._installed:
             self.legacy.load_base = self._original_load_base
+        self._helper = None
+        self._original_helper_start = None
+        self._original_helper_cleanup = None
         self._base = None
         self._original_base_load_module = None
         self._installed = False
@@ -388,9 +402,17 @@ class _FreshReadinessHooks:
             if Path(path).expanduser().resolve() != expected_runner:
                 return module
             original_start = module.start_ollama
-            cleanup = module.cleanup
+            original_cleanup = module.cleanup
             _require(callable(original_start), "V2R13 runtime start hook missing")
-            _require(callable(cleanup), "V2R13 runtime cleanup hook missing")
+            _require(callable(original_cleanup), "V2R13 runtime cleanup hook missing")
+            self._helper = module
+            self._original_helper_start = original_start
+            self._original_helper_cleanup = original_cleanup
+
+            def recorded_cleanup():
+                self.runtime_cleanup_attempted = True
+                original_cleanup()
+                self.runtime_cleanup_completed = True
 
             def guarded_start():
                 _require(
@@ -437,11 +459,12 @@ class _FreshReadinessHooks:
                     self.readiness_evidence = deepcopy(dict(evidence))
                     self.readiness_admission = deepcopy(admission)
                 except Exception:
-                    cleanup()
+                    recorded_cleanup()
                     self.runtime_cleanup_after_hold = True
                     raise
 
             module.start_ollama = guarded_start
+            module.cleanup = recorded_cleanup
             return module
 
         base.load_module = load_module
@@ -699,6 +722,10 @@ def execute_v2r13_arm(
             readiness_hooks.readiness_admission is not None,
             "fresh V2R13 readiness was not admitted",
         )
+        _require(
+            readiness_hooks.runtime_cleanup_completed is True,
+            "legacy V2R13 runtime cleanup was not observed",
+        )
         artifact = _run_artifact_receipt(paths["runs"])
         body = {
             "schema": RECEIPT_SCHEMA,
@@ -712,6 +739,8 @@ def execute_v2r13_arm(
             "runtime_execution_authorized": True,
             "runtime_execution_performed": True,
             "runtime_started": True,
+            "runtime_cleanup_attempted": True,
+            "runtime_cleanup_completed": True,
             "fresh_runtime_readiness_admitted": True,
             "fresh_readiness_admission_sha256": _digest(
                 readiness_hooks.readiness_admission
@@ -778,12 +807,14 @@ def bounded_v2r13_runtime_executor_contract() -> dict[str, Any]:
         "bounded_v2r13_runtime_executor_implemented": True,
         "bounded_v2r13_runtime_executor_reviewed": False,
         "authorized_pair_slots": AUTHORIZED_PAIR_SLOTS,
+        "held_out_pair_slots": HELD_OUT_PAIR_SLOTS,
         "authorized_arms": AUTHORIZED_ARMS,
         "authorized_execution_arm_count": len(plans),
         "execution_plans": plans,
         "other_runtime_lanes_implemented_by_this_source": False,
         "fresh_readiness_hook_after_runtime_start_before_inference": True,
         "readiness_failure_runtime_cleanup_implemented": True,
+        "successful_runtime_cleanup_observation_implemented": True,
         "revocation_check_before_materialization_implemented": True,
         "revocation_check_before_inference_implemented": True,
         "detached_frozen_worktree_composition_implemented": True,
