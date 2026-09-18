@@ -24,6 +24,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 from types import SimpleNamespace
 from typing import Any, Mapping
 
@@ -401,7 +402,7 @@ def _write_invocation_receipt(receipt: Mapping[str, Any]) -> None:
 def execute_first_baseline(*, confirm: str) -> dict[str, Any]:
     """Execute exactly pair-03 baseline once after all reviewed gates pass."""
     _validate_confirmation(confirm)
-    _require(Path(os.path.realpath(os.sys.executable)) == PROTO_PYTHON.resolve(), (
+    _require(Path(os.path.realpath(sys.executable)) == PROTO_PYTHON.resolve(), (
         f"execution requires isolated gRPC Python: {PROTO_PYTHON}"
     ))
     _accepted_authority_contract()
