@@ -176,3 +176,103 @@ def test_invocation_advances_to_execution_evidence_acceptance():
     assert invocation.NEXT_CHANGE_CLASS == (
         "source_only_v2r13_pair03_baseline_execution_evidence_acceptance"
     )
+
+
+def test_fresh_readiness_converts_materialization_to_worktree_observation(monkeypatch):
+    materialization = {
+        "path_input_record": {"sentinel": "exact-materialized-path-record"},
+        "materialization_performed": True,
+    }
+    observed = {
+        "schema": "test-worktree-observation",
+        "sentinel": "observer-receipt",
+    }
+    calls = {}
+
+    def fake_observe(
+        record,
+        *,
+        observation_authorized,
+        lstat_path,
+        run_git,
+        resolve_path,
+    ):
+        calls["record"] = record
+        calls["observation_authorized"] = observation_authorized
+        calls["lstat_path"] = lstat_path
+        calls["run_git"] = run_git
+        calls["resolve_path"] = resolve_path
+        return observed
+
+    def fake_validate(receipt):
+        calls["validated_receipt"] = receipt
+        return {"receipt_valid": True}
+
+    def fake_collect(**kwargs):
+        calls["live_worktree_receipt"] = kwargs["worktree_receipt"]
+        calls["portable_binding_attestation"] = kwargs[
+            "portable_binding_attestation"
+        ]
+        return {
+            "activation_evidence": {"snapshot_id": "V2R13-test"},
+        }
+
+    def fake_entrypoint_validate(receipt, *, entrypoint_source_sha256):
+        calls["entrypoint_receipt"] = receipt
+        calls["entrypoint_source_sha256"] = entrypoint_source_sha256
+        return {
+            "bound_entrypoint_receipt_valid": True,
+            "canonical_live_collection_path_complete": True,
+            "runtime_readiness_admitted": True,
+            "runtime_execution_authorized": False,
+        }
+
+    monkeypatch.setattr(
+        invocation.worktree_observer,
+        "observe_v2r13_worktrees",
+        fake_observe,
+    )
+    monkeypatch.setattr(
+        invocation.worktree_observer,
+        "validate_v2r13_worktree_observation",
+        fake_validate,
+    )
+    monkeypatch.setattr(
+        invocation.live_entrypoint,
+        "collect_v2r13_canonical_live_collection",
+        fake_collect,
+    )
+    monkeypatch.setattr(
+        invocation.live_entrypoint_binding,
+        "validate_bound_canonical_live_collection_entrypoint_receipt",
+        fake_entrypoint_validate,
+    )
+
+    evidence = invocation._fresh_readiness_provider(
+        {
+            "materialization_receipt": materialization,
+            "portable_binding_attestation": {"portable": True},
+        }
+    )
+
+    assert calls["record"] is materialization["path_input_record"]
+    assert calls["observation_authorized"] is True
+    assert calls["lstat_path"] is invocation.os.lstat
+    assert calls["run_git"] is invocation.runtime_observers.host_git_runner
+    assert calls["resolve_path"] is invocation.runtime_observers.host_path_resolver
+    assert calls["validated_receipt"] is observed
+    assert calls["live_worktree_receipt"] is observed
+    assert calls["live_worktree_receipt"] is not materialization
+    assert calls["portable_binding_attestation"] == {"portable": True}
+    assert evidence == {"snapshot_id": "V2R13-test"}
+
+
+def test_source_explicitly_observes_worktrees_before_live_readiness():
+    tree = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
+    names = {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert "observe_v2r13_worktrees" in names
+    assert "validate_v2r13_worktree_observation" in names
