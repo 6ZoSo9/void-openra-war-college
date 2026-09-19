@@ -158,6 +158,7 @@ FORBIDDEN_IMPORT_ROOTS = {
 
 FORBIDDEN_DIRECT_CALLS = {"__import__", "compile", "eval", "exec", "open"}
 FORBIDDEN_DYNAMIC_CALLS = {"delattr", "getattr", "globals", "locals", "setattr", "vars"}
+FORBIDDEN_NAME_REFERENCES = FORBIDDEN_DIRECT_CALLS | FORBIDDEN_DYNAMIC_CALLS | {"__builtins__"}
 FORBIDDEN_INTROSPECTION_ATTRIBUTES = {
     "__builtins__",
     "__dict__",
@@ -230,8 +231,8 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
             _require(root not in FORBIDDEN_IMPORT_ROOTS, f"{label}: forbidden import {root}")
         elif isinstance(node, ast.Name):
             _require(
-                node.id != "__builtins__",
-                f"{label}: forbidden builtin namespace access",
+                node.id not in FORBIDDEN_NAME_REFERENCES,
+                f"{label}: forbidden builtin capability reference {node.id}",
             )
         elif isinstance(node, ast.Attribute):
             _require(

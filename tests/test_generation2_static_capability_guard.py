@@ -126,6 +126,22 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden"):
                     audit_source(source, spec)
 
+    def test_rejects_aliased_builtin_capabilities(self):
+        for statement in (
+            "runner = open\nrunner('x')",
+            "evaluate = eval\nevaluate('1 + 1')",
+            "resolve = getattr\nresolve(object(), '__class__')",
+            "loader = __import__\nloader('pathlib')",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(
+                    CapabilityGuardError,
+                    "forbidden builtin capability reference",
+                ):
+                    audit_source(source, spec)
+
     def test_rejects_sha_drift_before_parsing(self):
         source = _source()
         spec = replace(_spec(source), sha256="0" * 64)
