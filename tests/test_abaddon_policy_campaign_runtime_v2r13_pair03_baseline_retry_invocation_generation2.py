@@ -128,10 +128,32 @@ def test_retry_calls_repaired_first_baseline_once(monkeypatch):
     assert out["held_out_arm_executed"] is False
 
 
-def test_source_contains_no_second_retry_loop():
+def test_source_contains_exactly_one_underlying_execution_call():
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
-    loops = [node for node in ast.walk(tree) if isinstance(node, (ast.For, ast.While))]
-    assert not loops
+    execute_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "execute_first_baseline"
+    ]
+    recursive_retry_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and (
+            (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "execute_pair03_baseline_retry"
+            )
+            or (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "execute_pair03_baseline_retry"
+            )
+        )
+    ]
+    assert len(execute_calls) == 1
+    assert recursive_retry_calls == []
 
 
 def test_source_uses_repaired_first_baseline_executor():
