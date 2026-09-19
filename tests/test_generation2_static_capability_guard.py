@@ -164,6 +164,24 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden"):
                     audit_source(source, spec)
 
+    def test_rejects_additional_host_capability_modules(self):
+        for statement in (
+            "import code\ncode.interact()",
+            "import codeop\ncodeop.compile_command('open(\\'x\\')')",
+            "import concurrent.futures\nconcurrent.futures.ProcessPoolExecutor()",
+            "import io\nio.open('x')",
+            "import pickle\npickle.loads(b'payload')",
+            "import pydoc\npydoc.help(object)",
+            "import runpy\nrunpy.run_path('x.py')",
+            "import webbrowser\nwebbrowser.open('https://example.invalid')",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
+
     def test_rejects_aliased_builtin_capabilities(self):
         for statement in (
             "runner = open\nrunner('x')",
