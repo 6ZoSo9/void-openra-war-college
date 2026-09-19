@@ -146,13 +146,25 @@ FORBIDDEN_IMPORT_ROOTS = {
     "importlib",
     "multiprocessing",
     "os",
+    "pathlib",
     "requests",
+    "shutil",
+    "sys",
+    "tempfile",
     "socket",
     "subprocess",
     "urllib",
 }
 
 FORBIDDEN_DIRECT_CALLS = {"__import__", "compile", "eval", "exec", "open"}
+FORBIDDEN_DYNAMIC_CALLS = {"delattr", "getattr", "globals", "locals", "setattr", "vars"}
+FORBIDDEN_INTROSPECTION_ATTRIBUTES = {
+    "__builtins__",
+    "__dict__",
+    "__globals__",
+    "__mro__",
+    "__subclasses__",
+}
 
 
 def _require(condition: bool, message: str) -> None:
@@ -216,10 +228,20 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
         elif isinstance(node, ast.ImportFrom):
             root = (node.module or "").split(".", 1)[0]
             _require(root not in FORBIDDEN_IMPORT_ROOTS, f"{label}: forbidden import {root}")
+        elif isinstance(node, ast.Name):
+            _require(
+                node.id != "__builtins__",
+                f"{label}: forbidden builtin namespace access",
+            )
+        elif isinstance(node, ast.Attribute):
+            _require(
+                node.attr not in FORBIDDEN_INTROSPECTION_ATTRIBUTES,
+                f"{label}: forbidden introspection attribute {node.attr}",
+            )
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             _require(
-                node.func.id not in FORBIDDEN_DIRECT_CALLS,
-                f"{label}: forbidden direct call {node.func.id}",
+                node.func.id not in FORBIDDEN_DIRECT_CALLS | FORBIDDEN_DYNAMIC_CALLS,
+                f"{label}: forbidden direct or dynamic call {node.func.id}",
             )
 
 

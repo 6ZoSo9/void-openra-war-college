@@ -112,6 +112,20 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
                     audit_source(source, spec)
 
+    def test_rejects_builtin_introspection_and_filesystem_escapes(self):
+        for statement in (
+            "__builtins__['open']('x')",
+            "(lambda: None).__globals__['__builtins__']['open']('x')",
+            "getattr((lambda: None), '__globals__')",
+            "import pathlib\npathlib.Path('x').write_text('x')",
+            "import sys\nsys.modules['builtins'].open('x')",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden"):
+                    audit_source(source, spec)
+
     def test_rejects_sha_drift_before_parsing(self):
         source = _source()
         spec = replace(_spec(source), sha256="0" * 64)

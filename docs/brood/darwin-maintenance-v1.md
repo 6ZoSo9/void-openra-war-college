@@ -4,7 +4,7 @@
 
 - Repository: `6ZoSo9/void-openra-war-college`
 - Original audited `main`: `b51137277ab5b17631712ecd035af85d4b8d81c8`
-- Current integration base after retry-gate merges: `8c9fdf60d83c004591684030958137d3db2545d5`
+- Current integration base after retry-gate merges: `306896e0f638548f6b58732bb4bf5ec8fc9b23ca`
 - Audit mode: source-only; no game execution, training, model loading, weight update, promotion, deployment, service action, VOID mutation, credentials, wallets, transactions, or funds action.
 
 ## Live capability audit
@@ -21,7 +21,8 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 2. exposes a named next gate instead of silently enabling an action;
 3. retains source-binding tests for exact dependency identities and rejects relative local imports rather than silently omitting them; and
 4. rejects a fixture that flips any protected capability flag or replaces an authority-held entrypoint with an executable path; and
-5. rejects indirect host-execution imports through `builtins` or dynamic module loading through `importlib`.
+5. rejects indirect host-execution imports through `builtins` or dynamic module loading through `importlib`; and
+6. rejects builtin-namespace, function-global introspection, and `pathlib`/`sys` filesystem escape surfaces.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 
