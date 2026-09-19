@@ -139,9 +139,11 @@ TARGETS = (
 
 FORBIDDEN_IMPORT_ROOTS = {
     "asyncio",
+    "builtins",
     "ctypes",
     "http",
     "httpx",
+    "importlib",
     "multiprocessing",
     "os",
     "requests",

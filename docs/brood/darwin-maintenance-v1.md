@@ -11,7 +11,7 @@
 
 The accepted Generation-2 source on this head separates deterministic source contracts from runtime authority. In particular, the merged isolated-workdir allocator review under `openra_env/learning/` preserves the unresolved `<GENERATION2_ISOLATED_WORKDIR_ROOT>` boundary, validates deterministic allocation identities, and leaves runtime execution authorization outside the source-only layer.
 
-The pair-03 retry-gate chain remains outside this maintenance change. PRs #148–#152 have merged into `main`; the active #154–#160 stack remains intentionally untouched.
+The pair-03 retry-gate chain remains outside this maintenance change. PRs #148–#160 have merged into `main`; active #161–#162 remain intentionally untouched.
 
 ## Actionable improvement
 
@@ -20,7 +20,8 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 1. keeps runtime, process-spawn, game-execution, training, weight-update, promotion, deployment, VOID-chain, wallet, and funds capabilities false by default;
 2. exposes a named next gate instead of silently enabling an action;
 3. retains source-binding tests for exact dependency identities and rejects relative local imports rather than silently omitting them; and
-4. rejects a fixture that flips any protected capability flag or replaces an authority-held entrypoint with an executable path.
+4. rejects a fixture that flips any protected capability flag or replaces an authority-held entrypoint with an executable path; and
+5. rejects indirect host-execution imports through `builtins` or dynamic module loading through `importlib`.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 

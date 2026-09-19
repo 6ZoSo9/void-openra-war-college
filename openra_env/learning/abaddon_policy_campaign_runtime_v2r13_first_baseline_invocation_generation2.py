@@ -26,6 +26,8 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
+import urllib.error
+import urllib.request
 from typing import Any, Mapping
 
 from openra_env.learning import (
@@ -102,6 +104,11 @@ HISTORICAL_PREFLIGHT_SNAPSHOT_SHA256 = (
 AUTHORIZATION_ATTESTATION_SHA256 = (
     "34ad7143e876b91056f730de37ab470b6fd8a5f99d84aadefb178cabf87a2031"
 )
+
+OLLAMA_PRELOAD_URL = f"{ollama_observer.OLLAMA_ORIGIN}/api/generate"
+OLLAMA_PRELOAD_KEEP_ALIVE = "5m"
+OLLAMA_PRELOAD_TIMEOUT_SECONDS = 180.0
+OLLAMA_PRELOAD_MAX_RESPONSE_BYTES = 1024 * 1024
 
 NEXT_GATE = "V2R13_PAIR03_BASELINE_EXECUTION_EVIDENCE_ACCEPTANCE_REQUIRED"
 NEXT_CHANGE_CLASS = "source_only_v2r13_pair03_baseline_execution_evidence_acceptance"
@@ -335,8 +342,92 @@ def _authority_check_factory(expected_head: str):
     return authority_check
 
 
+def _preload_exact_v2r13_model() -> dict[str, Any]:
+    """Load the exact V2R13 model into Ollama memory without inference."""
+    expected_alias = ollama_observer.activation_contract.V2R13_MODEL_ALIAS
+    payload = json.dumps(
+        {
+            "model": expected_alias,
+            "prompt": "",
+            "keep_alive": OLLAMA_PRELOAD_KEEP_ALIVE,
+            "stream": False,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        OLLAMA_PRELOAD_URL,
+        data=payload,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "VOID-War-College-V2R13-Model-Preload/1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=OLLAMA_PRELOAD_TIMEOUT_SECONDS,
+        ) as response:
+            status = int(response.getcode())
+            raw = response.read(OLLAMA_PRELOAD_MAX_RESPONSE_BYTES + 1)
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise V2R13FirstBaselineInvocationHold(
+            f"V2R13_MODEL_PRELOAD_FAILED:{type(error).__name__}"
+        ) from error
+
+    _require(status == 200, "V2R13 model preload HTTP status drift")
+    _require(
+        len(raw) <= OLLAMA_PRELOAD_MAX_RESPONSE_BYTES,
+        "V2R13 model preload response exceeds bound",
+    )
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise V2R13FirstBaselineInvocationHold(
+            "V2R13 model preload response invalid JSON"
+        ) from error
+
+    _require(isinstance(value, Mapping), "V2R13 model preload response must be object")
+    _require(value.get("model") == expected_alias, "V2R13 model preload alias drift")
+    _require(value.get("done") is True, "V2R13 model preload did not complete")
+    _require(value.get("response") == "", "V2R13 model preload generated response text")
+    done_reason = value.get("done_reason")
+    _require(
+        done_reason in {None, "load"},
+        "V2R13 model preload done-reason drift",
+    )
+    for field in ("prompt_eval_count", "eval_count"):
+        observed = value.get(field)
+        _require(
+            observed in {None, 0},
+            f"V2R13 model preload unexpectedly evaluated tokens: {field}",
+        )
+
+    return {
+        "schema": "void.abaddon.generation2.v2r13-model-preload-receipt.v1",
+        "model_alias": expected_alias,
+        "preload_url": OLLAMA_PRELOAD_URL,
+        "keep_alive": OLLAMA_PRELOAD_KEEP_ALIVE,
+        "model_load_performed": True,
+        "model_inference_performed": False,
+        "response_text_empty": True,
+        "token_evaluation_performed": False,
+    }
+
+
 def _fresh_readiness_provider(context: Mapping[str, Any]) -> Mapping[str, Any]:
     _require(isinstance(context, Mapping), "fresh readiness context missing")
+    preload = _preload_exact_v2r13_model()
+    _require(
+        preload.get("model_load_performed") is True,
+        "fresh readiness model preload not completed",
+    )
+    _require(
+        preload.get("model_inference_performed") is False,
+        "fresh readiness model preload crossed inference boundary",
+    )
     materialization = context.get("materialization_receipt")
     _require(
         isinstance(materialization, Mapping),
@@ -542,6 +633,11 @@ def first_baseline_invocation_contract() -> dict[str, Any]:
         "isolated_grpc_python": str(PROTO_PYTHON),
         "restricted_git_worktree_backend_implemented": True,
         "fresh_canonical_live_readiness_before_inference_implemented": True,
+        "exact_v2r13_model_preload_before_readiness_implemented": True,
+        "model_preload_uses_empty_generate_prompt": True,
+        "model_preload_requires_empty_response_text": True,
+        "model_preload_token_evaluation_forbidden": True,
+        "model_preload_inference_performed": False,
         "fresh_worktree_observation_from_materialization_path_record_implemented": True,
         "materialization_receipt_direct_worktree_admission": False,
         "fresh_worktree_observation_uses_explicit_host_lstat_backend": True,

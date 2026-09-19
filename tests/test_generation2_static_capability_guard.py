@@ -100,6 +100,18 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden"):
                     audit_source(source, spec)
 
+    def test_rejects_indirect_host_execution_imports(self):
+        for statement in (
+            "import builtins\\nbuiltins.open('x')",
+            "from builtins import exec as run_code\\nrun_code('pass')",
+            "import importlib\\nimportlib.import_module('openra_env.learning.fixture_dependency')",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
     def test_rejects_sha_drift_before_parsing(self):
         source = _source()
         spec = replace(_spec(source), sha256="0" * 64)

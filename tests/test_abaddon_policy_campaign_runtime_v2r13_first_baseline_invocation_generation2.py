@@ -45,6 +45,11 @@ def test_contract_requires_current_preflight_cached_sudo_and_revocation_check():
 def test_contract_requires_fresh_readiness_before_inference():
     out = invocation.first_baseline_invocation_contract()
     assert out["fresh_canonical_live_readiness_before_inference_implemented"] is True
+    assert out["exact_v2r13_model_preload_before_readiness_implemented"] is True
+    assert out["model_preload_uses_empty_generate_prompt"] is True
+    assert out["model_preload_requires_empty_response_text"] is True
+    assert out["model_preload_token_evaluation_forbidden"] is True
+    assert out["model_preload_inference_performed"] is False
     assert (
         out["fresh_worktree_observation_from_materialization_path_record_implemented"]
         is True
@@ -236,6 +241,14 @@ def test_fresh_readiness_converts_materialization_to_worktree_observation(monkey
         }
 
     monkeypatch.setattr(
+        invocation,
+        "_preload_exact_v2r13_model",
+        lambda: {
+            "model_load_performed": True,
+            "model_inference_performed": False,
+        },
+    )
+    monkeypatch.setattr(
         invocation.worktree_observer,
         "observe_v2r13_worktrees",
         fake_observe,
@@ -284,3 +297,157 @@ def test_source_explicitly_observes_worktrees_before_live_readiness():
     }
     assert "observe_v2r13_worktrees" in names
     assert "validate_v2r13_worktree_observation" in names
+
+
+class _FakePreloadResponse:
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self._status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def getcode(self):
+        return self._status
+
+    def read(self, maximum_bytes):
+        raw = invocation.json.dumps(
+            self._payload,
+            sort_keys=True,
+        ).encode("utf-8")
+        assert len(raw) <= maximum_bytes
+        return raw
+
+
+def test_model_preload_is_empty_prompt_load_without_inference(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, *, timeout):
+        captured["url"] = request.full_url
+        captured["method"] = request.get_method()
+        captured["timeout"] = timeout
+        captured["payload"] = invocation.json.loads(request.data.decode("utf-8"))
+        return _FakePreloadResponse(
+            {
+                "model": invocation.ollama_observer.activation_contract.V2R13_MODEL_ALIAS,
+                "response": "",
+                "done": True,
+                "done_reason": "load",
+            }
+        )
+
+    monkeypatch.setattr(invocation.urllib.request, "urlopen", fake_urlopen)
+    receipt = invocation._preload_exact_v2r13_model()
+
+    assert captured["url"] == invocation.OLLAMA_PRELOAD_URL
+    assert captured["method"] == "POST"
+    assert captured["timeout"] == invocation.OLLAMA_PRELOAD_TIMEOUT_SECONDS
+    assert captured["payload"] == {
+        "model": invocation.ollama_observer.activation_contract.V2R13_MODEL_ALIAS,
+        "prompt": "",
+        "keep_alive": invocation.OLLAMA_PRELOAD_KEEP_ALIVE,
+        "stream": False,
+    }
+    assert receipt["model_load_performed"] is True
+    assert receipt["model_inference_performed"] is False
+    assert receipt["response_text_empty"] is True
+    assert receipt["token_evaluation_performed"] is False
+
+
+@pytest.mark.parametrize(
+    "payload, pattern",
+    [
+        (
+            {
+                "model": invocation.ollama_observer.activation_contract.V2R13_MODEL_ALIAS,
+                "response": "generated text",
+                "done": True,
+            },
+            "generated response text",
+        ),
+        (
+            {
+                "model": invocation.ollama_observer.activation_contract.V2R13_MODEL_ALIAS,
+                "response": "",
+                "done": True,
+                "eval_count": 1,
+            },
+            "unexpectedly evaluated tokens",
+        ),
+        (
+            {
+                "model": invocation.ollama_observer.activation_contract.V2R13_MODEL_ALIAS,
+                "response": "",
+                "done": True,
+                "prompt_eval_count": 1,
+            },
+            "unexpectedly evaluated tokens",
+        ),
+    ],
+)
+def test_model_preload_rejects_inference_signals(monkeypatch, payload, pattern):
+    monkeypatch.setattr(
+        invocation.urllib.request,
+        "urlopen",
+        lambda request, *, timeout: _FakePreloadResponse(payload),
+    )
+    with pytest.raises(invocation.V2R13FirstBaselineInvocationHold, match=pattern):
+        invocation._preload_exact_v2r13_model()
+
+
+def test_fresh_readiness_preloads_before_live_collection(monkeypatch):
+    order = []
+    materialization = {
+        "path_input_record": {"sentinel": "paths"},
+        "materialization_performed": True,
+    }
+
+    monkeypatch.setattr(
+        invocation,
+        "_preload_exact_v2r13_model",
+        lambda: (
+            order.append("preload")
+            or {
+                "model_load_performed": True,
+                "model_inference_performed": False,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        invocation.worktree_observer,
+        "observe_v2r13_worktrees",
+        lambda *args, **kwargs: order.append("worktree") or {"observer": True},
+    )
+    monkeypatch.setattr(
+        invocation.worktree_observer,
+        "validate_v2r13_worktree_observation",
+        lambda receipt: {"receipt_valid": True},
+    )
+    monkeypatch.setattr(
+        invocation.live_entrypoint,
+        "collect_v2r13_canonical_live_collection",
+        lambda **kwargs: order.append("live") or {
+            "activation_evidence": {"snapshot_id": "V2R13-test"},
+        },
+    )
+    monkeypatch.setattr(
+        invocation.live_entrypoint_binding,
+        "validate_bound_canonical_live_collection_entrypoint_receipt",
+        lambda receipt, *, entrypoint_source_sha256: {
+            "bound_entrypoint_receipt_valid": True,
+            "canonical_live_collection_path_complete": True,
+            "runtime_readiness_admitted": True,
+            "runtime_execution_authorized": False,
+        },
+    )
+
+    invocation._fresh_readiness_provider(
+        {
+            "materialization_receipt": materialization,
+            "portable_binding_attestation": {"portable": True},
+        }
+    )
+    assert order == ["preload", "worktree", "live"]

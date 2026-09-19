@@ -29,6 +29,10 @@ from openra_env.learning import (
     as repair_review,
 )
 from openra_env.learning import (
+    abaddon_policy_campaign_runtime_v2r13_model_preload_repair_source_binding_review_generation2
+    as preload_repair_review,
+)
+from openra_env.learning import (
     abaddon_policy_campaign_runtime_v2r13_pair03_baseline_preservation_evidence_acceptance_generation2
     as preservation_acceptance,
 )
@@ -164,6 +168,10 @@ def _validate_dependencies() -> dict[str, Any]:
         repair_review
         .v2r13_first_baseline_worktree_readiness_repair_review_contract()
     )
+    preload_repair = (
+        preload_repair_review
+        .v2r13_model_preload_repair_source_binding_review_contract()
+    )
     authorization = retry_review.v2r13_pair03_baseline_retry_authorization_review_contract()
     preservation = (
         preservation_acceptance
@@ -175,6 +183,35 @@ def _validate_dependencies() -> dict[str, Any]:
     _require(
         repair.get("runtime_retry_authorized") is False,
         "repair review unexpectedly grants retry authority",
+    )
+
+    _require(
+        preload_repair.get("repair_source_binding_present") is True,
+        "model-preload repair binding missing",
+    )
+    _require(
+        preload_repair.get("repair_reviewed") is True,
+        "model-preload repair review missing",
+    )
+    _require(
+        preload_repair.get("exact_v2r13_model_preload_reviewed") is True,
+        "exact V2R13 model preload review missing",
+    )
+    _require(
+        preload_repair.get("empty_generate_prompt_reviewed") is True,
+        "model-preload empty-prompt review missing",
+    )
+    _require(
+        preload_repair.get("empty_response_required") is True,
+        "model-preload empty-response requirement missing",
+    )
+    _require(
+        preload_repair.get("token_evaluation_forbidden") is True,
+        "model-preload token-evaluation prohibition missing",
+    )
+    _require(
+        preload_repair.get("model_inference_during_preload") is False,
+        "model-preload review crossed inference boundary",
     )
 
     _require(
@@ -206,7 +243,8 @@ def _validate_dependencies() -> dict[str, Any]:
     _require(preservation.get("automatic_retry") is False, "automatic retry enabled")
 
     return {
-        "repair_review": repair,
+        "worktree_repair_review": repair,
+        "model_preload_repair_review": preload_repair,
         "retry_authorization_review": authorization,
         "preservation_acceptance": preservation,
     }
@@ -363,6 +401,10 @@ def v2r13_pair03_baseline_retry_invocation_contract() -> dict[str, Any]:
         "preserved_warm_start_sha256": WARM_START_SHA256,
         "live_preservation_recheck_required": True,
         "repaired_first_baseline_executor_reused": True,
+        "worktree_readiness_repair_review_required": True,
+        "model_preload_repair_review_required": True,
+        "exact_v2r13_model_preload_before_readiness_required": True,
+        "model_preload_inference_forbidden": True,
         "retry_execution_authorized": True,
         "retry_execution_performed_by_contract_inspection": False,
         "remaining_retry_executions_before_invocation": 1,
