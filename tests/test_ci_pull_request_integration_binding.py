@@ -1,3 +1,4 @@
+# Synchronization sentinel: revalidate this binder against the latest main merge parent.
 from pathlib import Path
 
 
