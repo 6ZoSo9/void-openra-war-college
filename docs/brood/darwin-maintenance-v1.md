@@ -4,7 +4,7 @@
 
 - Repository: `6ZoSo9/void-openra-war-college`
 - Original audited `main`: `b51137277ab5b17631712ecd035af85d4b8d81c8`
-- Current integration base: `3432cc19f7612f7e3819eefe2c207d302cd4b580`
+- Current integration base: `59a39ce69826ba937bfaf004fed43a28b030aec4`
 - Audit mode: source-only; no game execution, training, model loading, weight update, promotion, deployment, service action, VOID mutation, credentials, wallets, transactions, or funds action.
 
 ## Live capability audit
@@ -29,6 +29,7 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 10. rejects reflective attribute dispatch through `object.__getattribute__`, `type.__getattribute__`, or `__getattr__` before string-selected globals, builtins, classes, or MRO state can escape the static surface; and
 11. rejects reflective helper modules (`operator`, `inspect`, and `gc`) plus interactive builtins (`breakpoint`, `input`, and `help`) that can recover or invoke host capabilities without spelling a previously forbidden call.
 12. rejects standard-library host-capability helpers (`code`, `codeop`, `concurrent`, `io`, `pickle`, `pydoc`, `runpy`, and `webbrowser`) before they can execute source, open host files, deserialize executable reducers, spawn workers, enter an interactive console, or launch a browser.
+13. rejects import-loader introspection through `__loader__`, `__spec__`, and loader dispatch methods before a permitted module can recover dynamic module-loading authority.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 

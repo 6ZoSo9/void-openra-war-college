@@ -164,6 +164,21 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden"):
                     audit_source(source, spec)
 
+    def test_rejects_import_loader_introspection_escapes(self):
+        for statement in (
+            "import json\njson.__loader__.load_module('os').system('id')",
+            "import json\njson.__spec__.loader.find_spec('os')",
+            "import json\njson.__spec__.loader.exec_module(module)",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(
+                    CapabilityGuardError,
+                    "forbidden introspection attribute",
+                ):
+                    audit_source(source, spec)
+
     def test_rejects_additional_host_capability_modules(self):
         for statement in (
             "import code\ncode.interact()",
