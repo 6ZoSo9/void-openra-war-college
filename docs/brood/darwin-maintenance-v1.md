@@ -23,7 +23,8 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 4. rejects a fixture that flips any protected capability flag or replaces an authority-held entrypoint with an executable path; and
 5. rejects indirect host-execution imports through `builtins` or dynamic module loading through `importlib`; and
 6. rejects builtin-namespace, function-global introspection, and `pathlib`/`sys` filesystem escape surfaces; and
-7. rejects aliases of forbidden builtin capabilities before the aliased call can hide their authority.
+7. rejects aliases of forbidden builtin capabilities before the aliased call can hide their authority. and
+8. rejects bare local-package imports whose reachable submodules cannot be deterministically enumerated.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 

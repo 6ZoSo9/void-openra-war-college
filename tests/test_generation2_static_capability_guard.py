@@ -208,6 +208,29 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             with self.assertRaisesRegex(CapabilityGuardError, "relative local import"):
                 audit_repository(root, (spec,))
 
+    def test_rejects_ambiguous_local_package_imports(self):
+        target_path = "openra_env/learning/fixture_target.py"
+        for statement in (
+            "import openra_env",
+            "import openra_env.learning",
+            "from openra_env import learning",
+        ):
+            with self.subTest(statement=statement):
+                target_source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(target_source), path=target_path)
+
+                with TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    target = root / target_path
+                    target.parent.mkdir(parents=True)
+                    target.write_bytes(target_source)
+
+                    with self.assertRaisesRegex(
+                        CapabilityGuardError,
+                        "ambiguous local package import",
+                    ):
+                        audit_repository(root, (spec,))
+
 
 if __name__ == "__main__":
     unittest.main()
