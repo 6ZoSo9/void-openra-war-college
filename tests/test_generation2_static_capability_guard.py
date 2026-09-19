@@ -126,6 +126,25 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden"):
                     audit_source(source, spec)
 
+    def test_rejects_traceback_and_frame_introspection_escapes(self):
+        for statement in (
+            "exc.__traceback__.tb_frame.f_builtins['open']('x')",
+            "frame.f_globals['__builtins__']['eval']('1 + 1')",
+            "generator.gi_frame.f_builtins['open']('x')",
+            "coroutine.cr_frame.f_globals",
+            "async_generator.ag_frame.f_globals",
+            "function.__code__",
+            "function.__closure__",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(
+                    CapabilityGuardError,
+                    "forbidden introspection attribute",
+                ):
+                    audit_source(source, spec)
+
     def test_rejects_aliased_builtin_capabilities(self):
         for statement in (
             "runner = open\nrunner('x')",

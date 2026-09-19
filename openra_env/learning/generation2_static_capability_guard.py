@@ -161,10 +161,21 @@ FORBIDDEN_DYNAMIC_CALLS = {"delattr", "getattr", "globals", "locals", "setattr",
 FORBIDDEN_NAME_REFERENCES = FORBIDDEN_DIRECT_CALLS | FORBIDDEN_DYNAMIC_CALLS | {"__builtins__"}
 FORBIDDEN_INTROSPECTION_ATTRIBUTES = {
     "__builtins__",
+    "__closure__",
+    "__code__",
     "__dict__",
     "__globals__",
     "__mro__",
     "__subclasses__",
+    "__traceback__",
+    "ag_frame",
+    "cr_frame",
+    "f_back",
+    "f_builtins",
+    "f_globals",
+    "gi_frame",
+    "tb_frame",
+    "tb_next",
 }
 
 
