@@ -175,6 +175,17 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             self.assertEqual(receipt["dependency_count"], 1)
             self.assertEqual(receipt["targets"][0]["dependency_count"], 1)
 
+            unused_spec = replace(
+                spec,
+                dependency_blobs=spec.dependency_blobs
+                + (("openra_env/learning/unused_fixture.py", "0" * 40),),
+            )
+            with self.assertRaisesRegex(
+                CapabilityGuardError,
+                "unused dependency binding",
+            ):
+                audit_repository(root, (unused_spec,))
+
             with self.assertRaisesRegex(CapabilityGuardError, "unbound local dependency"):
                 audit_repository(root, (replace(spec, dependency_blobs=()),))
 
