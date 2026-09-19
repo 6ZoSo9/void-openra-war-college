@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from openra_env.learning.generation2_static_capability_guard import (
@@ -9,6 +11,7 @@ from openra_env.learning.generation2_static_capability_guard import (
     HELD_ENTRYPOINTS,
     PROTECTED_FALSE_FIELDS,
     TargetSpec,
+    audit_repository,
     audit_source,
 )
 
@@ -42,6 +45,11 @@ def _spec(source: bytes) -> TargetSpec:
         protected_false_fields=PROTECTED_FALSE_FIELDS,
         held_entrypoints=HELD_ENTRYPOINTS,
     )
+
+
+def _git_blob_oid(source: bytes) -> str:
+    header = f"blob {len(source)}\0".encode("ascii")
+    return hashlib.sha1(header + source).hexdigest()
 
 
 class StaticCapabilityGuardTests(unittest.TestCase):
@@ -97,6 +105,40 @@ class StaticCapabilityGuardTests(unittest.TestCase):
         spec = replace(_spec(source), sha256="0" * 64)
         with self.assertRaisesRegex(CapabilityGuardError, "SHA-256 drift"):
             audit_source(source, spec)
+
+
+    def test_binds_complete_local_dependency_graph(self):
+        dependency_path = "openra_env/learning/fixture_dependency.py"
+        target_path = "openra_env/learning/fixture_target.py"
+        dependency_source = b"VALUE = 1\n"
+        target_source = (
+            b"from openra_env.learning import fixture_dependency as dependency\n"
+            + _source()
+        )
+        spec = replace(
+            _spec(target_source),
+            path=target_path,
+            dependency_blobs=((dependency_path, _git_blob_oid(dependency_source)),),
+        )
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / target_path
+            dependency = root / dependency_path
+            target.parent.mkdir(parents=True)
+            target.write_bytes(target_source)
+            dependency.write_bytes(dependency_source)
+
+            receipt = audit_repository(root, (spec,))
+            self.assertEqual(receipt["dependency_count"], 1)
+            self.assertEqual(receipt["targets"][0]["dependency_count"], 1)
+
+            with self.assertRaisesRegex(CapabilityGuardError, "unbound local dependency"):
+                audit_repository(root, (replace(spec, dependency_blobs=()),))
+
+            dependency.write_bytes(b"VALUE = 2\n")
+            with self.assertRaisesRegex(CapabilityGuardError, "dependency blob drift"):
+                audit_repository(root, (spec,))
 
 
 if __name__ == "__main__":
