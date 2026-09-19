@@ -102,9 +102,9 @@ class StaticCapabilityGuardTests(unittest.TestCase):
 
     def test_rejects_indirect_host_execution_imports(self):
         for statement in (
-            "import builtins\\nbuiltins.open('x')",
-            "from builtins import exec as run_code\\nrun_code('pass')",
-            "import importlib\\nimportlib.import_module('openra_env.learning.fixture_dependency')",
+            "import builtins\nbuiltins.open('x')",
+            "from builtins import exec as run_code\nrun_code('pass')",
+            "import importlib\nimportlib.import_module('openra_env.learning.fixture_dependency')",
         ):
             with self.subTest(statement=statement):
                 source = statement.encode() + b"\n" + _source()
