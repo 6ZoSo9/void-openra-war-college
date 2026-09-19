@@ -141,5 +141,20 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 audit_repository(root, (spec,))
 
 
+    def test_rejects_relative_local_dependency_import(self):
+        target_path = "openra_env/learning/fixture_target.py"
+        target_source = b"from . import fixture_dependency\n" + _source()
+        spec = replace(_spec(target_source), path=target_path)
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / target_path
+            target.parent.mkdir(parents=True)
+            target.write_bytes(target_source)
+
+            with self.assertRaisesRegex(CapabilityGuardError, "relative local import"):
+                audit_repository(root, (spec,))
+
+
 if __name__ == "__main__":
     unittest.main()

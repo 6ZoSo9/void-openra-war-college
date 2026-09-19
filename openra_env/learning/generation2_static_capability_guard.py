@@ -260,6 +260,7 @@ def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
     prefix = "openra_env.learning"
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
+            _require(node.level == 0, f"{label}: relative local import")
             module = node.module or ""
             if module == prefix:
                 for alias in node.names:
