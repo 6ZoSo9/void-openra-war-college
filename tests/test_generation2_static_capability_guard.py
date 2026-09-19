@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import replace
 import unittest
 
-from generation2_static_capability_guard import (
+from openra_env.learning.generation2_static_capability_guard import (
     CapabilityGuardError,
     HELD_ENTRYPOINTS,
     PROTECTED_FALSE_FIELDS,
