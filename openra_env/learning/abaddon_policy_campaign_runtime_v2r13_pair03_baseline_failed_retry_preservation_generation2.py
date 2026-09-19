@@ -53,10 +53,10 @@ ORIGINAL_PRESERVATION_RECEIPT_FILE_SHA256 = (
 )
 
 NEXT_GATE = (
-    "V2R13_PAIR03_BASELINE_FAILED_RETRY_PRESERVATION_IMPLEMENTATION_REQUIRED"
+    "V2R13_PAIR03_BASELINE_FAILED_RETRY_PRESERVATION_SOURCE_BINDING_REVIEW_REQUIRED"
 )
 NEXT_CHANGE_CLASS = (
-    "source_only_v2r13_pair03_baseline_failed_retry_preservation_implementation"
+    "source_only_v2r13_pair03_baseline_failed_retry_preservation_review"
 )
 
 
@@ -122,7 +122,10 @@ def v2r13_pair03_baseline_failed_retry_preservation_contract() -> dict[str, Any]
         "deployment_authorized": False,
         "void_chain_mutation_authorized": False,
         "wallet_or_funds_action_authorized": False,
-        "preservation_implemented": False,
+        "preservation_implemented": True,
+        "precision_preservation_tool_present": True,
+        "precision_preservation_tool_source_binding_present": False,
+        "preservation_invoked": False,
         "next_gate": NEXT_GATE,
         "next_change_class": NEXT_CHANGE_CLASS,
         "accepted_forensics": accepted,
