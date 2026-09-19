@@ -20,7 +20,7 @@ SOURCE = (
 
 @lru_cache(maxsize=1)
 def _contract_cached():
-    return _contract()
+    return authorization.v2r13_runtime_execution_authorization_contract()
 
 
 def _contract():
