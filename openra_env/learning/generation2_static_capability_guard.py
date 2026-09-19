@@ -138,6 +138,12 @@ TARGETS = (
 )
 
 FORBIDDEN_IMPORT_ROOTS = {
+    "_ctypes",
+    "_io",
+    "_posixsubprocess",
+    "_socket",
+    "nt",
+    "posix",
     "asyncio",
     "builtins",
     "code",

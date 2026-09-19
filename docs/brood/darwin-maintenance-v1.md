@@ -30,6 +30,7 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 11. rejects reflective helper modules (`operator`, `inspect`, and `gc`) plus interactive builtins (`breakpoint`, `input`, and `help`) that can recover or invoke host capabilities without spelling a previously forbidden call.
 12. rejects standard-library host-capability helpers (`code`, `codeop`, `concurrent`, `io`, `pickle`, `pydoc`, `runpy`, and `webbrowser`) before they can execute source, open host files, deserialize executable reducers, spawn workers, enter an interactive console, or launch a browser.
 13. rejects import-loader introspection through `__loader__`, `__spec__`, and loader dispatch methods before a permitted module can recover dynamic module-loading authority.
+14. rejects interpreter-native host-capability backends (`_io`, `_socket`, `_ctypes`, `_posixsubprocess`, `posix`, and `nt`) before lower-level file, network, foreign-function, process, or operating-system authority can bypass the higher-level module denylist.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 

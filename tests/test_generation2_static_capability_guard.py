@@ -213,6 +213,21 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 ):
                     audit_source(source, spec)
 
+    def test_rejects_interpreter_native_host_capability_modules(self):
+        for statement in (
+            "import _io\n_io.open('x', 'w')",
+            "import _socket\n_socket.socket()",
+            "import _ctypes\n_ctypes.dlopen('libc.so.6')",
+            "import _posixsubprocess\n_posixsubprocess.fork_exec()",
+            "import posix\nposix.system('id')",
+            "import nt\nnt.system('whoami')",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
     def test_rejects_sha_drift_before_parsing(self):
         source = _source()
         spec = replace(_spec(source), sha256="0" * 64)
