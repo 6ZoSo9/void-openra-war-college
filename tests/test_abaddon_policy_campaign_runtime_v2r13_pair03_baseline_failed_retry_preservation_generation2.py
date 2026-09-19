@@ -116,9 +116,12 @@ def test_tool_cli_is_fixed_to_preservation_only():
     assert "model_inference=false" in text
 
 
-def test_contract_advances_to_implementation_review_only():
+def test_contract_advances_to_source_binding_review_only():
     out = contract.v2r13_pair03_baseline_failed_retry_preservation_contract()
-    assert out["preservation_implemented"] is False
+    assert out["preservation_implemented"] is True
+    assert out["precision_preservation_tool_present"] is True
+    assert out["precision_preservation_tool_source_binding_present"] is False
+    assert out["preservation_invoked"] is False
     assert out["next_gate"] == (
-        "V2R13_PAIR03_BASELINE_FAILED_RETRY_PRESERVATION_IMPLEMENTATION_REQUIRED"
+        "V2R13_PAIR03_BASELINE_FAILED_RETRY_PRESERVATION_SOURCE_BINDING_REVIEW_REQUIRED"
     )
