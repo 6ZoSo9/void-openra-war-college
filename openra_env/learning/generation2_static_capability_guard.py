@@ -390,7 +390,10 @@ def audit_repository(root: Path, targets: Sequence[TargetSpec] = TARGETS) -> dic
             pending.extend(_local_dependency_paths(dependency_source, dependency))
 
         unused = sorted(set(expected) - discovered)
-        _require(not unused, f"{spec.path}: unused dependency binding: {unused[0]}")
+        if unused:
+            raise CapabilityGuardError(
+                f"{spec.path}: unused dependency binding: {unused[0]}"
+            )
         receipt["dependency_count"] = len(discovered)
         receipt["dependencies"] = [
             {"path": path, "git_blob": expected[path]} for path in sorted(discovered)
