@@ -39,6 +39,10 @@ def test_retry_contract_requires_live_preservation_recheck():
     out = retry.v2r13_pair03_baseline_retry_invocation_contract()
     assert out["live_preservation_recheck_required"] is True
     assert out["repaired_first_baseline_executor_reused"] is True
+    assert out["worktree_readiness_repair_review_required"] is True
+    assert out["model_preload_repair_review_required"] is True
+    assert out["exact_v2r13_model_preload_before_readiness_required"] is True
+    assert out["model_preload_inference_forbidden"] is True
     assert out["preservation_receipt_sha256"] == (
         "564be959096b6895aae3158eb3020d6b2062dcfdbf461e04a7969b8cee815dd9"
     )
@@ -183,3 +187,15 @@ def test_retry_advances_to_execution_evidence_acceptance():
     assert retry.NEXT_CHANGE_CLASS == (
         "source_only_v2r13_pair03_baseline_retry_execution_evidence_acceptance"
     )
+
+
+def test_retry_dependencies_include_both_readiness_repairs():
+    out = retry.v2r13_pair03_baseline_retry_invocation_contract()
+    deps = out["dependencies"]
+    assert deps["worktree_repair_review"]["repair_reviewed"] is True
+    assert deps["model_preload_repair_review"]["repair_reviewed"] is True
+    assert (
+        deps["model_preload_repair_review"]["exact_v2r13_model_preload_reviewed"]
+        is True
+    )
+    assert deps["model_preload_repair_review"]["model_inference_during_preload"] is False
