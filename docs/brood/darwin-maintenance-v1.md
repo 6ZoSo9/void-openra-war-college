@@ -3,14 +3,15 @@
 ## Source binding
 
 - Repository: `6ZoSo9/void-openra-war-college`
-- Audited `main`: `b51137277ab5b17631712ecd035af85d4b8d81c8`
+- Original audited `main`: `b51137277ab5b17631712ecd035af85d4b8d81c8`
+- Current integration base after retry-gate merges: `78e136ee30721ca1e2823c1cef037dd867b8ea6b`
 - Audit mode: source-only; no game execution, training, model loading, weight update, promotion, deployment, service action, VOID mutation, credentials, wallets, transactions, or funds action.
 
 ## Live capability audit
 
 The accepted Generation-2 source on this head separates deterministic source contracts from runtime authority. In particular, the merged isolated-workdir allocator review under `openra_env/learning/` preserves the unresolved `<GENERATION2_ISOLATED_WORKDIR_ROOT>` boundary, validates deterministic allocation identities, and leaves runtime execution authorization outside the source-only layer.
 
-The current Draft chain #148–#152 owns the pair-03 baseline retry authorization, preservation acceptance, retry invocation, source-binding review, tests, and Precision launcher paths. Those paths are intentionally not modified here.
+The pair-03 retry-gate chain remains outside this maintenance change. PRs #148–#150 have merged into `main`; #151–#152 remain the active retry invocation/review stack. Those runtime paths are intentionally not modified here.
 
 ## Actionable improvement
 
