@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import hashlib
 import importlib.util
+from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -15,6 +17,7 @@ SOURCE = (
 EXPECTED_SOURCE_SHA256 = "3a84514c668a5c40f76dd50349a1716e778dcd414f4c1a21d63a6435bfdde334"
 
 
+@lru_cache(maxsize=1)
 def _load():
     raw = SOURCE.read_bytes()
     assert hashlib.sha256(raw).hexdigest() == EXPECTED_SOURCE_SHA256
@@ -26,6 +29,24 @@ def _load():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@lru_cache(maxsize=1)
+def _contract_cached():
+    return _load().cross_control_runtime_selector_source_binding_review_contract()
+
+
+def _contract():
+    return deepcopy(_contract_cached())
+
+
+@lru_cache(maxsize=1)
+def _dependencies_cached():
+    return _load()._validate_dependencies()
+
+
+def _dependencies():
+    return deepcopy(_dependencies_cached())
 
 
 def _expect_hold(exc_type, pattern, fn):
@@ -43,7 +64,7 @@ def test_source_sha_is_exact():
 
 def test_contract_pins_exact_accepted_selector_source():
     m = _load()
-    out = m.cross_control_runtime_selector_source_binding_review_contract()
+    out = _contract()
     assert out["selector_git_blob"] == "3ddf54f0fe8a37006d1e272bab62d14faa5904c0"
     assert out["selector_source_sha256"] == (
         "19cd2c02e4232cee01e31286eee545237d61d7839542914899a1abf016fe26f4"
@@ -54,9 +75,9 @@ def test_contract_pins_exact_accepted_selector_source():
 
 def test_review_is_separate_and_selector_does_not_self_review():
     m = _load()
-    deps = m._validate_dependencies()
+    deps = _dependencies()
     impl = deps["selector_contract"]
-    out = m.cross_control_runtime_selector_source_binding_review_contract()
+    out = _contract()
     assert impl["cross_control_runtime_selector_reviewed"] is False
     assert out["selector_source_is_not_self_bound"] is True
     assert out["separate_review_instrument"] is True
@@ -65,7 +86,7 @@ def test_review_is_separate_and_selector_does_not_self_review():
 
 def test_selector_internal_dependency_blobs_remain_exact():
     m = _load()
-    impl = m._validate_dependencies()["selector_contract"]
+    impl = _dependencies()["selector_contract"]
     expected = m.EXPECTED_SELECTOR_INTERNAL_DEPENDENCY_BLOBS
     for field, blob in expected.items():
         assert impl[field] == blob
@@ -73,7 +94,7 @@ def test_selector_internal_dependency_blobs_remain_exact():
 
 def test_selector_review_accepts_exact_four_control_semantics():
     m = _load()
-    out = m.cross_control_runtime_selector_source_binding_review_contract()
+    out = _contract()
     assert out["selection_key"] == "opponent_snapshot_id"
     assert out["runtime_class_is_not_selection_key"] is True
     assert out["reviewed_runtime_count"] == 4
@@ -82,7 +103,7 @@ def test_selector_review_accepts_exact_four_control_semantics():
 
 def test_selector_review_accepts_exact_descriptor_and_pair_topology():
     m = _load()
-    out = m.cross_control_runtime_selector_source_binding_review_contract()
+    out = _contract()
     assert out["execution_descriptor_count"] == 36
     assert out["matched_pair_count"] == 18
     assert out["selector_accepts_only_canonical_execution_descriptors"] is True
@@ -91,7 +112,7 @@ def test_selector_review_accepts_exact_descriptor_and_pair_topology():
 
 def test_all_selected_descriptors_remain_ineligible_and_unauthorized():
     m = _load()
-    rows = m._validate_dependencies()["selected_execution_descriptors"]
+    rows = _dependencies()["selected_execution_descriptors"]
     assert len(rows) == 36
     assert all(row["eligible"] is False for row in rows)
     assert all(
@@ -103,7 +124,7 @@ def test_all_selected_descriptors_remain_ineligible_and_unauthorized():
 
 def test_each_matched_pair_preserves_one_runtime_identity():
     m = _load()
-    rows = m._validate_dependencies()["selected_execution_descriptors"]
+    rows = _dependencies()["selected_execution_descriptors"]
     for pair_slot in range(1, 19):
         pair = [row for row in rows if row["pair_slot"] == pair_slot]
         assert len(pair) == 2
@@ -116,7 +137,7 @@ def test_each_matched_pair_preserves_one_runtime_identity():
 
 def test_v14_and_v10_same_class_remain_distinct_controls():
     m = _load()
-    rows = m._validate_dependencies()["selected_execution_descriptors"]
+    rows = _dependencies()["selected_execution_descriptors"]
     v14 = next(
         row["runtime"]["selection"]
         for row in rows
@@ -134,7 +155,7 @@ def test_v14_and_v10_same_class_remain_distinct_controls():
 
 def test_review_closes_only_selector_review_frontier():
     m = _load()
-    out = m.cross_control_runtime_selector_source_binding_review_contract()
+    out = _contract()
     assert out["cross_control_runtime_selector_implemented"] is True
     assert out["cross_control_runtime_selector_source_binding_present"] is True
     assert out["cross_control_runtime_selector_reviewed"] is True
@@ -143,7 +164,7 @@ def test_review_closes_only_selector_review_frontier():
 
 def test_execution_materialization_blockers_are_preserved_after_review():
     m = _load()
-    out = m.cross_control_runtime_selector_source_binding_review_contract()
+    out = _contract()
     assert tuple(out["execution_materialization_blockers"]) == (
         "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED",
         "COMMAND_MATERIALIZER_NOT_IMPLEMENTED",
@@ -158,7 +179,7 @@ def test_execution_materialization_blockers_are_preserved_after_review():
 
 def test_runtime_authority_remains_separate_and_closed():
     m = _load()
-    out = m.cross_control_runtime_selector_source_binding_review_contract()
+    out = _contract()
     assert out["runtime_started"] is False
     assert out["runtime_execution_authorized"] is False
     assert out["runtime_selection_performed_by_review"] is False
@@ -166,21 +187,21 @@ def test_runtime_authority_remains_separate_and_closed():
 
 def test_command_and_workdir_implementations_remain_open():
     m = _load()
-    out = m.cross_control_runtime_selector_source_binding_review_contract()
+    out = _contract()
     assert out["command_materializer_implemented"] is False
     assert out["isolated_workdir_allocator_implemented"] is False
 
 
 def test_next_source_gate_is_command_materializer():
     m = _load()
-    out = m.cross_control_runtime_selector_source_binding_review_contract()
+    out = _contract()
     assert out["next_gate"] == "COMMAND_MATERIALIZER_IMPLEMENTATION_REQUIRED"
     assert out["next_change_class"] == "source_only_command_materializer_implementation"
 
 
 def test_historical_materializer_review_is_retained_not_rewritten():
     m = _load()
-    prior = m._validate_dependencies()["historical_materializer_review_contract"]
+    prior = _dependencies()["historical_materializer_review_contract"]
     assert prior["activation_source_review_frontier_complete"] is True
     assert prior["runtime_authority_is_only_remaining_activation_gap"] is True
     assert prior["runtime_execution_authorized"] is False
@@ -189,7 +210,7 @@ def test_historical_materializer_review_is_retained_not_rewritten():
 
 def test_review_contract_performs_no_live_or_runtime_action():
     m = _load()
-    out = m.cross_control_runtime_selector_source_binding_review_contract()
+    out = _contract()
     for field in (
         "review_live_observation_implemented",
         "review_filesystem_observation_implemented",
@@ -254,6 +275,16 @@ def test_review_does_not_rewrite_selector_contract():
     after = m.selector.cross_control_runtime_selector_contract()
     assert before == after
     assert after["cross_control_runtime_selector_reviewed"] is False
+
+
+def test_memoized_snapshots_are_copy_isolated():
+    contract = _contract()
+    contract["selector_git_blob"] = "mutated"
+    assert _contract()["selector_git_blob"] == "3ddf54f0fe8a37006d1e272bab62d14faa5904c0"
+
+    dependencies = _dependencies()
+    dependencies["selected_execution_descriptors"].clear()
+    assert len(_dependencies()["selected_execution_descriptors"]) == 36
 
 
 def test_static_source_has_no_direct_host_io_or_execution_surface():
