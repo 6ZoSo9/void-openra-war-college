@@ -25,7 +25,8 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 6. rejects builtin-namespace, function-global introspection, and `pathlib`/`sys` filesystem escape surfaces; and
 7. rejects aliases of forbidden builtin capabilities before the aliased call can hide their authority;
 8. rejects bare local-package imports whose reachable submodules cannot be deterministically enumerated; and
-9. rejects traceback, frame, generator, coroutine, code-object, and closure introspection paths that can recover builtin or global capabilities without naming a forbidden builtin directly.
+9. rejects traceback, frame, generator, coroutine, code-object, and closure introspection paths that can recover builtin or global capabilities without naming a forbidden builtin directly; and
+10. rejects reflective attribute dispatch through `object.__getattribute__`, `type.__getattribute__`, or `__getattr__` before string-selected globals, builtins, classes, or MRO state can escape the static surface.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 

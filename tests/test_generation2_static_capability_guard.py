@@ -135,6 +135,8 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             "async_generator.ag_frame.f_globals",
             "function.__code__",
             "function.__closure__",
+            "object.__getattribute__((lambda: None), '__globals__')",
+            "type.__getattribute__(Exception, '__mro__')",
         ):
             with self.subTest(statement=statement):
                 source = statement.encode() + b"\n" + _source()

@@ -165,6 +165,8 @@ FORBIDDEN_INTROSPECTION_ATTRIBUTES = {
     "__code__",
     "__dict__",
     "__globals__",
+    "__getattr__",
+    "__getattribute__",
     "__mro__",
     "__subclasses__",
     "__traceback__",
