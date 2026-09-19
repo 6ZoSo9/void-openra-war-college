@@ -21,10 +21,10 @@ REVIEW_SOURCE = (
 def test_exact_retry_invocation_identities_are_pinned():
     out = review.v2r13_pair03_baseline_retry_invocation_review_contract()
     assert out["retry_invocation_git_blob"] == (
-        "3f9605c07ed4a3face78be0f8bb745ec9aebb1d8"
+        "8a4db072d6238e7820d1b94048d0df151002de7b"
     )
     assert out["retry_invocation_source_sha256"] == (
-        "4115abf23f7ab1570cf84ac9c74867a3d01a8af63213c4a4de3c84facbe2d33e"
+        "7caf6bfe0c5cf7c1e4df1d1f196cac7b5488d25ac119c5d841b59d81eb76934e"
     )
     assert out["precision_cli_git_blob"] == (
         "d9d30a856e958b423951fc602e55b7b24926f3ab"
