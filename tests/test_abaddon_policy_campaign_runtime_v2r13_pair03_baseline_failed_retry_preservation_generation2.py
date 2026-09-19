@@ -125,3 +125,32 @@ def test_contract_advances_to_source_binding_review_only():
     assert out["next_gate"] == (
         "V2R13_PAIR03_BASELINE_FAILED_RETRY_PRESERVATION_SOURCE_BINDING_REVIEW_REQUIRED"
     )
+
+
+def test_tool_requires_implemented_preservation_contract_state():
+    tree = ast.parse(TOOL_SOURCE.read_text(encoding="utf-8"), filename=str(TOOL_SOURCE))
+    matches = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "require":
+            continue
+        if len(node.args) < 2:
+            continue
+        message = node.args[1]
+        if not (
+            isinstance(message, ast.Constant)
+            and message.value == "contract implementation drift"
+        ):
+            continue
+        matches.append(node.args[0])
+
+    assert len(matches) == 1
+    condition = matches[0]
+    assert isinstance(condition, ast.Compare)
+    assert len(condition.ops) == 1
+    assert isinstance(condition.ops[0], ast.Is)
+    assert len(condition.comparators) == 1
+    comparator = condition.comparators[0]
+    assert isinstance(comparator, ast.Constant)
+    assert comparator.value is True

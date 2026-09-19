@@ -104,7 +104,7 @@ def preserve(confirm: str) -> dict:
 
     c = contract.v2r13_pair03_baseline_failed_retry_preservation_contract()
     require(c["additional_retry_authorized"] is False, "unexpected retry authority")
-    require(c["preservation_implemented"] is False, "contract implementation drift")
+    require(c["preservation_implemented"] is True, "contract implementation drift")
 
     verify_original_archive()
     exact_retry_tree(SOURCE)
