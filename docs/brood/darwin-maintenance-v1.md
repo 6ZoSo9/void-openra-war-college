@@ -4,7 +4,7 @@
 
 - Repository: `6ZoSo9/void-openra-war-college`
 - Original audited `main`: `b51137277ab5b17631712ecd035af85d4b8d81c8`
-- Current integration base: `1c9683a207c67e74afbc08a9373973c4a9e0bba7`
+- Current comparison target: `1c9683a207c67e74afbc08a9373973c4a9e0bba7` (branch remains three commits behind pending synchronization)
 - Audit mode: source-only; no game execution, training, model loading, weight update, promotion, deployment, service action, VOID mutation, credentials, wallets, transactions, or funds action.
 
 ## Live capability audit
