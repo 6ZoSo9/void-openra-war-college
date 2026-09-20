@@ -37,6 +37,7 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 18. rejects persistence and archive file-capability helpers through `dbm`, `shelve`, `sqlite3`, `tarfile`, and `zipfile` before reviewed source can create durable databases or read, write, or extract host archives.
 19. rejects protocol-specific network clients and servers through `ftplib`, `imaplib`, `nntplib`, `poplib`, `smtplib`, `socketserver`, `telnetlib`, and `xmlrpc` before reviewed source can open network sessions without importing `socket` directly.
 20. rejects debugger, profiler, doctest, and trace execution surfaces through `bdb`, `cProfile`, `doctest`, `pdb`, `profile`, and `trace` before reviewed source can execute source strings or recover debugger authority without spelling `exec` directly.
+21. rejects standard-library module discovery and loader surfaces through `modulefinder`, `pkgutil`, `site`, and `zipimport` before reviewed source can locate, load, or execute modules without spelling `importlib` directly.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 
