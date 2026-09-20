@@ -68,3 +68,16 @@ attribution/origin terms in that document apply.
 
 Existing hash-bound source is not mechanically modified merely to add headers,
 because doing so would destroy accepted source identities and reproducibility.
+
+
+## Dated forensic baseline
+
+The fixed 2026-09-20 downstream provenance/fingerprint baseline is:
+
+- `docs/legal/VOID_WAR_COLLEGE_PROVENANCE_BASELINE_V1.md`
+- `docs/legal/void-war-college-provenance-baseline-v1.json`
+
+It records exact comparison refs, first-public evidence anchors, explicit
+upstream prior-art exclusions, and Git blob fingerprints for downstream War
+College areas. The baseline is evidence for future comparison, not an automatic
+finding of copying.
