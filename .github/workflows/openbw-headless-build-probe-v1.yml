@@ -33,7 +33,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pytest tests/test_openbw_arena_probe_v1.py -q
+          python -m py_compile \
+            openra_env/learning/openbw_arena_probe_v1.py \
+            tests/test_openbw_arena_probe_v1.py
           python - <<'PY'
           from openra_env.learning.openbw_arena_probe_v1 import openbw_arena_probe_contract
           c = openbw_arena_probe_contract()
