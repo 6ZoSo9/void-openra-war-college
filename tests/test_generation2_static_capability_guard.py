@@ -228,6 +228,21 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
                     audit_source(source, spec)
 
+    def test_rejects_posix_process_memory_and_terminal_capability_modules(self):
+        for statement in (
+            "import fcntl\nfcntl.ioctl(0, 0)",
+            "import mmap\nmmap.mmap(-1, 1)",
+            "import pty\npty.spawn(['/bin/sh'])",
+            "import resource\nresource.setrlimit(resource.RLIMIT_NOFILE, (1, 1))",
+            "import signal\nsignal.raise_signal(signal.SIGTERM)",
+            "import termios\ntermios.tcgetattr(0)",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
     def test_rejects_code_object_reconstruction_modules(self):
         for statement in (
             "import marshal\nmarshal.loads(b'payload')",
