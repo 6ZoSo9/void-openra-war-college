@@ -68,3 +68,11 @@ def test_future_contribution_credit_policy_exists():
     assert "GPLv3 section 7 attribution/origin terms" in contributing
     assert "upstream/third-party material" in template
     assert "copyright, authorship, provenance" in template
+
+
+def test_github_citation_credits_downstream_project():
+    citation = (ROOT / "CITATION.cff").read_text(encoding="utf-8")
+    assert "VOID OpenRA War College" in citation
+    assert 'family-names: "6ZoSo9"' in citation
+    assert "OpenRA/OpenRA-RL attribution" in citation
+    assert "GPL-3.0-only" in citation
