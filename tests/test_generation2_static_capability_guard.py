@@ -274,6 +274,21 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
                     audit_source(source, spec)
 
+    def test_rejects_debugger_profiler_and_trace_execution_modules(self):
+        for statement in (
+            "import bdb\nbdb.Bdb().run('payload()')",
+            "import cProfile\ncProfile.run('payload()')",
+            "import doctest\ndoctest.DocTestRunner().run(example)",
+            "import pdb\npdb.run('payload()')",
+            "import profile\nprofile.run('payload()')",
+            "import trace\ntrace.Trace().run('payload()')",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
     def test_rejects_persistence_and_archive_capability_modules(self):
         for statement in (
             "import dbm\ndbm.open('state', 'c')",
