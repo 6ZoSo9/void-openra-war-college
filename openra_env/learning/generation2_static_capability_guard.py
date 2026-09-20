@@ -197,6 +197,12 @@ FORBIDDEN_IMPORT_ROOTS = {
     "webbrowser",
     "xmlrpc",
     "zipfile",
+    "bdb",
+    "cProfile",
+    "doctest",
+    "pdb",
+    "profile",
+    "trace",
 }
 
 FORBIDDEN_DIRECT_CALLS = {
