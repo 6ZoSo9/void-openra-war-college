@@ -49,6 +49,28 @@ The OpenBW BWAPI README states:
 
 The repository does not contain or acquire those game assets in this lane.
 
+## Modern Ubuntu compatibility finding
+
+Precision Ubuntu 24.04 / GCC 13.3 configured the pinned source successfully but
+the build stopped when `BWAPI/Game.h` used `uint32_t` without including
+`<cstdint>`.
+
+This is a known upstream issue. OpenBW/BWAPI PR #16 ("Include missing
+<cstdint>") and PR #17 both propose the same semantic one-line repair against
+the pinned `develop-openbw` base. V1 adopts PR #16's exact source identity as
+a transient build compatibility patch:
+
+- upstream patch commit:
+  `04eb2f7f88174808ba46e3a53cc2a82f85da57ad`;
+- target: `bwapi/include/BWAPI/Game.h`;
+- preimage Git blob: `ccf26f5e77693e5f682ff27f7d3185ad08b6c7b6`;
+- postimage Git blob: `debb572f6eb23c44ff1096bf8ba3ebea5da3ac7b`.
+
+The War College repository does not vendor the patched upstream file. The
+compatibility script verifies the exact preimage, performs only the one include
+addition in a transient checkout, and verifies the exact upstream PR #16
+postimage before CMake runs.
+
 ## Probe
 
 The workflow `.github/workflows/openbw-headless-build-probe-v1.yml`:
