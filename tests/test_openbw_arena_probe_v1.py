@@ -86,3 +86,14 @@ def test_build_receipt_rejects_runtime_side_effects(field):
     receipt[field] = True
     with pytest.raises(probe.OpenBWArenaProbeHold):
         probe.validate_headless_build_receipt(receipt)
+
+
+def test_gcc13_compatibility_patch_is_exact_and_transient():
+    value = probe.openbw_arena_probe_contract()
+    patch = value["integration"]["compatibility_patch"]
+    assert patch["upstream_pr"] == "OpenBW/bwapi#16"
+    assert patch["upstream_patch_commit"] == "04eb2f7f88174808ba46e3a53cc2a82f85da57ad"
+    assert patch["preimage_git_blob_sha1"] == "ccf26f5e77693e5f682ff27f7d3185ad08b6c7b6"
+    assert patch["postimage_git_blob_sha1"] == "debb572f6eb23c44ff1096bf8ba3ebea5da3ac7b"
+    assert value["integration"]["compatibility_patch_upstream_open"] is True
+    assert value["integration"]["compatibility_patch_transient_only"] is True
