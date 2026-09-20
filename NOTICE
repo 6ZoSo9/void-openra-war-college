@@ -39,6 +39,8 @@ Upstream and third-party provenance includes:
    anti-redistribution, anti-commercial-use, SaaS, or anti-fork restrictions
    are NOT imposed on GPL-covered material in this repository.
 
+   Downstream authorship/provenance is recorded in VOID_PROVENANCE.md.
+
    For designated VOID-authored files, narrow attribution and
    origin/misrepresentation terms permitted by GNU GPLv3 section 7 may apply.
    See VOID_NETWORK_GPL_ATTRIBUTION_TERMS.md.
