@@ -598,7 +598,8 @@ This project also contains clearly separated upstream and downstream provenance:
 - original VOID OpenRA War College contributions retain copyright belonging to
   6ZoSo9 / VOID Network contributors while remaining GPL-covered here.
 
-See [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+See [NOTICE](NOTICE), [VOID_PROVENANCE.md](VOID_PROVENANCE.md), and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 For specifically designated VOID-authored files, narrow attribution and
 origin/misrepresentation terms permitted by GNU GPLv3 section 7 may apply; see
