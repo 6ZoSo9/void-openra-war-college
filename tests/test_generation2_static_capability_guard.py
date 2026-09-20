@@ -228,6 +228,17 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
                     audit_source(source, spec)
 
+    def test_rejects_code_object_reconstruction_modules(self):
+        for statement in (
+            "import marshal\nmarshal.loads(b'payload')",
+            "from types import FunctionType\nFunctionType(code_object, {})",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
     def test_rejects_sha_drift_before_parsing(self):
         source = _source()
         spec = replace(_spec(source), sha256="0" * 64)
