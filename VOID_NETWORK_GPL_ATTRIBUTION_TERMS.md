@@ -29,13 +29,13 @@ its substance.
 ## 2. GNU GPLv3 section 7(b): preservation of attribution
 
 For designated VOID-authored material, preserve the applicable copyright notice
-and the pointer to these terms when conveying source copies or modified source
-copies of that material.
+and the file-level pointer to these terms when conveying source copies or
+modified source copies of that material.
 
-A repository-level NOTICE may satisfy the attribution presentation requirement
-when it accompanies the conveyed source and clearly identifies the applicable
-VOID-authored material, unless a file contains a more specific notice that must
-also remain intact.
+The repository-level `NOTICE` records project provenance and should accompany
+source distributions, but it does not by itself designate an existing source
+file for these section 7 terms. File-level designation remains explicit so that
+upstream and third-party material is never swept into VOID-specific terms.
 
 ## 3. GNU GPLv3 section 7(c): origin and modification marking
 
