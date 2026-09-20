@@ -2,6 +2,12 @@ name: OpenBW Headless Build Probe v1
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/openbw-headless-build-probe-v1.yml"
+      - "openra_env/learning/openbw_arena_probe_v1.py"
+      - "tests/test_openbw_arena_probe_v1.py"
+      - "docs/learning/openbw-arena-probe-v1.md"
   pull_request:
     paths:
       - ".github/workflows/openbw-headless-build-probe-v1.yml"
