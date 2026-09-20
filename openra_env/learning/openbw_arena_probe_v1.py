@@ -32,6 +32,16 @@ OPENBW_BWAPI = {
 
 REQUIRED_EXTERNAL_GAME_DATA = ("Stardat.mpq", "Broodat.mpq", "Patch_rt.mpq")
 
+BWAPI_COMPAT = {
+    "reason": "GCC 13 requires an explicit <cstdint> include for uint32_t in BWAPI/Game.h",
+    "upstream_pr": "OpenBW/bwapi#16",
+    "upstream_patch_commit": "04eb2f7f88174808ba46e3a53cc2a82f85da57ad",
+    "target": "bwapi/include/BWAPI/Game.h",
+    "preimage_git_blob_sha1": "ccf26f5e77693e5f682ff27f7d3185ad08b6c7b6",
+    "postimage_git_blob_sha1": "debb572f6eb23c44ff1096bf8ba3ebea5da3ac7b",
+    "semantic_change": "add_missing_cstdint_include",
+}
+
 
 class OpenBWArenaProbeHold(ValueError):
     pass
@@ -55,6 +65,9 @@ def openbw_arena_probe_contract() -> dict[str, Any]:
             "build_target": "BWAPILauncher",
             "build_only": True,
             "launcher_execution": False,
+            "compatibility_patch": deepcopy(BWAPI_COMPAT),
+            "compatibility_patch_upstream_open": True,
+            "compatibility_patch_transient_only": True,
         },
         "runtime": {
             "required_external_game_data": REQUIRED_EXTERNAL_GAME_DATA,
