@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Apply a transient CascLib-backed data loader to exact pinned OpenBW/BWAPI.
+"""Apply a transient CASC loader to exact pinned OpenBW/BWAPI.
 
-No OpenBW or ChkForge source is vendored. The transformer accepts only exact
-known upstream preimages, replaces the MPQ directory loader with a fresh
-CascLib API implementation, and wires OpenBWData to an externally built
-CascLib installation.
+CascLib itself remains behind a War College-owned C ABI shim so old BWAPI's
+Windows-compatibility typedefs never collide with CascLib's typedefs.
+No OpenBW or ChkForge source is vendored.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ OPENBW_DATA_LOADING_PREIMAGE = "c8d5a0fd65a1672116189e9c95a7706e81f6671c"
 BWAPI_OPENBWDATA_CMAKE_PREIMAGE = "4339d2300fefce5005ed57f49522d0ad66038019"
 
 CASC_INCLUDE_ANCHOR = '#include <cstdio>\n\nnamespace bwgame {'
-CASC_INCLUDE_REPLACEMENT = '#include <cstdio>\n#include <CascLib.h>\n#include <limits>\n\nnamespace bwgame {'
+CASC_INCLUDE_REPLACEMENT = '#include <cstdio>\n#include "void_openbw_casc_bridge.h"\n#include <limits>\n\nnamespace bwgame {'
 
 OLD_LOADER = r'''template<typename mpq_file_T = mpq_file<>>
 struct data_files_loader {
@@ -53,7 +52,7 @@ data_files_loader_T data_files_directory(a_string path) {
 '''
 
 NEW_LOADER = r'''struct casc_file_loader {
-	HANDLE storage = nullptr;
+	void_openbw_casc_storage storage = nullptr;
 	a_string root;
 
 	casc_file_loader() = default;
@@ -61,7 +60,7 @@ NEW_LOADER = r'''struct casc_file_loader {
 		open(std::move(path));
 	}
 	~casc_file_loader() {
-		if (storage) CascCloseStorage(storage);
+		if (storage) void_openbw_casc_close_storage(storage);
 	}
 	casc_file_loader(const casc_file_loader&) = delete;
 	casc_file_loader& operator=(const casc_file_loader&) = delete;
@@ -71,7 +70,7 @@ NEW_LOADER = r'''struct casc_file_loader {
 	}
 	casc_file_loader& operator=(casc_file_loader&& other) noexcept {
 		if (this != &other) {
-			if (storage) CascCloseStorage(storage);
+			if (storage) void_openbw_casc_close_storage(storage);
 			storage = other.storage;
 			root = std::move(other.root);
 			other.storage = nullptr;
@@ -81,11 +80,11 @@ NEW_LOADER = r'''struct casc_file_loader {
 
 	void open(a_string path) {
 		if (storage) {
-			CascCloseStorage(storage);
+			void_openbw_casc_close_storage(storage);
 			storage = nullptr;
 		}
 		root = std::move(path);
-		if (!CascOpenStorage(root.c_str(), CASC_LOCALE_ALL, &storage) || !storage) {
+		if (!void_openbw_casc_open_storage(root.c_str(), &storage) || !storage) {
 			error("casc_file_loader: failed to open CASC storage: %s", root);
 		}
 	}
@@ -93,29 +92,29 @@ NEW_LOADER = r'''struct casc_file_loader {
 	void operator()(a_vector<uint8_t>& dst, a_string filename) {
 		if (!storage) error("casc_file_loader: storage not open");
 
-		HANDLE file = nullptr;
-		if (!CascOpenFile(storage, filename.c_str(), CASC_LOCALE_ALL, CASC_OPEN_BY_NAME, &file) || !file) {
+		void_openbw_casc_file file = nullptr;
+		if (!void_openbw_casc_open_file(storage, filename.c_str(), &file) || !file) {
 			error("casc_file_loader: %s: file not found", filename);
 		}
 
-		ULONGLONG size64 = 0;
-		if (!CascGetFileSize64(file, &size64)) {
-			CascCloseFile(file);
+		uint64_t size64 = 0;
+		if (!void_openbw_casc_file_size(file, &size64)) {
+			void_openbw_casc_close_file(file);
 			error("casc_file_loader: %s: failed to get size", filename);
 		}
-		if (size64 > std::numeric_limits<DWORD>::max() || size64 > std::numeric_limits<size_t>::max()) {
-			CascCloseFile(file);
+		if (size64 > std::numeric_limits<uint32_t>::max() || size64 > std::numeric_limits<size_t>::max()) {
+			void_openbw_casc_close_file(file);
 			error("casc_file_loader: %s: file too large", filename);
 		}
 
 		dst.resize((size_t)size64);
-		DWORD bytes_read = 0;
-		if (size64 != 0 && !CascReadFile(file, dst.data(), (DWORD)size64, &bytes_read)) {
-			CascCloseFile(file);
+		uint32_t bytes_read = 0;
+		if (!void_openbw_casc_read_file(file, dst.data(), (uint32_t)size64, &bytes_read)) {
+			void_openbw_casc_close_file(file);
 			error("casc_file_loader: %s: read failed", filename);
 		}
-		CascCloseFile(file);
-		if ((ULONGLONG)bytes_read != size64) {
+		void_openbw_casc_close_file(file);
+		if ((uint64_t)bytes_read != size64) {
 			error("casc_file_loader: %s: short read", filename);
 		}
 	}
@@ -152,11 +151,14 @@ CMAKE_LINK_REPLACEMENT = '''if (OPENBW_ENABLE_UI)
   target_link_libraries(OpenBWData openbw_ui)
 endif()
 
-if (NOT DEFINED VOID_CASCLIB_INSTALL_ROOT)
-  message(FATAL_ERROR "VOID_CASCLIB_INSTALL_ROOT is required for the transient CASC loader probe")
+if (NOT DEFINED VOID_CASC_BRIDGE_SOURCE_ROOT)
+  message(FATAL_ERROR "VOID_CASC_BRIDGE_SOURCE_ROOT is required for the transient CASC loader probe")
 endif()
-target_include_directories(OpenBWData PRIVATE "${VOID_CASCLIB_INSTALL_ROOT}/include")
-target_link_libraries(OpenBWData "${VOID_CASCLIB_INSTALL_ROOT}/lib/libcasc.so")
+if (NOT DEFINED VOID_CASC_BRIDGE_BUILD_ROOT)
+  message(FATAL_ERROR "VOID_CASC_BRIDGE_BUILD_ROOT is required for the transient CASC loader probe")
+endif()
+target_include_directories(OpenBWData PRIVATE "${VOID_CASC_BRIDGE_SOURCE_ROOT}")
+target_link_libraries(OpenBWData "${VOID_CASC_BRIDGE_BUILD_ROOT}/lib/libvoid_openbw_casc_bridge.so")
 
 if (NOT WIN32)
 '''
@@ -180,8 +182,9 @@ def require_exact_blob(path: Path, expected: str) -> str:
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
-    if text.count(old) != 1:
-        raise Hold(f"anchor_count:{label}:{text.count(old)}")
+    count = text.count(old)
+    if count != 1:
+        raise Hold(f"anchor_count:{label}:{count}")
     return text.replace(old, new, 1)
 
 
@@ -196,7 +199,7 @@ def apply(openbw: Path, bwapi: Path) -> dict[str, str]:
         data_text,
         CASC_INCLUDE_ANCHOR,
         CASC_INCLUDE_REPLACEMENT,
-        "openbw_casc_include",
+        "openbw_casc_bridge_include",
     )
     data_text = replace_once(
         data_text,
@@ -208,7 +211,7 @@ def apply(openbw: Path, bwapi: Path) -> dict[str, str]:
         cmake_text,
         CMAKE_LINK_ANCHOR,
         CMAKE_LINK_REPLACEMENT,
-        "bwapi_openbwdata_casclib_link",
+        "bwapi_openbwdata_casc_bridge_link",
     )
 
     data_path.write_text(data_text, encoding="utf-8")
@@ -219,9 +222,10 @@ def apply(openbw: Path, bwapi: Path) -> dict[str, str]:
         "openbw_data_loading_postimage": git_blob_sha1(data_path.read_bytes()),
         "bwapi_openbwdata_cmake_preimage": BWAPI_OPENBWDATA_CMAKE_PREIMAGE,
         "bwapi_openbwdata_cmake_postimage": git_blob_sha1(cmake_path.read_bytes()),
-        "loader": "CascLib",
+        "loader": "WarCollegeCAbiBridgeToCascLib",
         "openbw_source_vendored": "false",
         "chkforge_source_used": "false",
+        "casclib_header_included_by_openbw": "false",
     }
 
 
