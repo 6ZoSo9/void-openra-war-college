@@ -1,0 +1,57 @@
+VOID OpenRA War College — Copyright, Provenance, and Attribution Notice
+
+Copyright (c) 2026 6ZoSo9 and VOID Network contributors for original
+downstream contributions authored for the VOID OpenRA War College.
+
+This repository contains material from multiple copyright holders. Copyright
+ownership is not transferred by inclusion in this repository.
+
+Upstream and third-party provenance includes:
+
+1. OpenRA-RL
+   Portions of this repository originate from or are based on OpenRA-RL:
+   https://github.com/yxc20089/OpenRA-RL
+
+   Those portions remain subject to the GNU General Public License version 3
+   terms under which they were received, and copyright remains with their
+   respective authors and contributors.
+
+2. OpenRA engine
+   The OpenRA engine is maintained as a separate git submodule in OpenRA/ and
+   this repository currently points that submodule at:
+   https://github.com/6ZoSo9/void-openra-engine
+
+   That engine is derived from the upstream OpenRA project:
+   https://github.com/OpenRA/OpenRA
+
+   OpenRA states that its engine is licensed under the GNU General Public
+   License, version 3 or (at the recipient's option) any later version.
+   Copyright remains with the OpenRA Developers and Contributors.
+
+3. VOID Network contributions
+   Original downstream code, documentation, tests, protocols, orchestration,
+   experiment controls, evidence contracts, and other material authored by
+   6ZoSo9 / VOID Network contributors retain their own copyright while being
+   distributed in this GPL-covered repository.
+
+   The repository's GPL terms are not replaced by the standalone VOID
+   Community License (VCL) used by other VOID repositories. The VCL's
+   anti-redistribution, anti-commercial-use, SaaS, or anti-fork restrictions
+   are NOT imposed on GPL-covered material in this repository.
+
+   For designated VOID-authored files, narrow attribution and
+   origin/misrepresentation terms permitted by GNU GPLv3 section 7 may apply.
+   See VOID_NETWORK_GPL_ATTRIBUTION_TERMS.md.
+
+4. Game assets and other third-party material
+   The OpenRA engine license does not itself grant rights to original
+   Command & Conquer / Red Alert game assets. Such assets and any other
+   third-party dependencies remain subject to their own applicable licenses
+   and rights. See THIRD_PARTY_NOTICES.md.
+
+Nothing in this NOTICE narrows, revokes, or conditions the rights already
+granted by the GNU GPL for GPL-covered material. Nothing here claims ownership
+of OpenRA, OpenRA-RL, Electronic Arts assets, or other third-party material.
+
+Project branding and source-identifier terms are separate from copyright
+licensing. See docs/legal/TRADEMARKS.md.
