@@ -584,6 +584,28 @@ OpenRA-RL/
 | [OpenRA-RL-Website](https://github.com/yxc20089/OpenRA-RL-Website) | Documentation site ([openra-rl.dev](https://openra-rl.dev)) |
 | [OpenEnv](https://github.com/OpenEnvs/OpenEnv) | Gymnasium-style environment framework |
 
-## License
+## License and attribution
 
-[GPL-3.0](LICENSE)
+This repository remains licensed under the [GNU GPL version 3](LICENSE). The
+GPL text is kept intact.
+
+This project also contains clearly separated upstream and downstream provenance:
+
+- portions originate from or are based on
+  [OpenRA-RL](https://github.com/yxc20089/OpenRA-RL), distributed under GPLv3;
+- the `OpenRA/` engine submodule is derived from
+  [OpenRA](https://github.com/OpenRA/OpenRA), whose engine is GPLv3-or-later;
+- original VOID OpenRA War College contributions retain copyright belonging to
+  6ZoSo9 / VOID Network contributors while remaining GPL-covered here.
+
+See [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+For specifically designated VOID-authored files, narrow attribution and
+origin/misrepresentation terms permitted by GNU GPLv3 section 7 may apply; see
+[VOID_NETWORK_GPL_ATTRIBUTION_TERMS.md](VOID_NETWORK_GPL_ATTRIBUTION_TERMS.md).
+These terms do **not** impose the standalone VOID Community License restrictions
+on redistribution, commercial use, hosting, SaaS, or forks of GPL-covered code.
+
+VOID branding/source-identifier terms are documented separately in
+[docs/legal/TRADEMARKS.md](docs/legal/TRADEMARKS.md). These branding terms do
+not alter the code freedoms granted by the applicable software licenses.
