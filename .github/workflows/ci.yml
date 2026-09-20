@@ -32,7 +32,7 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           EXPECTED_INTEGRATION_SHA: ${{ github.sha }}
-          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
@@ -43,15 +43,21 @@ jobs:
           test -n "$actual_base_sha"
           test -n "$actual_head_sha"
           test -z "${extra_parent:-}"
-          test "$actual_base_sha" = "$EXPECTED_BASE_SHA"
           test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"
+          test "$actual_base_sha" != "$actual_head_sha"
 
           git cat-file -e "${actual_base_sha}^{commit}"
           git cat-file -e "${actual_head_sha}^{commit}"
           git diff --check "$actual_base_sha" "$actual_head_sha"
 
-          printf 'integration_sha=%s\nbase_sha=%s\nsource_head_sha=%s\n' \
-            "$actual_integration_sha" "$actual_base_sha" "$actual_head_sha"
+          base_event_matches_merge_parent=false
+          if test "$actual_base_sha" = "$EVENT_BASE_SHA"; then
+            base_event_matches_merge_parent=true
+          fi
+
+          printf 'integration_sha=%s\nbase_sha=%s\nevent_base_sha=%s\nbase_event_matches_merge_parent=%s\nsource_head_sha=%s\n' \
+            "$actual_integration_sha" "$actual_base_sha" "$EVENT_BASE_SHA" \
+            "$base_event_matches_merge_parent" "$actual_head_sha"
 
       - name: Prove Python CI does not require private engine checkout
         run: |

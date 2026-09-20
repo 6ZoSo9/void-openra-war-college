@@ -26,13 +26,20 @@ def validate_ci_topology(source: str) -> None:
         "submodules: false",
         "fetch-depth: 2",
         "EXPECTED_INTEGRATION_SHA: ${{ github.sha }}",
-        "EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+        "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
         "EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
         "read -r actual_base_sha actual_head_sha extra_parent",
         'test -z "${extra_parent:-}"',
-        'test "$actual_base_sha" = "$EXPECTED_BASE_SHA"',
         'test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"',
+        'test "$actual_base_sha" != "$actual_head_sha"',
+        'git cat-file -e "${actual_base_sha}^{commit}"',
+        'git cat-file -e "${actual_head_sha}^{commit}"',
         'git diff --check "$actual_base_sha" "$actual_head_sha"',
+        'if test "$actual_base_sha" = "$EVENT_BASE_SHA"; then',
+        "base_event_matches_merge_parent=true",
+        "base_event_matches_merge_parent=false",
+        "event_base_sha=%s",
+        "base_event_matches_merge_parent=%s",
         "test ! -e OpenRA/.git",
         'python -m pip install --disable-pip-version-check -e ".[dev]"',
         "python -m pytest tests/ -v",
@@ -45,6 +52,8 @@ def validate_ci_topology(source: str) -> None:
     assert "submodules: recursive" not in source
     assert "persist-credentials: true" not in source
     assert "continue-on-error: true" not in source
+    assert "EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}" not in source
+    assert 'test "$actual_base_sha" = "$EXPECTED_BASE_SHA"' not in source
 
     ordered = (
         "Bind pull-request integration generation",
@@ -77,8 +86,24 @@ def test_default_ci_topology_is_exactly_bound() -> None:
         ('python-version: ["3.10", "3.11", "3.12"]', 'python-version: ["3.12"]'),
         ('test -z "${extra_parent:-}"', ": # parent cardinality bypassed"),
         (
+            'test "$actual_head_sha" = "$EXPECTED_HEAD_SHA"',
+            ': # source-head binding bypassed',
+        ),
+        (
+            'test "$actual_base_sha" != "$actual_head_sha"',
+            ': # distinct-parent check bypassed',
+        ),
+        (
+            'git cat-file -e "${actual_base_sha}^{commit}"',
+            ': # base-parent existence bypassed',
+        ),
+        (
             'git diff --check "$actual_base_sha" "$actual_head_sha"',
             'git diff --check "$actual_integration_sha^" "$actual_integration_sha"',
+        ),
+        (
+            'if test "$actual_base_sha" = "$EVENT_BASE_SHA"; then',
+            ': # event-base diagnostic bypassed',
         ),
         ("python -m pytest tests/ -v", "python -m pytest tests/test_config.py -v"),
         ("python -m ruff check openra_env/", "true # lint skipped"),
