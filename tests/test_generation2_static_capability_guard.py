@@ -257,6 +257,23 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
                     audit_source(source, spec)
 
+    def test_rejects_protocol_client_and_server_capability_modules(self):
+        for statement in (
+            "import ftplib\nftplib.FTP('example.invalid')",
+            "import imaplib\nimaplib.IMAP4('example.invalid')",
+            "import nntplib\nnntplib.NNTP('example.invalid')",
+            "import poplib\npoplib.POP3('example.invalid')",
+            "import smtplib\nsmtplib.SMTP('example.invalid')",
+            "import socketserver\nsocketserver.TCPServer(('127.0.0.1', 0), object)",
+            "import telnetlib\ntelnetlib.Telnet('example.invalid')",
+            "import xmlrpc.client\nxmlrpc.client.ServerProxy('https://example.invalid')",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
     def test_rejects_persistence_and_archive_capability_modules(self):
         for statement in (
             "import dbm\ndbm.open('state', 'c')",
