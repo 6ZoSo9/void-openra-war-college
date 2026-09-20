@@ -76,3 +76,31 @@ def test_github_citation_credits_downstream_project():
     assert 'family-names: "6ZoSo9"' in citation
     assert "OpenRA/OpenRA-RL attribution" in citation
     assert "GPL-3.0-only" in citation
+
+
+def test_forensic_provenance_baseline_is_fixed_and_non_accusatory():
+    import json
+
+    report = (ROOT / "docs/legal/VOID_WAR_COLLEGE_PROVENANCE_BASELINE_V1.md").read_text(
+        encoding="utf-8"
+    )
+    manifest = json.loads(
+        (ROOT / "docs/legal/void-war-college-provenance-baseline-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["schema"] == "void.war-college.provenance-baseline.v1"
+    assert manifest["void_reference"]["commit"] == "9a151da589f93454d31a475b29297ea8a3d35442"
+    assert manifest["comparison_references"]["openra_rl"]["commit"] == "5dadd449c912ac2d4021cc8ed84fc0b385b1543c"
+    assert manifest["comparison_references"]["openra_rl_website"]["commit"] == "0007f1fed49e954a7706c7c64a6c98894f98cfb1"
+    assert len(manifest["fingerprints"]) == 159
+    assert all(
+        row["same_path_in_openra_rl_main"] is False
+        and row["same_path_in_openra_rl_website_main"] is False
+        for row in manifest["fingerprints"]
+    )
+    assert "shared upstream history; not claimed" in json.dumps(
+        manifest["shared_upstream_prior_art_exclusions"]
+    )
+    assert "No automatic accusation" in manifest["future_comparison_rules"]["decision_rule"]
+    assert "Similarity to this baseline is evidence to investigate" in report
