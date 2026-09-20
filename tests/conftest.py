@@ -9,7 +9,14 @@ version-agnostic helpers **and** a pytest autouse fixture that patches
 import asyncio
 from pathlib import Path
 import types
+import sys
 import pytest
+
+
+# Expose sibling test-only helpers during pytest collection. Runtime imports are unchanged.
+_TESTS_DIR = str(Path(__file__).resolve().parent)
+if _TESTS_DIR not in sys.path:
+    sys.path.insert(0, _TESTS_DIR)
 
 
 # ── Version-agnostic tool access helpers ──────────────────────────────────────
