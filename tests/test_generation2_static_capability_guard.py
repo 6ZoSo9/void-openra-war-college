@@ -287,6 +287,20 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
                     audit_source(source, spec)
 
+    def test_rejects_packaging_and_compilation_capability_modules(self):
+        for statement in (
+            "import compileall\ncompileall.compile_dir('.')",
+            "import ensurepip\nensurepip.bootstrap()",
+            "import py_compile\npy_compile.compile('payload.py')",
+            "import venv\nvenv.create('.venv')",
+            "import zipapp\nzipapp.create_archive('.', 'payload.pyz')",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
     def test_rejects_debugger_profiler_and_trace_execution_modules(self):
         for statement in (
             "import bdb\nbdb.Bdb().run('payload()')",
