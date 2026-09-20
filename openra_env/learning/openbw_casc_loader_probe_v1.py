@@ -34,6 +34,13 @@ CASCLIB = {
     "header_blob": "39e9d3bdf360940e165f7793c95acac5fe00a8ca",
 }
 
+CASC_BRIDGE = {
+    "header_blob": "112a6190449127f6c305273a764786085ea179d1",
+    "source_blob": "81b954aca0b0a5d7ab6975294d567da7f855be78",
+    "cmake_blob": "b95aa50b7f0703cc38657a4be77fb693eb869739",
+    "abi": "opaque C ABI using void* + fixed-width integers",
+}
+
 OFFICIAL_INSTALLER = {
     "requested_product": "STARCRAFT",
     "effective_artifact": "Battle.net-Setup.exe",
@@ -56,6 +63,7 @@ def casc_loader_probe_contract() -> dict[str, Any]:
             "openbw": dict(OPENBW),
             "bwapi": dict(BWAPI),
             "casclib": dict(CASCLIB),
+            "war_college_casc_bridge": dict(CASC_BRIDGE),
         },
         "official_installer_observation": dict(OFFICIAL_INSTALLER),
         "transformation": {
@@ -65,7 +73,9 @@ def casc_loader_probe_contract() -> dict[str, Any]:
             "chkforge_source_copied": False,
             "casclib_api_reimplemented": False,
             "casclib_linked_as_external_mit_dependency": True,
-            "loader_behavior": "CascOpenStorage+CascOpenFile+CascReadFile",
+            "casclib_header_included_by_openbw": False,
+            "war_college_c_abi_shim": True,
+            "loader_behavior": "opaque War College C ABI -> CascLib open/read/close",
         },
         "build": {
             "casclib_shared_library": True,
