@@ -48,3 +48,13 @@ def test_third_party_branding_and_provenance_notices_exist():
     assert "openra_env/learning/" in provenance
     assert "docs/learning/" in provenance
     assert "does not exist on the current" in provenance
+
+
+def test_visible_downstream_authorship_credit():
+    authors = (ROOT / "AUTHORS.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "maintained by **6ZoSo9**" in authors
+    assert "OpenRA-RL contributors" in authors
+    assert "OpenRA Developers and Contributors" in authors
+    assert "VOID OpenRA War College" in readme
+    assert "maintained by **6ZoSo9**" in readme
