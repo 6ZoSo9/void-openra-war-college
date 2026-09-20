@@ -1,7 +1,7 @@
 # VOID OpenRA War College Provenance Baseline V1
 
-**Baseline date:** 2026-09-20  
-**VOID accepted reference:** `9a151da589f93454d31a475b29297ea8a3d35442`  
+**Baseline date:** 2026-09-20
+**VOID accepted reference:** `9a151da589f93454d31a475b29297ea8a3d35442`
 **VOID tree:** `004ea893b529d297944000bff690da974a9dba71`
 
 ## Purpose
