@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import hashlib
 import importlib.util
+from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,7 @@ SOURCE = (
 EXPECTED_SOURCE_SHA256 = "b894b0b109fb943f444cfb3467249b7ed991fc8673967e271456c80d4df503fe"
 
 
+@lru_cache(maxsize=1)
 def _load():
     raw = SOURCE.read_bytes()
     assert hashlib.sha256(raw).hexdigest() == EXPECTED_SOURCE_SHA256
@@ -27,6 +30,24 @@ def _load():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@lru_cache(maxsize=1)
+def _contract_cached():
+    return _load().v2r13_frozen_worktree_materializer_source_binding_review_contract()
+
+
+def _contract():
+    return deepcopy(_contract_cached())
+
+
+@lru_cache(maxsize=1)
+def _dependencies_cached():
+    return _load()._validate_dependencies()
+
+
+def _dependencies():
+    return deepcopy(_dependencies_cached())
 
 
 def _expect_hold(exc_type, pattern, fn):
@@ -44,7 +65,7 @@ def test_source_sha_is_exact():
 
 def test_contract_pins_exact_accepted_materializer_source():
     m = _load()
-    out = m.v2r13_frozen_worktree_materializer_source_binding_review_contract()
+    out = _contract()
     assert out["materializer_git_blob"] == "8c6fb13480e03f094f63fdb753ec19a0ce223c80"
     assert out["materializer_source_sha256"] == (
         "e1c189775b9b09d043f9e49d143d9f4ecab253ba5ea293fdf69820d0d2d86ff3"
@@ -55,9 +76,9 @@ def test_contract_pins_exact_accepted_materializer_source():
 
 def test_review_is_separate_and_does_not_rewrite_materializer_self_review():
     m = _load()
-    deps = m._validate_dependencies()
+    deps = _dependencies()
     impl = deps["materializer_contract"]
-    out = m.v2r13_frozen_worktree_materializer_source_binding_review_contract()
+    out = _contract()
     assert impl["frozen_worktree_materializer_reviewed"] is False
     assert out["materializer_source_is_not_self_bound"] is True
     assert out["separate_review_instrument"] is True
@@ -66,7 +87,7 @@ def test_review_is_separate_and_does_not_rewrite_materializer_self_review():
 
 def test_review_accepts_exact_materializer_safety_frontier():
     m = _load()
-    impl = m._validate_dependencies()["materializer_contract"]
+    impl = _dependencies()["materializer_contract"]
     for field in (
         "source_worktree_add_detached_implemented",
         "engine_worktree_add_detached_implemented",
@@ -82,7 +103,7 @@ def test_review_accepts_exact_materializer_safety_frontier():
 
 def test_review_accepts_hardened_cleanup_frontier():
     m = _load()
-    impl = m._validate_dependencies()["materializer_contract"]
+    impl = _dependencies()["materializer_contract"]
     for field in (
         "cleanup_receipt_path_binding_implemented",
         "cleanup_registry_ownership_revalidation_implemented",
@@ -95,7 +116,7 @@ def test_review_accepts_hardened_cleanup_frontier():
 
 def test_materialization_and_cleanup_authority_remain_explicit():
     m = _load()
-    out = m.v2r13_frozen_worktree_materializer_source_binding_review_contract()
+    out = _contract()
     assert out["materialization_requires_explicit_authority"] is True
     assert out["cleanup_requires_explicit_authority"] is True
     assert out["review_materializer_invocation_implemented"] is False
@@ -104,14 +125,14 @@ def test_materialization_and_cleanup_authority_remain_explicit():
 
 def test_no_real_host_backend_or_auto_selection_is_admitted():
     m = _load()
-    out = m.v2r13_frozen_worktree_materializer_source_binding_review_contract()
+    out = _contract()
     assert out["materializer_host_backend_bundled"] is False
     assert out["materializer_automatic_host_backend_selection"] is False
 
 
 def test_materializer_review_closes_only_its_activation_blocker():
     m = _load()
-    out = m.v2r13_frozen_worktree_materializer_source_binding_review_contract()
+    out = _contract()
     assert tuple(out["remaining_activation_blockers"]) == (
         "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED",
     )
@@ -121,7 +142,7 @@ def test_materializer_review_closes_only_its_activation_blocker():
 
 def test_activation_is_still_not_claimed_or_performed():
     m = _load()
-    out = m.v2r13_frozen_worktree_materializer_source_binding_review_contract()
+    out = _contract()
     assert out["activation_source_review_frontier_complete"] is True
     assert out["activation_proven"] is False
     assert out["runtime_activation_performed"] is False
@@ -131,7 +152,7 @@ def test_activation_is_still_not_claimed_or_performed():
 
 def test_execution_materialization_remains_independently_open():
     m = _load()
-    out = m.v2r13_frozen_worktree_materializer_source_binding_review_contract()
+    out = _contract()
     assert tuple(out["execution_materialization_blockers"]) == (
         "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED",
         "CROSS_CONTROL_RUNTIME_SELECTOR_NOT_IMPLEMENTED",
@@ -148,7 +169,7 @@ def test_execution_materialization_remains_independently_open():
 
 def test_all_v2r13_execution_descriptors_remain_ineligible_and_unauthorized():
     m = _load()
-    rows = m._validate_dependencies()["v2r13_execution_descriptors"]
+    rows = _dependencies()["v2r13_execution_descriptors"]
     assert len(rows) == 6
     assert all(row["eligible"] is False for row in rows)
     assert all(
@@ -159,7 +180,7 @@ def test_all_v2r13_execution_descriptors_remain_ineligible_and_unauthorized():
 
 def test_next_source_gate_is_cross_control_runtime_selector():
     m = _load()
-    out = m.v2r13_frozen_worktree_materializer_source_binding_review_contract()
+    out = _contract()
     assert out["next_gate"] == "CROSS_CONTROL_RUNTIME_SELECTOR_IMPLEMENTATION_REQUIRED"
     assert (
         out["next_change_class"]
@@ -169,7 +190,7 @@ def test_next_source_gate_is_cross_control_runtime_selector():
 
 def test_review_contract_performs_no_live_or_runtime_action():
     m = _load()
-    out = m.v2r13_frozen_worktree_materializer_source_binding_review_contract()
+    out = _contract()
     for field in (
         "review_materializer_invocation_implemented",
         "review_cleanup_invocation_implemented",
@@ -221,13 +242,23 @@ def test_execution_materialization_advance_holds_at_next_gate():
 
 def test_historical_activation_review_is_retained_not_rewritten():
     m = _load()
-    deps = m._validate_dependencies()
+    deps = _dependencies()
     prior = deps["historical_activation_review_contract"]
     assert tuple(prior["remaining_activation_blockers"]) == (
         "V2R13_FROZEN_WORKTREE_MATERIALIZER_NOT_REVIEWED",
         "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED",
     )
     assert prior["frozen_worktree_materializer_reviewed"] is False
+
+
+def test_memoized_snapshots_are_copy_isolated():
+    contract = _contract()
+    contract["materializer_git_blob"] = "mutated"
+    assert _contract()["materializer_git_blob"] == "8c6fb13480e03f094f63fdb753ec19a0ce223c80"
+
+    dependencies = _dependencies()
+    dependencies["v2r13_execution_descriptors"].clear()
+    assert len(_dependencies()["v2r13_execution_descriptors"]) == 6
 
 
 def test_static_source_has_no_direct_host_io_or_execution_surface():
