@@ -257,6 +257,20 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
                     audit_source(source, spec)
 
+    def test_rejects_persistence_and_archive_capability_modules(self):
+        for statement in (
+            "import dbm\ndbm.open('state', 'c')",
+            "import shelve\nshelve.open('state')",
+            "import sqlite3\nsqlite3.connect('state.db')",
+            "import tarfile\ntarfile.open('bundle.tar', 'w')",
+            "import zipfile\nzipfile.ZipFile('bundle.zip', 'w')",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
     def test_rejects_code_object_reconstruction_modules(self):
         for statement in (
             "import marshal\nmarshal.loads(b'payload')",
