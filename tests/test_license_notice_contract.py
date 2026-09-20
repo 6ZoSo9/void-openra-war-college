@@ -36,11 +36,15 @@ def test_void_terms_are_attribution_only_not_vcl_restrictions():
     assert "do **not** add the VCL restrictions" in terms
 
 
-def test_third_party_and_branding_notices_exist():
+def test_third_party_branding_and_provenance_notices_exist():
     third_party = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
     trademarks = (ROOT / "docs/legal/TRADEMARKS.md").read_text(encoding="utf-8")
+    provenance = (ROOT / "VOID_PROVENANCE.md").read_text(encoding="utf-8")
     assert "OpenRA/OpenRA" in third_party
     assert "6ZoSo9/void-openra-engine" in third_party
     assert "original Command & Conquer / Red Alert" in third_party
     assert "falsely implies sponsorship" in trademarks
     assert "OpenRA" in trademarks
+    assert "openra_env/learning/" in provenance
+    assert "docs/learning/" in provenance
+    assert "does not exist on the current" in provenance
