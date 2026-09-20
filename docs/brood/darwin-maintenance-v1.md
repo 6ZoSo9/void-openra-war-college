@@ -4,14 +4,14 @@
 
 - Repository: `6ZoSo9/void-openra-war-college`
 - Original audited `main`: `b51137277ab5b17631712ecd035af85d4b8d81c8`
-- Current integration base: `09f14dfb6617e42cdfd96914eba5b49dd4c11280`
+- Current integration base: `1c9683a207c67e74afbc08a9373973c4a9e0bba7`
 - Audit mode: source-only; no game execution, training, model loading, weight update, promotion, deployment, service action, VOID mutation, credentials, wallets, transactions, or funds action.
 
 ## Live capability audit
 
 The accepted Generation-2 source on this head separates deterministic source contracts from runtime authority. In particular, the merged isolated-workdir allocator review under `openra_env/learning/` preserves the unresolved `<GENERATION2_ISOLATED_WORKDIR_ROOT>` boundary, validates deterministic allocation identities, and leaves runtime execution authorization outside the source-only layer.
 
-The pair-03 retry-gate chain remains outside this maintenance change. The retry-2 evidence/result chain through #171, CI merge-parent binder #172, and deterministic review-test memoization #173 are merged into `main`; no overlapping active pull request is attributed to this lane.
+The pair-03 retry-gate chain remains outside this maintenance change. The retry-2 evidence/result chain through #171, CI merge-parent binder #172, deterministic review-test memoization #173, and pair-03 candidate execution preparation #174 are merged into `main`; active #175/#176 use disjoint CI-diagnostics and candidate-request paths.
 
 ## Actionable improvement
 
@@ -39,6 +39,7 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 20. rejects debugger, profiler, doctest, and trace execution surfaces through `bdb`, `cProfile`, `doctest`, `pdb`, `profile`, and `trace` before reviewed source can execute source strings or recover debugger authority without spelling `exec` directly.
 21. rejects standard-library module discovery and loader surfaces through `modulefinder`, `pkgutil`, `site`, and `zipimport` before reviewed source can locate, load, or execute modules without spelling `importlib` directly.
 22. rejects interpreter packaging and compilation surfaces through `compileall`, `ensurepip`, `py_compile`, `venv`, and `zipapp` before reviewed source can write bytecode or archives, bootstrap package tooling, or create execution environments.
+23. rejects implicit host-file opening through `bz2`, `configparser`, `fileinput`, `gzip`, `logging`, `lzma`, `mailbox`, and `wave` before reviewed source can read, create, replace, or append host files without importing `open`, `io`, `os`, or `pathlib` directly.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 
