@@ -8,12 +8,14 @@ on:
       - "openra_env/learning/openbw_arena_probe_v1.py"
       - "tests/test_openbw_arena_probe_v1.py"
       - "docs/learning/openbw-arena-probe-v1.md"
+      - "scripts/apply_openbw_bwapi_cstdint_compat_v1.py"
   pull_request:
     paths:
       - ".github/workflows/openbw-headless-build-probe-v1.yml"
       - "openra_env/learning/openbw_arena_probe_v1.py"
       - "tests/test_openbw_arena_probe_v1.py"
       - "docs/learning/openbw-arena-probe-v1.md"
+      - "scripts/apply_openbw_bwapi_cstdint_compat_v1.py"
 
 permissions:
   contents: read
@@ -41,7 +43,8 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             openra_env/learning/openbw_arena_probe_v1.py \
-            tests/test_openbw_arena_probe_v1.py
+            tests/test_openbw_arena_probe_v1.py \
+            scripts/apply_openbw_bwapi_cstdint_compat_v1.py
           python - <<'PY'
           from openra_env.learning.openbw_arena_probe_v1 import openbw_arena_probe_contract
           c = openbw_arena_probe_contract()
@@ -74,6 +77,16 @@ jobs:
           test ! -e openbw/COPYING
           test "$(git -C bwapi hash-object LICENSE)" = "65c5ca88a67c30becee01c5a8816d964b03862f9"
           echo "OPENBW_UPSTREAM_IDENTITY_GREEN"
+
+      - name: Apply exact upstream GCC 13 compatibility patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/openbw-probe"
+          python scripts/apply_openbw_bwapi_cstdint_compat_v1.py \
+            --checkout "$root/bwapi"
+          test "$(git -C "$root/bwapi" hash-object bwapi/include/BWAPI/Game.h)" = \
+            "debb572f6eb23c44ff1096bf8ba3ebea5da3ac7b"
 
       - name: Configure headless OpenBW BWAPI
         shell: bash
