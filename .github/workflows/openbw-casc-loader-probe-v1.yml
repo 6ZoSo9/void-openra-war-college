@@ -79,7 +79,7 @@ jobs:
           test "$(git -C "$root/openbw" rev-parse HEAD)" = "$OPENBW_SHA"
           test "$(git -C "$root/bwapi" rev-parse HEAD)" = "$BWAPI_SHA"
           test "$(git -C "$root/casclib" rev-parse HEAD)" = "$CASCLIB_SHA"
-          test "$(git -C "$root/casclib" hash-object LICENSE)" =             "3b17df3d9bc1d17b55b61024baec95bfb1f264ea"
+          test "$(git -C "$root/casclib" rev-parse HEAD:LICENSE)" =             "3b17df3d9bc1d17b55b61024baec95bfb1f264ea"
           echo "OPENBW_CASC_UPSTREAM_IDENTITIES_GREEN"
 
       - name: Build pinned CascLib
