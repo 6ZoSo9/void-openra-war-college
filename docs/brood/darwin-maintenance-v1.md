@@ -33,6 +33,7 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 14. rejects interpreter-native host-capability backends (`_io`, `_socket`, `_ctypes`, `_posixsubprocess`, `posix`, and `nt`) before lower-level file, network, foreign-function, process, or operating-system authority can bypass the higher-level module denylist.
 15. rejects code-object reconstruction through `marshal` and `types` before deserialized bytecode can be wrapped as a callable and invoked without a direct `exec` call.
 16. rejects lower-level POSIX process, memory, descriptor, signal, and terminal authority through `fcntl`, `mmap`, `pty`, `resource`, `signal`, and `termios`.
+17. rejects terminal-input and network/descriptor I/O primitives through `getpass`, `readline`, `select`, `selectors`, and `ssl` before reviewed source can solicit secrets, install interactive hooks, multiplex host descriptors, or create network/TLS contexts.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 
