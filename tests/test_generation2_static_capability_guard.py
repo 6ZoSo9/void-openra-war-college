@@ -243,6 +243,20 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
                     audit_source(source, spec)
 
+    def test_rejects_terminal_and_network_io_capability_modules(self):
+        for statement in (
+            "import getpass\ngetpass.getpass('secret')",
+            "import readline\nreadline.set_startup_hook(lambda: None)",
+            "import select\nselect.select([], [], [], 0)",
+            "import selectors\nselectors.DefaultSelector()",
+            "import ssl\nssl.create_default_context()",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
     def test_rejects_code_object_reconstruction_modules(self):
         for statement in (
             "import marshal\nmarshal.loads(b'payload')",
