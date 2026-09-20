@@ -69,7 +69,9 @@ jobs:
         run: python -m pip install --disable-pip-version-check -e ".[dev]"
 
       - name: Run tests
-        run: python -m pytest tests/ -v
+        # Report slow tests and dump stacks after 300s in a test. This is
+        # diagnostic only: no test timeout, retry, selection, or exit-code mask.
+        run: python -m pytest tests/ -v --durations=25 -o faulthandler_timeout=300
 
       - name: Lint
         run: python -m ruff check openra_env/
