@@ -287,6 +287,23 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
                     audit_source(source, spec)
 
+    def test_rejects_implicit_file_opening_capability_modules(self):
+        for statement in (
+            "import bz2\nbz2.open('payload.bz2', 'wb')",
+            "import configparser\nconfigparser.ConfigParser().read('payload.ini')",
+            "import fileinput\nfileinput.input(['payload.txt'])",
+            "import gzip\ngzip.open('payload.gz', 'wb')",
+            "import logging\nlogging.FileHandler('payload.log')",
+            "import lzma\nlzma.open('payload.xz', 'wb')",
+            "import mailbox\nmailbox.mbox('payload.mbox')",
+            "import wave\nwave.open('payload.wav', 'wb')",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden import"):
+                    audit_source(source, spec)
+
     def test_rejects_packaging_and_compilation_capability_modules(self):
         for statement in (
             "import compileall\ncompileall.compile_dir('.')",
