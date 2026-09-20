@@ -1,0 +1,123 @@
+name: OpenBW CASC Loader Probe v1
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/openbw-casc-loader-probe-v1.yml"
+      - "scripts/apply_openbw_casc_loader_compat_v1.py"
+      - "scripts/apply_openbw_bwapi_cstdint_compat_v1.py"
+      - "openra_env/learning/openbw_casc_loader_probe_v1.py"
+      - "tests/test_openbw_casc_loader_probe_v1.py"
+      - "docs/learning/openbw-casc-loader-probe-v1.md"
+  pull_request:
+    paths:
+      - ".github/workflows/openbw-casc-loader-probe-v1.yml"
+      - "scripts/apply_openbw_casc_loader_compat_v1.py"
+      - "scripts/apply_openbw_bwapi_cstdint_compat_v1.py"
+      - "openra_env/learning/openbw_casc_loader_probe_v1.py"
+      - "tests/test_openbw_casc_loader_probe_v1.py"
+      - "docs/learning/openbw-casc-loader-probe-v1.md"
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      OPENBW_SHA: 4b046d5f65302b10cb0a745f0fecd37ec85b20a8
+      BWAPI_SHA: 48124ba8ed1b4d52b3dfd52acbaf34afb9a37fe2
+      CASCLIB_SHA: 2a280f5a231966dc5d1b534978dd9f9f04a374cd
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: "3.12"
+
+      - name: Validate War College source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile             scripts/apply_openbw_casc_loader_compat_v1.py             scripts/apply_openbw_bwapi_cstdint_compat_v1.py             openra_env/learning/openbw_casc_loader_probe_v1.py             tests/test_openbw_casc_loader_probe_v1.py
+          python - <<'PY'
+          from openra_env.learning.openbw_casc_loader_probe_v1 import casc_loader_probe_contract
+          c = casc_loader_probe_contract()
+          assert all(v is False for v in c["authority"].values())
+          assert c["transformation"]["chkforge_source_copied"] is False
+          assert c["build"]["bwapilauncher_execution"] is False
+          print("OPENBW_CASC_SOURCE_CONTRACT_GREEN")
+          PY
+
+      - name: Fetch exact upstream sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/openbw-casc-probe"
+          mkdir -p "$root"
+
+          git init "$root/openbw"
+          git -C "$root/openbw" remote add origin https://github.com/OpenBW/openbw.git
+          git -C "$root/openbw" -c protocol.version=2 fetch --no-tags --depth=1 origin "$OPENBW_SHA"
+          git -C "$root/openbw" checkout --detach FETCH_HEAD
+
+          git init "$root/bwapi"
+          git -C "$root/bwapi" remote add origin https://github.com/OpenBW/bwapi.git
+          git -C "$root/bwapi" -c protocol.version=2 fetch --no-tags --depth=1 origin "$BWAPI_SHA"
+          git -C "$root/bwapi" checkout --detach FETCH_HEAD
+
+          git init "$root/casclib"
+          git -C "$root/casclib" remote add origin https://github.com/ladislav-zezula/CascLib.git
+          git -C "$root/casclib" -c protocol.version=2 fetch --no-tags --depth=1 origin "$CASCLIB_SHA"
+          git -C "$root/casclib" checkout --detach FETCH_HEAD
+
+          test "$(git -C "$root/openbw" rev-parse HEAD)" = "$OPENBW_SHA"
+          test "$(git -C "$root/bwapi" rev-parse HEAD)" = "$BWAPI_SHA"
+          test "$(git -C "$root/casclib" rev-parse HEAD)" = "$CASCLIB_SHA"
+          test "$(git -C "$root/casclib" hash-object LICENSE)" =             "3b17df3d9bc1d17b55b61024baec95bfb1f264ea"
+          echo "OPENBW_CASC_UPSTREAM_IDENTITIES_GREEN"
+
+      - name: Build pinned CascLib
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/openbw-casc-probe"
+          cmake             -S "$root/casclib"             -B "$root/casc-build"             -DCMAKE_BUILD_TYPE=Release             -DCMAKE_INSTALL_PREFIX="$root/casc-install"             -DCMAKE_INSTALL_LIBDIR=lib             -DCASC_BUILD_SHARED_LIB=ON             -DCASC_BUILD_STATIC_LIB=OFF             -DCASC_BUILD_TESTS=OFF
+          cmake --build "$root/casc-build" --parallel 2
+          cmake --install "$root/casc-build"
+          test -f "$root/casc-install/include/CascLib.h"
+          test -e "$root/casc-install/lib/libcasc.so"
+          echo "CASCLIB_BUILD_GREEN"
+
+      - name: Apply exact transient compatibility transforms
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/openbw-casc-probe"
+          python scripts/apply_openbw_bwapi_cstdint_compat_v1.py             --checkout "$root/bwapi"
+          python scripts/apply_openbw_casc_loader_compat_v1.py             --openbw "$root/openbw"             --bwapi "$root/bwapi"
+          echo "OPENBW_CASC_TRANSFORMS_GREEN"
+
+      - name: Compile headless BWAPI with CascLib loader
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/openbw-casc-probe"
+          cmake             -S "$root/bwapi"             -B "$root/bwapi-build"             -DCMAKE_BUILD_TYPE=Release             -DOPENBW_DIR="$root/openbw"             -DOPENBW_ENABLE_UI=0             -DVOID_CASCLIB_INSTALL_ROOT="$root/casc-install"
+          cmake --build "$root/bwapi-build" --parallel 2 --target BWAPILauncher
+
+          test -x "$root/bwapi-build/bin/BWAPILauncher"
+          openbw_data="$root/bwapi-build/lib/libOpenBWData.so"
+          test -f "$openbw_data"
+          readelf -d "$openbw_data" | grep -F 'libcasc.so'
+          ldd "$openbw_data" | grep -F 'libcasc.so'
+          echo "launcher_executed=false"
+          echo "game_data_opened=false"
+          echo "battle_net_installed=false"
+          echo "game_installed=false"
+          echo "OPENBW_CASC_LOADER_COMPILE_GREEN"
