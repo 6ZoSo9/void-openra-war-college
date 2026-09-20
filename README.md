@@ -584,6 +584,14 @@ OpenRA-RL/
 | [OpenRA-RL-Website](https://github.com/yxc20089/OpenRA-RL-Website) | Documentation site ([openra-rl.dev](https://openra-rl.dev)) |
 | [OpenEnv](https://github.com/OpenEnvs/OpenEnv) | Gymnasium-style environment framework |
 
+## Downstream project credit
+
+**VOID OpenRA War College** is maintained by **6ZoSo9** as downstream VOID
+Network work built on OpenRA-RL and OpenRA. Upstream authors retain full credit
+for their work; downstream authorship and provenance are recorded in
+[AUTHORS.md](AUTHORS.md), [NOTICE](NOTICE), and
+[VOID_PROVENANCE.md](VOID_PROVENANCE.md).
+
 ## License and attribution
 
 This repository remains licensed under the [GNU GPL version 3](LICENSE). The
