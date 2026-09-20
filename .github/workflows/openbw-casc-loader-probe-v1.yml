@@ -10,6 +10,7 @@ on:
       - "openra_env/learning/openbw_casc_loader_probe_v1.py"
       - "tests/test_openbw_casc_loader_probe_v1.py"
       - "docs/learning/openbw-casc-loader-probe-v1.md"
+      - "integrations/openbw/casc_bridge/**"
   pull_request:
     paths:
       - ".github/workflows/openbw-casc-loader-probe-v1.yml"
@@ -50,6 +51,8 @@ jobs:
           c = casc_loader_probe_contract()
           assert all(v is False for v in c["authority"].values())
           assert c["transformation"]["chkforge_source_copied"] is False
+          assert c["transformation"]["casclib_header_included_by_openbw"] is False
+          assert c["transformation"]["war_college_c_abi_shim"] is True
           assert c["build"]["bwapilauncher_execution"] is False
           print("OPENBW_CASC_SOURCE_CONTRACT_GREEN")
           PY
@@ -94,6 +97,23 @@ jobs:
           test -e "$root/casc-install/lib/libcasc.so"
           echo "CASCLIB_BUILD_GREEN"
 
+      - name: Build War College CASC ABI bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/openbw-casc-probe"
+          cmake \
+            -S integrations/openbw/casc_bridge \
+            -B "$root/bridge-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVOID_CASCLIB_INSTALL_ROOT="$root/casc-install"
+          cmake --build "$root/bridge-build" --parallel 2
+          bridge="$root/bridge-build/lib/libvoid_openbw_casc_bridge.so"
+          test -f "$bridge"
+          readelf -d "$bridge" | grep -F 'libcasc.so'
+          LD_LIBRARY_PATH="$root/casc-install/lib" ldd "$bridge" | grep -F 'libcasc.so'
+          echo "OPENBW_CASC_ABI_BRIDGE_GREEN"
+
       - name: Apply exact transient compatibility transforms
         shell: bash
         run: |
@@ -108,14 +128,17 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/openbw-casc-probe"
-          cmake             -S "$root/bwapi"             -B "$root/bwapi-build"             -DCMAKE_BUILD_TYPE=Release             -DOPENBW_DIR="$root/openbw"             -DOPENBW_ENABLE_UI=0             -DVOID_CASCLIB_INSTALL_ROOT="$root/casc-install"
+          cmake             -S "$root/bwapi"             -B "$root/bwapi-build"             -DCMAKE_BUILD_TYPE=Release             -DOPENBW_DIR="$root/openbw"             -DOPENBW_ENABLE_UI=0             -DVOID_CASC_BRIDGE_SOURCE_ROOT="$GITHUB_WORKSPACE/integrations/openbw/casc_bridge"             -DVOID_CASC_BRIDGE_BUILD_ROOT="$root/bridge-build"
           cmake --build "$root/bwapi-build" --parallel 2 --target BWAPILauncher
 
           test -x "$root/bwapi-build/bin/BWAPILauncher"
           openbw_data="$root/bwapi-build/lib/libOpenBWData.so"
           test -f "$openbw_data"
-          readelf -d "$openbw_data" | grep -F 'libcasc.so'
-          ldd "$openbw_data" | grep -F 'libcasc.so'
+          readelf -d "$openbw_data" | grep -F 'libvoid_openbw_casc_bridge.so'
+          LD_LIBRARY_PATH="$root/bridge-build/lib:$root/casc-install/lib" \
+            ldd "$openbw_data" | grep -F 'libvoid_openbw_casc_bridge.so'
+          LD_LIBRARY_PATH="$root/bridge-build/lib:$root/casc-install/lib" \
+            ldd "$openbw_data" | grep -F 'libcasc.so'
           echo "launcher_executed=false"
           echo "game_data_opened=false"
           echo "battle_net_installed=false"
