@@ -58,3 +58,13 @@ def test_visible_downstream_authorship_credit():
     assert "OpenRA Developers and Contributors" in authors
     assert "VOID OpenRA War College" in readme
     assert "maintained by **6ZoSo9**" in readme
+
+
+def test_future_contribution_credit_policy_exists():
+    contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    template = (ROOT / ".github/pull_request_template.md").read_text(encoding="utf-8")
+    assert "6ZoSo9 and VOID Network contributors" in contributing
+    assert "Do not remove or falsify authorship" in contributing
+    assert "GPLv3 section 7 attribution/origin terms" in contributing
+    assert "upstream/third-party material" in template
+    assert "copyright, authorship, provenance" in template
