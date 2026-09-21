@@ -114,6 +114,9 @@ DEPENDENCY_BLOBS = (
     ("openra_env/learning/abaddon_policy_campaign_runtime_v2r13_worktree_observer_generation2.py", "994f3be5d3344d6ac905c1f5fee9f9490fd4dd3f"),
     ("openra_env/learning/abaddon_policy_campaign_runtime_v2r13_worktree_provider_adapter_generation2.py", "7e6f628c64fe02db42bd6adee67d3965e6b1ae92"),
     ("openra_env/learning/apollyon_opponent_runtime_realizations.py", "0dbae61b0be96445e5fd6c23a07491a03f18b679"),
+    ("openra_env/learning/apollyon_opponent_snapshots.py", "e21da6a7dfba414f2f2273956a8d1f42b10327cf"),
+    ("openra_env/learning/apollyon_v10_campaign_translation.py", "7e86e079590994ff5f16c4b0e3c79b7ab505300f"),
+    ("openra_env/learning/apollyon_v14_campaign_translation_binding.py", "a9d58a3f6f7ca50215a2d2ac52d9840a0b2ae7c8"),
     ("openra_env/learning/apollyon_v2r13_portable_checkout.py", "077fbf5a2847d85113eb8fcba3904b02343ebfef"),
     ("openra_env/learning/apollyon_v8_campaign_runtime.py", "fd0e72767ba199e88af9e9eb2455c03ace027a14"),
 )
@@ -344,6 +347,12 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
                     f"{label}: forbidden import root {root}",
                 )
         elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                _require(
+                    node.level == 1 and label.startswith("openra_env/learning/"),
+                    f"{label}: relative local import escapes reviewed package",
+                )
+                continue
             root = (node.module or "").split(".", 1)[0]
             _require(
                 root in ALLOWED_IMPORT_ROOTS and root not in FORBIDDEN_IMPORT_ROOTS,
@@ -405,7 +414,21 @@ def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
     prefix = "openra_env.learning"
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            _require(node.level == 0, f"{label}: relative local import")
+            if node.level:
+                _require(
+                    node.level == 1 and label.startswith("openra_env/learning/"),
+                    f"{label}: relative local import escapes reviewed package",
+                )
+                module = node.module or ""
+                if module:
+                    paths.add(
+                        "openra_env/learning/" + module.replace(".", "/") + ".py"
+                    )
+                else:
+                    for alias in node.names:
+                        _require(alias.name != "*", f"{label}: wildcard local import")
+                        paths.add(f"openra_env/learning/{alias.name}.py")
+                continue
             module = node.module or ""
             _require(module != "openra_env", f"{label}: ambiguous local package import")
             _require(
