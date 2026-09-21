@@ -42,7 +42,7 @@ def _contract():
 
 @lru_cache(maxsize=1)
 def _dependencies_cached():
-    return _load()._validate_dependencies()
+    return _contract_cached()["review"]["dependencies"]
 
 
 def _dependencies():
@@ -63,7 +63,6 @@ def test_source_sha_is_exact():
 
 
 def test_contract_pins_exact_accepted_selector_source():
-    m = _load()
     out = _contract()
     assert out["selector_git_blob"] == "3ddf54f0fe8a37006d1e272bab62d14faa5904c0"
     assert out["selector_source_sha256"] == (
@@ -74,7 +73,6 @@ def test_contract_pins_exact_accepted_selector_source():
 
 
 def test_review_is_separate_and_selector_does_not_self_review():
-    m = _load()
     deps = _dependencies()
     impl = deps["selector_contract"]
     out = _contract()
@@ -93,7 +91,6 @@ def test_selector_internal_dependency_blobs_remain_exact():
 
 
 def test_selector_review_accepts_exact_four_control_semantics():
-    m = _load()
     out = _contract()
     assert out["selection_key"] == "opponent_snapshot_id"
     assert out["runtime_class_is_not_selection_key"] is True
@@ -102,7 +99,6 @@ def test_selector_review_accepts_exact_four_control_semantics():
 
 
 def test_selector_review_accepts_exact_descriptor_and_pair_topology():
-    m = _load()
     out = _contract()
     assert out["execution_descriptor_count"] == 36
     assert out["matched_pair_count"] == 18
@@ -111,7 +107,6 @@ def test_selector_review_accepts_exact_descriptor_and_pair_topology():
 
 
 def test_all_selected_descriptors_remain_ineligible_and_unauthorized():
-    m = _load()
     rows = _dependencies()["selected_execution_descriptors"]
     assert len(rows) == 36
     assert all(row["eligible"] is False for row in rows)
@@ -123,7 +118,6 @@ def test_all_selected_descriptors_remain_ineligible_and_unauthorized():
 
 
 def test_each_matched_pair_preserves_one_runtime_identity():
-    m = _load()
     rows = _dependencies()["selected_execution_descriptors"]
     for pair_slot in range(1, 19):
         pair = [row for row in rows if row["pair_slot"] == pair_slot]
@@ -136,7 +130,6 @@ def test_each_matched_pair_preserves_one_runtime_identity():
 
 
 def test_v14_and_v10_same_class_remain_distinct_controls():
-    m = _load()
     rows = _dependencies()["selected_execution_descriptors"]
     v14 = next(
         row["runtime"]["selection"]
@@ -154,7 +147,6 @@ def test_v14_and_v10_same_class_remain_distinct_controls():
 
 
 def test_review_closes_only_selector_review_frontier():
-    m = _load()
     out = _contract()
     assert out["cross_control_runtime_selector_implemented"] is True
     assert out["cross_control_runtime_selector_source_binding_present"] is True
@@ -163,7 +155,6 @@ def test_review_closes_only_selector_review_frontier():
 
 
 def test_execution_materialization_blockers_are_preserved_after_review():
-    m = _load()
     out = _contract()
     assert tuple(out["execution_materialization_blockers"]) == (
         "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED",
@@ -178,7 +169,6 @@ def test_execution_materialization_blockers_are_preserved_after_review():
 
 
 def test_runtime_authority_remains_separate_and_closed():
-    m = _load()
     out = _contract()
     assert out["runtime_started"] is False
     assert out["runtime_execution_authorized"] is False
@@ -186,21 +176,18 @@ def test_runtime_authority_remains_separate_and_closed():
 
 
 def test_command_and_workdir_implementations_remain_open():
-    m = _load()
     out = _contract()
     assert out["command_materializer_implemented"] is False
     assert out["isolated_workdir_allocator_implemented"] is False
 
 
 def test_next_source_gate_is_command_materializer():
-    m = _load()
     out = _contract()
     assert out["next_gate"] == "COMMAND_MATERIALIZER_IMPLEMENTATION_REQUIRED"
     assert out["next_change_class"] == "source_only_command_materializer_implementation"
 
 
 def test_historical_materializer_review_is_retained_not_rewritten():
-    m = _load()
     prior = _dependencies()["historical_materializer_review_contract"]
     assert prior["activation_source_review_frontier_complete"] is True
     assert prior["runtime_authority_is_only_remaining_activation_gap"] is True
@@ -209,7 +196,6 @@ def test_historical_materializer_review_is_retained_not_rewritten():
 
 
 def test_review_contract_performs_no_live_or_runtime_action():
-    m = _load()
     out = _contract()
     for field in (
         "review_live_observation_implemented",
@@ -270,8 +256,7 @@ def test_runtime_start_and_authorization_always_hold():
 
 def test_review_does_not_rewrite_selector_contract():
     m = _load()
-    before = m.selector.cross_control_runtime_selector_contract()
-    m.cross_control_runtime_selector_source_binding_review_contract()
+    before = _dependencies()["selector_contract"]
     after = m.selector.cross_control_runtime_selector_contract()
     assert before == after
     assert after["cross_control_runtime_selector_reviewed"] is False
