@@ -1,0 +1,101 @@
+{
+  "schema": "void.war-college.scout-source-chain-current-main-requalification.v1",
+  "requalification_date": "2026-09-21",
+  "base_main_commit": "8710799966eb8051c380090bf9d0ae1ee0dc3500",
+  "historical_bound_main_commit": "9a151da589f93454d31a475b29297ea8a3d35442",
+  "historical_main_binding_preserved": true,
+  "current_main_dependencies_match_historical_binding": true,
+  "payload_bytes_recomposed_without_rewrite": true,
+  "source_pr_lineage": [
+    {
+      "pr_number": 191,
+      "head_sha": "1e9fd02bb8120628e7daf4208fd3ee51f7dd140e",
+      "file_count": 23
+    },
+    {
+      "pr_number": 192,
+      "head_sha": "3213b6cbe3fec94f90c0ccb13d10eab8482e2245",
+      "file_count": 16
+    },
+    {
+      "pr_number": 193,
+      "head_sha": "2fe34494a35bf5dcfc1aedda3d8096e1b10b9b12",
+      "file_count": 4
+    },
+    {
+      "pr_number": 194,
+      "head_sha": "13a4c64783c0380b6f969ce6d10fddd0e18df1e8",
+      "file_count": 4
+    }
+  ],
+  "dependency_blobs": {
+    "openra_env/learning/abaddon_scout_runner_binding_v1.py": "9e4894b64f0820a53faf8226974d99687066679b",
+    "openra_env/learning/abaddon_scout_host_bridge_v1.py": "1fa8ea14c757e46658813dca035037f125e23880",
+    "openra_env/learning/abaddon_scout_missions_v1.py": "12ca91f68f595919061dd6d5f927fb46428c9a58",
+    "openra_env/learning/goal_effect_core_v1.py": "0bd626f6733a77a4861d71e5dea093d0a899c878",
+    "fixtures/learning/scout-missions-v1/warm_start_runner_v1_4.py": "132a5b2df3c3dbc82df7c0ebc6d457e5b77ffb51",
+    "fixtures/learning/scout-missions-v1/joint_host_v1_2.py": "6e751b855da1d9425c4fd2bd5a997ae1c742ae11",
+    "fixtures/learning/scout-missions-v1/abaddon_controller_v1.py": "938afb496bfe704c5ff75adbf938473d9c431062",
+    "fixtures/learning/scout-missions-v1/rl_bridge.proto": "a20e85cf7d9f3b4c1523b1916569942d7b74e694"
+  },
+  "payload_blobs": {
+    "docs/learning/abaddon-scout-external-launcher-contract-v1.md": "690d9310749e11e3d2db2f289e156f0a74314212",
+    "openra_env/learning/abaddon_scout_external_attempt_guard_review_v1.py": "858a218e87b2dc2eee21a9065bd530fcc0523ee2",
+    "openra_env/learning/abaddon_scout_external_attempt_guard_v1.py": "043225a7ff6528b9ae7f80994fe17480ad36ed3e",
+    "openra_env/learning/abaddon_scout_external_launcher_contract_review_v1.py": "3b6281b6a7bcaa9d5b3d9300728103883a810a6c",
+    "openra_env/learning/abaddon_scout_external_launcher_contract_v1.py": "1f7ee7057c27946f488afe26501482ea4f4fc53d",
+    "openra_env/learning/abaddon_scout_external_result_binding_review_v1.py": "e739eef749044193deda06550a6468a97da8f6fb",
+    "openra_env/learning/abaddon_scout_external_result_binding_v1.py": "81fbc479ff087e03fc341d2b191b284fb0017803",
+    "openra_env/learning/abaddon_scout_external_result_evidence_review_v1.py": "3c703599877c4bf18aeabcf848b85e9b5a517e95",
+    "openra_env/learning/abaddon_scout_post_run_observer_contract_v1.py": "fd71ac745c10349047d49f753ecfce1aab712648",
+    "openra_env/learning/abaddon_scout_post_run_observer_review_v1.py": "d8059f351ac31e5df19f7fef58c5737f31fdcf14",
+    "openra_env/learning/abaddon_scout_post_run_observer_v1.py": "11dfa40a861e6772258178bbc32840c670e47f9f",
+    "openra_env/learning/abaddon_scout_result_evidence_review_source_binding_v1.py": "5ec119068a7032bdbfeed3a3527d86caa4527bc5",
+    "tests/test_abaddon_scout_external_attempt_guard_review_v1.py": "d53bc0496b1120e8355a646d26c05d4d4217543b",
+    "tests/test_abaddon_scout_external_attempt_guard_v1.py": "d8b5483f28a1d3963dd6684cfd63465015f5aca1",
+    "tests/test_abaddon_scout_external_launcher_contract_review_v1.py": "97baa4babd4e14cfe1c26c6a8fa7393a7cd1f3ee",
+    "tests/test_abaddon_scout_external_launcher_contract_v1.py": "a3ee5e3fa17b90dc56d137cd17de6a25b95fbd28",
+    "tests/test_abaddon_scout_external_result_binding_review_v1.py": "cb806f6a3c9ff596fef1e62373d39d7c1eb2318e",
+    "tests/test_abaddon_scout_external_result_binding_v1.py": "b48eec020a7aaa72d592dbdd1c9879fffe74f0ab",
+    "tests/test_abaddon_scout_external_result_evidence_review_v1.py": "bc588f105ac377b0ffa2fb5314c6c3104f391eb5",
+    "tests/test_abaddon_scout_post_run_observer_contract_v1.py": "d2540021bc14e8a56fdb90fb737caf1bdfe737a1",
+    "tests/test_abaddon_scout_post_run_observer_review_v1.py": "da4ccd89dd893237344e79cbed52c6e3b490fc0c",
+    "tests/test_abaddon_scout_post_run_observer_v1.py": "6eddf584b3f5bb1d80d39d9cf0c0cc105cfbda7c",
+    "tests/test_abaddon_scout_result_evidence_review_source_binding_v1.py": "5111650e80280bb12b85ed642b90cd3a690f4ecd",
+    "openra_env/learning/abaddon_scout_canary_opponent_source_binding_review_v1.py": "5e5f94eb36a764b73e04ecece7e37e3bb0ca5518",
+    "openra_env/learning/abaddon_scout_canary_opponent_v1.py": "d643e41f0436897ad03dc73086c44bb36c601ed6",
+    "openra_env/learning/abaddon_scout_repair_canary_result_contract_v1.py": "5b880262aa9f47f7c8e230e5c0d79cf960dfe979",
+    "openra_env/learning/abaddon_scout_repair_canary_runner_adapter_v1.py": "509f7651d36e83a182b7a485c88029dee537f633",
+    "openra_env/learning/abaddon_scout_repair_canary_runner_requirements_v1.py": "b14175483877b4c35afc44d6c0f720ce07e68506",
+    "openra_env/learning/abaddon_scout_repair_canary_source_design_v1.py": "9f254a8acf20a8c30c8959e3313b82de6ad9feaf",
+    "openra_env/learning/abaddon_scout_repair_experiment_design_review_v1.py": "a743004670c0ea65c51f51845a60f46f90e2aec5",
+    "openra_env/learning/abaddon_scout_repair_experiment_request_v1.py": "e7ca89639eaffe3dd4433d82cbe4de36b4546322",
+    "tests/test_abaddon_scout_canary_opponent_source_binding_review_v1.py": "5173593cd3ef20d7ad7d6d97fe0bb51ca266cacd",
+    "tests/test_abaddon_scout_canary_opponent_v1.py": "c738a9d3f67d9d44f99a868d5c70bd116aa178d1",
+    "tests/test_abaddon_scout_repair_canary_result_contract_v1.py": "7b35fd961577b7d709c0ad13f17be2315dd3e581",
+    "tests/test_abaddon_scout_repair_canary_runner_adapter_v1.py": "8855fb785e3dc27bc6e62b89c8172d4302437b1d",
+    "tests/test_abaddon_scout_repair_canary_runner_requirements_v1.py": "75b22af30b33bb73fbe4cfb30b2da3bf9bfb2b4c",
+    "tests/test_abaddon_scout_repair_canary_source_design_v1.py": "3fa5cb730c08a0f2fa8fc05c01396783bf86ce1f",
+    "tests/test_abaddon_scout_repair_experiment_design_review_v1.py": "b4b8aa380bd0bd267f6d46013c6e4b094e5212c5",
+    "tests/test_abaddon_scout_repair_experiment_request_v1.py": "6b6d77172be2a46d8c50769b07d87bca65319250",
+    ".github/workflows/abaddon-scout-repair-canary-full-runner-review-v1.yml": "f4b5804c92e1e58e274c8f31a57a4381a38f1a35",
+    "docs/learning/abaddon-scout-repair-canary-full-runner-composition-review-v1.md": "792cd1418aef44d3ee1bc8814f5ac505a58f771c",
+    "openra_env/learning/abaddon_scout_repair_canary_full_runner_composition_review_v1.py": "0f2322463241d8aed45bfde0d39309057f5f3621",
+    "tests/test_abaddon_scout_repair_canary_full_runner_composition_review_v1.py": "36e504dac89c08615092dc0b84d6ef94c3960f0a",
+    ".github/workflows/abaddon-scout-repair-canary-derived-runner-v1.yml": "8c8b8934936d54ee41f2d9d42a94856201613829",
+    "docs/learning/abaddon-scout-repair-canary-derived-runner-v1.md": "a034904b8c09d19ee5c41957cb22659b57f78acc",
+    "fixtures/learning/scout-missions-v1/scout_repair_canary_derived_runner_v1.py": "40030e2ee61d17fd94abd1df733d3ea22650512b",
+    "tests/test_abaddon_scout_repair_canary_derived_runner_v1.py": "9005c7faecf7da3135d8a5fd4be6f399a8c7f06a"
+  },
+  "boundaries": {
+    "game_execution": false,
+    "model_execution": false,
+    "runtime_activation": false,
+    "attempt_consumption": false,
+    "training": false,
+    "policy_promotion": false,
+    "deployment": false,
+    "void_chain_mutation": false,
+    "wallet_or_funds_action": false
+  }
+}
