@@ -46,12 +46,24 @@ The proposal fixes:
 
 All authority fields remain false in this module.
 
+## Source-binding review layer
+
+The companion `abaddon_scout_external_launcher_contract_review_v1.py` pins this
+contract at Git blob `1f7ee7057c27946f488afe26501482ea4f4fc53d` and pins the
+canonical request digest above. Its regression test recomputes both identities
+from the checkout.
+
+That review layer still grants no execution authority. It deliberately reports
+`repository_bytes_verified_by_this_module = false`: repository-byte
+verification belongs to tests/review tooling, not to import-time host effects.
+
+Its next gate is `SCOUT_FRESH_DURABLE_ATTEMPT_GUARD_REQUIRED`.
+
 ## Required next gates
 
 A future implementation still must independently establish:
 
-1. exact launcher source review;
-2. exact admitted source inventory;
+1. exact admitted source inventory;
 3. a fresh experiment identity;
 4. a fresh durable single-use attempt guard;
 5. explicit non-reuse of the consumed pair-03 slot;
