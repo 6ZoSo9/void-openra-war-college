@@ -97,7 +97,7 @@ def test_selector_supports_exact_36_descriptors_and_18_pairs():
 def test_selector_supports_exact_four_reviewed_controls():
     out = _contract()
     assert out["reviewed_runtime_count"] == 4
-    assert set(out["dependencies"]["runtime_index"]) == set(m.EXPECTED_RUNTIME_BINDINGS)
+    assert set(out["dependencies"]["runtime_index"]) == set(_load().EXPECTED_RUNTIME_BINDINGS)
 
 
 def test_runtime_class_is_not_used_as_cross_control_identity():
