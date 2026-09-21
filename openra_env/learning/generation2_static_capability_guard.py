@@ -407,12 +407,14 @@ def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
         if isinstance(node, ast.ImportFrom):
             _require(node.level == 0, f"{label}: relative local import")
             module = node.module or ""
+            _require(module != "openra_env", f"{label}: ambiguous local package import")
             _require(
                 not (
-                    module == "openra_env"
-                    and any(alias.name == "learning" for alias in node.names)
+                    module.startswith("openra_env.")
+                    and module != prefix
+                    and not module.startswith(prefix + ".")
                 ),
-                f"{label}: ambiguous local package import",
+                f"{label}: local import outside reviewed namespace",
             )
             if module == prefix:
                 for alias in node.names:
@@ -426,6 +428,13 @@ def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
                 _require(
                     alias.name not in {"openra_env", prefix},
                     f"{label}: ambiguous local package import",
+                )
+                _require(
+                    not (
+                        alias.name.startswith("openra_env.")
+                        and not alias.name.startswith(prefix + ".")
+                    ),
+                    f"{label}: local import outside reviewed namespace",
                 )
                 if alias.name.startswith(prefix + "."):
                     suffix = alias.name[len(prefix) + 1 :].replace(".", "/")
