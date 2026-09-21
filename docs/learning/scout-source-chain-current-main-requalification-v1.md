@@ -27,7 +27,7 @@ Instead, this requalification separately proves that the eight dependency blobs
 bound by that historical proposal remain byte-identical on the consolidation
 base main:
 
-`8710799966eb8051c380090bf9d0ae1ee0dc3500`
+`3703eaddc7e95f917de72747cc3e6248c78fb295`
 
 Those dependencies are the accepted scout runner binding, host bridge, missions,
 goal/effect core, frozen warm-start runner, joint-host fixture,
