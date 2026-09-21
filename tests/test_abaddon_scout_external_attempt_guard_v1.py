@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
+import sys
 import threading
 
 import pytest
@@ -228,6 +230,194 @@ def test_concurrent_callers_produce_exactly_one_consumption(namespace):
 
     assert outcomes.count(True) == 1
     assert outcomes.count("SCOUT_ATTEMPT_ALREADY_EXISTS") == 7
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["write_error", "zero_write", "tiny_writes", "read_error", "empty_read", "tiny_reads"],
+)
+def test_partial_io_is_bounded_preserved_and_not_retried(namespace, monkeypatch, operation):
+    write, read = os.write, os.read
+    calls = 0
+
+    def fault_write(fd, data):
+        nonlocal calls
+        calls += 1
+        if operation == "write_error":
+            raise OSError("fixture write")
+        if operation == "zero_write":
+            return 0
+        return write(fd, data[:1])
+
+    def fault_read(fd, count):
+        nonlocal calls
+        calls += 1
+        if operation == "read_error":
+            raise OSError("fixture read")
+        if operation == "empty_read":
+            return b""
+        return read(fd, min(1, count))
+
+    with monkeypatch.context() as patch:
+        if "write" in operation:
+            patch.setattr(guard.os, "write", fault_write)
+        else:
+            patch.setattr(guard.os, "read", fault_read)
+        with pytest.raises(HOLD) as caught:
+            consume(namespace)
+
+    assert caught.value.marker_may_exist is True
+    assert calls <= guard.MAX_IO_CALLS
+    marker_path = namespace[0] / guard.MARKER_NAME
+    before = marker_path.read_bytes()
+
+    with pytest.raises(HOLD, match="ALREADY_EXISTS"):
+        consume(namespace)
+    assert marker_path.read_bytes() == before
+
+
+def test_short_reads_and_writes_can_finish_single_consumption(namespace, monkeypatch):
+    write, read = os.write, os.read
+    monkeypatch.setattr(guard.os, "write", lambda fd, data: write(fd, data[:31]))
+    monkeypatch.setattr(guard.os, "read", lambda fd, count: read(fd, min(count, 29)))
+    assert consume(namespace)["single_use_slot_consumed"] is True
+
+
+def test_close_error_holds_and_preserves_consumed_marker(namespace, monkeypatch):
+    original = os.close
+    closed = []
+
+    def fault(fd):
+        closed.append(fd)
+        original(fd)
+        if len(closed) == 1:
+            raise OSError("fixture close returned error after closing")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(guard.os, "close", fault)
+        with pytest.raises(HOLD, match="CLOSE_HOLD") as caught:
+            consume(namespace)
+
+    assert caught.value.marker_may_exist is True
+    assert len(closed) == len(set(closed)) == 2
+    assert os.fstat(namespace[1]).st_ino == namespace[2][1]
+    with pytest.raises(HOLD, match="ALREADY_EXISTS"):
+        consume(namespace)
+
+
+CHILD = r"""
+import os
+import sys
+from openra_env.learning import abaddon_scout_external_attempt_guard_v1 as guard
+
+directory = sys.argv[1]
+mode = sys.argv[2]
+fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+info = os.fstat(fd)
+
+if mode == "before_write":
+    def crash(*args):
+        os._exit(91)
+    guard.os.write = crash
+elif mode == "after_file_sync":
+    original = os.fsync
+    count = 0
+    def crash(descriptor):
+        global count
+        count += 1
+        original(descriptor)
+        if count == 2:
+            os._exit(92)
+    guard.os.fsync = crash
+
+if mode == "race":
+    print("READY", flush=True)
+    sys.stdin.buffer.read(1)
+
+try:
+    result = guard.consume_scout_attempt(
+        directory_fd=fd,
+        expected_directory_identity=(info.st_dev, info.st_ino),
+        request_bytes=guard.contract.build_scout_launcher_request(),
+        experiment_id="abaddon-scout-source-bound-v1-attempt-001",
+        launcher_contract_git_blob=guard.review.CONTRACT_GIT_BLOB,
+        confirm=guard.CLAIM_CONFIRMATION,
+    )
+except guard.ScoutExternalAttemptHold as error:
+    print(str(error), flush=True)
+    sys.exit(2)
+else:
+    assert result["single_use_slot_consumed"] is True
+    print("CONSUMED", flush=True)
+finally:
+    os.close(fd)
+"""
+
+
+def child(namespace, mode):
+    return subprocess.run(
+        [sys.executable, "-c", CHILD, str(namespace[0]), mode],
+        env={"PYTHONPATH": str(ROOT)},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("cut", "exit_code"),
+    [("before_write", 91), ("after_file_sync", 92), ("normal", 0)],
+)
+def test_fresh_process_refuses_after_process_loss_or_completed_claim(
+    namespace, cut, exit_code
+):
+    first = child(namespace, cut)
+    assert first.returncode == exit_code, first.stderr
+    marker_path = namespace[0] / guard.MARKER_NAME
+    before = marker_path.read_bytes()
+
+    restarted = child(namespace, "normal")
+    assert restarted.returncode == 2, restarted.stderr
+    assert restarted.stdout.strip() == "SCOUT_ATTEMPT_ALREADY_EXISTS"
+    assert marker_path.read_bytes() == before
+
+    if cut == "before_write":
+        assert len(before) == 0
+    else:
+        assert len(before) > 0
+
+
+def test_independent_processes_cannot_both_consume(namespace):
+    processes = [
+        subprocess.Popen(
+            [sys.executable, "-c", CHILD, str(namespace[0]), "race"],
+            env={"PYTHONPATH": str(ROOT)},
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for _ in range(4)
+    ]
+    try:
+        for process in processes:
+            assert process.stdout.readline().strip() == "READY"
+        for process in processes:
+            process.stdin.write("x")
+            process.stdin.flush()
+        results = [process.communicate(timeout=15) for process in processes]
+
+        assert [process.returncode for process in processes].count(0) == 1, results
+        assert [process.returncode for process in processes].count(2) == 3, results
+        assert sum("CONSUMED" in stdout for stdout, _ in results) == 1
+        assert sum("ALREADY_EXISTS" in stdout for stdout, _ in results) == 3
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
 
 
 def test_source_exposes_no_execution_reset_or_marker_deletion_api():
