@@ -4,7 +4,9 @@ name: openbw-s1-vx4-compatibility-source-contract
   pull_request:
     paths:
       - openra_env/learning/openbw_s1_vx4_compatibility_v1.py
+      - openra_env/learning/openbw_s1_source_patch_v1.py
       - tests/test_openbw_s1_vx4_compatibility_v1.py
+      - tests/test_openbw_s1_source_patch_v1.py
       - docs/learning/openbw-s1-vx4-compatibility-v1.md
       - .github/workflows/openbw-s1-vx4-compatibility-source-contract.yml
   push:
@@ -12,7 +14,9 @@ name: openbw-s1-vx4-compatibility-source-contract
       - main
     paths:
       - openra_env/learning/openbw_s1_vx4_compatibility_v1.py
+      - openra_env/learning/openbw_s1_source_patch_v1.py
       - tests/test_openbw_s1_vx4_compatibility_v1.py
+      - tests/test_openbw_s1_source_patch_v1.py
       - docs/learning/openbw-s1-vx4-compatibility-v1.md
       - .github/workflows/openbw-s1-vx4-compatibility-source-contract.yml
 
@@ -64,16 +68,23 @@ jobs:
         run: |
           python -m py_compile \
             openra_env/learning/openbw_s1_vx4_compatibility_v1.py \
-            tests/test_openbw_s1_vx4_compatibility_v1.py
+            openra_env/learning/openbw_s1_source_patch_v1.py \
+            tests/test_openbw_s1_vx4_compatibility_v1.py \
+            tests/test_openbw_s1_source_patch_v1.py
 
       - name: Run source contract tests
-        run: python -m pytest -q tests/test_openbw_s1_vx4_compatibility_v1.py
+        run: |
+          python -m pytest -q \
+            tests/test_openbw_s1_vx4_compatibility_v1.py \
+            tests/test_openbw_s1_source_patch_v1.py
 
       - name: Lint source contract
         run: |
           python -m ruff check \
             openra_env/learning/openbw_s1_vx4_compatibility_v1.py \
-            tests/test_openbw_s1_vx4_compatibility_v1.py
+            openra_env/learning/openbw_s1_source_patch_v1.py \
+            tests/test_openbw_s1_vx4_compatibility_v1.py \
+            tests/test_openbw_s1_source_patch_v1.py
 
       - name: Prove source-only boundary
         run: |
