@@ -47,7 +47,8 @@ def test_third_party_branding_and_provenance_notices_exist():
     assert "OpenRA" in trademarks
     assert "openra_env/learning/" in provenance
     assert "docs/learning/" in provenance
-    assert "does not exist on the current" in provenance
+    normalized_provenance = " ".join(provenance.split())
+    assert "do not exist on the current" in normalized_provenance
 
 
 def test_visible_downstream_authorship_credit():
