@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import hashlib
 import importlib.util
+from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -15,6 +17,7 @@ SOURCE = (
 EXPECTED_SOURCE_SHA256 = "19cd2c02e4232cee01e31286eee545237d61d7839542914899a1abf016fe26f4"
 
 
+@lru_cache(maxsize=1)
 def _load():
     raw = SOURCE.read_bytes()
     assert hashlib.sha256(raw).hexdigest() == EXPECTED_SOURCE_SHA256
@@ -26,6 +29,24 @@ def _load():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@lru_cache(maxsize=1)
+def _contract_cached():
+    return _load().cross_control_runtime_selector_contract()
+
+
+def _contract():
+    return deepcopy(_contract_cached())
+
+
+@lru_cache(maxsize=1)
+def _selected_cached():
+    return _load().all_selected_execution_descriptors()
+
+
+def _selected():
+    return deepcopy(_selected_cached())
 
 
 def _expect_hold(exc_type, pattern, fn):
@@ -42,8 +63,7 @@ def test_source_sha_is_exact():
 
 
 def test_contract_pins_exact_accepted_dependencies():
-    m = _load()
-    out = m.cross_control_runtime_selector_contract()
+    out = _contract()
     assert out["execution_adapter_git_blob"] == "994d44d751c530619649322c72a65edf15f6a8c3"
     assert out["runtime_realizations_git_blob"] == "0dbae61b0be96445e5fd6c23a07491a03f18b679"
     assert out["materializer_review_git_blob"] == "3dcc325c431ec451a737b6e228c365ce1acb4f98"
@@ -51,8 +71,7 @@ def test_contract_pins_exact_accepted_dependencies():
 
 
 def test_contract_pins_reviewed_realization_and_snapshot_sets():
-    m = _load()
-    out = m.cross_control_runtime_selector_contract()
+    out = _contract()
     assert out["runtime_realization_set_sha256"] == (
         "1dbb861a3bc03a4423187846a519f228726cc890f4452c3b1d8607614288a7d8"
     )
@@ -62,46 +81,42 @@ def test_contract_pins_reviewed_realization_and_snapshot_sets():
 
 
 def test_selector_is_implemented_but_not_self_reviewed():
-    m = _load()
-    out = m.cross_control_runtime_selector_contract()
+    out = _contract()
     assert out["cross_control_runtime_selector_implemented"] is True
     assert out["cross_control_runtime_selector_reviewed"] is False
     assert out["runtime_selection_performed"] is False
 
 
 def test_selector_supports_exact_36_descriptors_and_18_pairs():
-    m = _load()
-    out = m.cross_control_runtime_selector_contract()
+    out = _contract()
     assert out["execution_descriptor_count"] == 36
     assert out["matched_pair_count"] == 18
     assert len(out["dependencies"]["execution_descriptors"]) == 36
 
 
 def test_selector_supports_exact_four_reviewed_controls():
-    m = _load()
-    out = m.cross_control_runtime_selector_contract()
+    out = _contract()
     assert out["reviewed_runtime_count"] == 4
-    assert set(out["dependencies"]["runtime_index"]) == set(m.EXPECTED_RUNTIME_BINDINGS)
+    assert set(out["dependencies"]["runtime_index"]) == set(_load().EXPECTED_RUNTIME_BINDINGS)
 
 
 def test_runtime_class_is_not_used_as_cross_control_identity():
-    m = _load()
-    out = m.cross_control_runtime_selector_contract()
+    out = _contract()
     assert out["selection_key"] == "opponent_snapshot_id"
     assert out["runtime_class_is_not_selection_key"] is True
     assert out["reviewed_runtime_class_count"] == 3
 
 
 def test_v14_and_v10_same_class_remain_distinct_by_snapshot_identity():
-    m = _load()
+    rows = _selected()
     v14 = next(
         row
-        for row in m.all_selected_execution_descriptors()
+        for row in rows
         if row["apollyon_opponent"]["snapshot_id"] == "apollyon-v13-v14-promoted"
     )
     v10 = next(
         row
-        for row in m.all_selected_execution_descriptors()
+        for row in rows
         if row["apollyon_opponent"]["snapshot_id"] == "apollyon-v13-v10-promoted"
     )
     s14 = v14["runtime"]["selection"]
@@ -113,7 +128,7 @@ def test_v14_and_v10_same_class_remain_distinct_by_snapshot_identity():
 
 def test_all_36_canonical_descriptors_select_deterministically():
     m = _load()
-    first = m.all_selected_execution_descriptors()
+    first = _selected()
     second = m.all_selected_execution_descriptors()
     assert first == second
     assert len(first) == 36
@@ -121,8 +136,7 @@ def test_all_36_canonical_descriptors_select_deterministically():
 
 
 def test_each_matched_pair_uses_identical_runtime_selection():
-    m = _load()
-    rows = m.all_selected_execution_descriptors()
+    rows = _selected()
     for pair_slot in range(1, 19):
         pair = [row for row in rows if row["pair_slot"] == pair_slot]
         assert len(pair) == 2
@@ -134,8 +148,10 @@ def test_each_matched_pair_uses_identical_runtime_selection():
 
 
 def test_selected_descriptor_removes_only_selector_blocker():
-    m = _load()
-    row = m.selected_execution_descriptor(pair_slot=1, arm="baseline")
+    row = next(
+        row for row in _selected()
+        if row["pair_slot"] == 1 and row["arm"] == "baseline"
+    )
     assert tuple(row["reasons"]) == (
         "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED",
         "COMMAND_MATERIALIZER_NOT_IMPLEMENTED",
@@ -145,15 +161,19 @@ def test_selected_descriptor_removes_only_selector_blocker():
 
 
 def test_selected_descriptor_remains_ineligible():
-    m = _load()
-    row = m.selected_execution_descriptor(pair_slot=1, arm="baseline")
+    row = next(
+        row for row in _selected()
+        if row["pair_slot"] == 1 and row["arm"] == "baseline"
+    )
     assert row["eligible"] is False
     assert row["authority"]["runtime_execution_authorized"] is False
 
 
 def test_selection_never_starts_runtime_or_executes_model_game():
-    m = _load()
-    out = m.select_runtime(pair_slot=1, arm="baseline")
+    out = next(
+        row["runtime"]["selection"] for row in _selected()
+        if row["pair_slot"] == 1 and row["arm"] == "baseline"
+    )
     assert out["selection_performed"] is True
     assert out["selection_is_source_only"] is True
     assert out["runtime_started"] is False
@@ -164,15 +184,16 @@ def test_selection_never_starts_runtime_or_executes_model_game():
 
 
 def test_selection_does_not_materialize_command_or_workdir():
-    m = _load()
-    out = m.select_runtime(pair_slot=1, arm="candidate")
+    out = next(
+        row["runtime"]["selection"] for row in _selected()
+        if row["pair_slot"] == 1 and row["arm"] == "candidate"
+    )
     assert out["command_materialized"] is False
     assert out["workdir_materialized"] is False
 
 
 def test_v2r13_runtime_identity_remains_exactly_bound():
-    m = _load()
-    rows = m.all_selected_execution_descriptors()
+    rows = _selected()
     row = next(
         row
         for row in rows
@@ -191,8 +212,7 @@ def test_v2r13_runtime_identity_remains_exactly_bound():
 
 
 def test_v8_selection_remains_local_frozen_template_runtime_class():
-    m = _load()
-    rows = m.all_selected_execution_descriptors()
+    rows = _selected()
     row = next(
         row
         for row in rows
@@ -269,17 +289,14 @@ def test_historical_adapter_remains_unmodified_and_nonselecting():
 
 
 def test_materializer_review_frontier_is_retained():
-    m = _load()
-    deps = m._validate_dependencies()
-    review = deps["materializer_review_contract"]
+    review = _contract()["dependencies"]["materializer_review_contract"]
     assert review["frozen_worktree_materializer_reviewed"] is True
     assert review["activation_source_review_frontier_complete"] is True
     assert review["runtime_execution_authorized"] is False
 
 
 def test_next_gate_is_separate_selector_source_binding_review():
-    m = _load()
-    out = m.cross_control_runtime_selector_contract()
+    out = _contract()
     assert out["next_gate"] == (
         "CROSS_CONTROL_RUNTIME_SELECTOR_SOURCE_BINDING_REVIEW_REQUIRED"
     )
