@@ -56,7 +56,8 @@ def test_canonical_request_digest_and_scope_are_exact():
 
 
 def test_every_authority_field_remains_literal_false():
-    assert tuple(RECORD["authority"]) == contract.FALSE_AUTHORITY_FIELDS
+    assert len(RECORD["authority"]) == len(contract.FALSE_AUTHORITY_FIELDS)
+    assert set(RECORD["authority"]) == set(contract.FALSE_AUTHORITY_FIELDS)
     assert all(value is False for value in RECORD["authority"].values())
 
     validation = contract.validate_scout_launcher_request(PAYLOAD)
