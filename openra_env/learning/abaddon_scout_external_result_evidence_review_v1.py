@@ -20,7 +20,7 @@ from openra_env.learning import abaddon_scout_external_result_binding_v1 as bind
 
 REVIEW_SCHEMA = "void.abaddon.scout-external-result-evidence-structural-review.v1"
 POST_RUN_SCHEMA = "void.abaddon.scout-post-run-state-evidence.v1"
-NEXT_GATE = "SCOUT_POST_RUN_OBSERVER_SOURCE_BINDING_REQUIRED"
+NEXT_GATE = "SCOUT_POST_RUN_OBSERVER_IMPLEMENTATION_REVIEW_REQUIRED"
 
 MAX_ATTEMPT_MARKER_BYTES = 4096
 MAX_TRAJECTORY_BYTES = 16 * 1024 * 1024
@@ -31,6 +31,7 @@ ATTEMPT_MARKER_SCHEMA = "void.abaddon.scout-external-attempt-consumption.v1"
 ATTEMPT_RECORD_KIND = "attempt_consumed_not_execution_evidence"
 REQUEST_SHA256 = "67582949d9cbb6815c59ba9c78e6ac40fc303080320b5d707ad2b9e64e9baf55"
 LAUNCHER_CONTRACT_GIT_BLOB = "1f7ee7057c27946f488afe26501482ea4f4fc53d"
+POST_RUN_OBSERVER_CONTRACT_GIT_BLOB = "fd71ac745c10349047d49f753ecfce1aab712648"
 
 REQUIRED_POST_RUN_OBSERVATIONS = (
     "attempt_marker_present",
@@ -164,7 +165,7 @@ def _review_post_run_state(
             "record_kind",
             "experiment_id",
             "attempt_marker_sha256",
-            "observer_source_git_blob",
+            "observer_contract_git_blob",
             "observations",
             "claims",
         },
@@ -181,8 +182,8 @@ def _review_post_run_state(
         "SCOUT_RESULT_POST_RUN_ATTEMPT_DIGEST",
     )
     _require(
-        _hex40(record["observer_source_git_blob"]),
-        "SCOUT_RESULT_POST_RUN_OBSERVER_SOURCE_IDENTITY",
+        record["observer_contract_git_blob"] == POST_RUN_OBSERVER_CONTRACT_GIT_BLOB,
+        "SCOUT_RESULT_POST_RUN_OBSERVER_CONTRACT_IDENTITY",
     )
 
     observations = record["observations"]
@@ -270,13 +271,14 @@ def review_scout_result_evidence(
         "trajectory_sha256": trajectory_sha256,
         "result_payload_sha256": result_payload_sha256,
         "post_run_state_sha256": post_run_sha256,
-        "post_run_observer_source_git_blob": post_run_record["observer_source_git_blob"],
+        "post_run_observer_contract_git_blob": post_run_record["observer_contract_git_blob"],
+        "post_run_observer_contract_verified": True,
         "binding_bytes_verified": True,
         "attempt_marker_structure_verified": True,
         "trajectory_digest_verified": True,
         "result_payload_digest_verified": True,
         "post_run_state_structure_verified": True,
-        "post_run_observer_source_verified": False,
+        "post_run_observer_implementation_verified": False,
         "result_evidence_verified": False,
         "authority": {field: False for field in FALSE_AUTHORITY_FIELDS},
         "next_gate": NEXT_GATE,
