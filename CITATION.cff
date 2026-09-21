@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use or build on VOID OpenRA War College, please cite the downstream project and preserve the upstream OpenRA/OpenRA-RL attribution described in NOTICE."
+title: "VOID OpenRA War College"
+type: software
+authors:
+  - family-names: "6ZoSo9"
+    alias: "6ZoSo9"
+url: "https://github.com/6ZoSo9/void-openra-war-college"
+license: GPL-3.0-only

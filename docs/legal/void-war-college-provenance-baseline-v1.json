@@ -1,0 +1,1282 @@
+{
+  "schema": "void.war-college.provenance-baseline.v1",
+  "baseline_date": "2026-09-20",
+  "purpose": "Evidence baseline for attribution/provenance comparison. Similarity alone is not a finding of copying.",
+  "void_reference": {
+    "repository": "6ZoSo9/void-openra-war-college",
+    "ref": "main",
+    "commit": "9a151da589f93454d31a475b29297ea8a3d35442",
+    "tree": "004ea893b529d297944000bff690da974a9dba71"
+  },
+  "comparison_references": {
+    "openra_rl": {
+      "repository": "yxc20089/OpenRA-RL",
+      "ref": "main",
+      "commit": "5dadd449c912ac2d4021cc8ed84fc0b385b1543c",
+      "tree": "fa92204fdca0c5f647da1d93a14f16821a4532af"
+    },
+    "openra_rl_website": {
+      "repository": "yxc20089/OpenRA-RL-Website",
+      "ref": "main",
+      "commit": "0007f1fed49e954a7706c7c64a6c98894f98cfb1",
+      "tree": "4f95d8c65eaa1f10804cffc9be4a3c2e1b7727f0"
+    }
+  },
+  "downstream_prefix_summary": [
+    {
+      "prefix": "openra_env/learning/",
+      "void_blob_count": 112,
+      "same_path_in_openra_rl_main": 0,
+      "same_path_in_openra_rl_website_main": 0
+    },
+    {
+      "prefix": "openra_env/analysis/",
+      "void_blob_count": 23,
+      "same_path_in_openra_rl_main": 0,
+      "same_path_in_openra_rl_website_main": 0
+    },
+    {
+      "prefix": "docs/learning/",
+      "void_blob_count": 10,
+      "same_path_in_openra_rl_main": 0,
+      "same_path_in_openra_rl_website_main": 0
+    },
+    {
+      "prefix": "fixtures/learning/",
+      "void_blob_count": 14,
+      "same_path_in_openra_rl_main": 0,
+      "same_path_in_openra_rl_website_main": 0
+    }
+  ],
+  "first_public_evidence_anchors": [
+    {
+      "system": "normalized warm-start pair binding",
+      "path": "openra_env/analysis/spar_pair_binding.py",
+      "first_public_commit": "00125bec14aab93b32005e7c037537ca956aad32",
+      "first_public_utc": "2026-08-27T20:51:33Z",
+      "author": "6ZoSo9",
+      "commit_message": "feat(analysis): normalize warm-start identity for paired reruns"
+    },
+    {
+      "system": "General Brain generation and corpus gate",
+      "path": "openra_env/learning/general_brain_generation.py",
+      "first_public_commit": "646acd3a3200634c9c2bbd005b938f00f0eca4f5",
+      "first_public_utc": "2026-08-28T10:12:54Z",
+      "author": "6ZoSo9",
+      "commit_message": "feat(learning): add General Brain generation and corpus gate"
+    },
+    {
+      "system": "Apollyon brain generation zero",
+      "path": "fixtures/learning/apollyon-brain-generation-0.json",
+      "first_public_commit": "883ff9de8cc852192b9fc26e6c7e9d437077b81d",
+      "first_public_utc": "2026-08-28T10:13:13Z",
+      "author": "6ZoSo9",
+      "commit_message": "feat(learning): add Apollyon brain generation zero"
+    },
+    {
+      "system": "Abaddon brain generation zero",
+      "path": "fixtures/learning/abaddon-brain-generation-0.json",
+      "first_public_commit": "d0fe904658277fd22ce2ebe1e84b880e85f2478a",
+      "first_public_utc": "2026-08-28T10:13:25Z",
+      "author": "6ZoSo9",
+      "commit_message": "feat(learning): add Abaddon brain generation zero"
+    },
+    {
+      "system": "reviewed Abaddon campaign contract",
+      "path": "openra_env/learning/abaddon_policy_campaign_contract.py",
+      "first_public_commit": "d89f1d978189f9fa0ca93a826f87f113cd812fe3",
+      "first_public_utc": "2026-09-14T22:14:31Z",
+      "author": "6ZoSo9 / zoso",
+      "commit_message": "fix(war-college): require Abaddon reviewed campaign"
+    },
+    {
+      "system": "bounded Abaddon scout mission lifecycle",
+      "path": "openra_env/learning/abaddon_scout_missions_v1.py",
+      "first_public_commit": "dae97247b47dbbef48cec533ab403c20b5278bae",
+      "first_public_utc": "2026-09-20T19:36:59Z",
+      "author": "6ZoSo9 / zoso",
+      "commit_message": "fix(abaddon): add bounded scout mission lifecycle recovery"
+    }
+  ],
+  "shared_upstream_prior_art_exclusions": [
+    {
+      "topic": "OpenRA-Bench export/upload and leaderboard submission",
+      "commit": "40d745772153af97dc4a53f91c9065271fc34dd0",
+      "first_public_utc": "2026-02-26T02:27:51Z",
+      "original_repository": "yxc20089/OpenRA-RL",
+      "original_author": "yxc20089",
+      "classification": "shared upstream history; not claimed as original VOID War College work"
+    },
+    {
+      "topic": "multi-session Python client and single-daemon architecture",
+      "commit": "0b04233dc756121bab55354cc914990dc40dc417",
+      "first_public_utc": "2026-03-13T19:30:17Z",
+      "original_repository": "yxc20089/OpenRA-RL",
+      "original_author": "yxc20089",
+      "classification": "shared upstream history; not claimed as original VOID War College work"
+    }
+  ],
+  "distinctive_term_search_snapshot": {
+    "terms": [
+      "Apollyon",
+      "Abaddon",
+      "General Brain",
+      "warm-start pair",
+      "evidence contract",
+      "source binding",
+      "goal effect",
+      "candidate-only"
+    ],
+    "repositories": [
+      "yxc20089/OpenRA-RL",
+      "yxc20089/OpenRA-RL-Website"
+    ],
+    "result": "GitHub code search returned zero matches at the comparison snapshot.",
+    "limitation": "Search absence is not proof of absence from historical, private, deleted, unindexed, or differently worded material."
+  },
+  "public_surface_exclusions": [
+    {
+      "surface": "OpenRA-Bench / Hugging Face leaderboard",
+      "url": "https://huggingface.co/spaces/openra-rl/OpenRA-Bench",
+      "classification": "generic/upstream benchmark surface; not claimed as original VOID War College work"
+    },
+    {
+      "surface": "OpenRA-RL website",
+      "url": "https://openra-rl.dev",
+      "classification": "upstream project website; generic agent/benchmark/training concepts are not claimed as original VOID War College work"
+    }
+  ],
+  "future_comparison_rules": {
+    "strong_signals": [
+      "exact Git blob or byte-for-byte match of downstream-only material",
+      "near-identical implementation of distinctive downstream structures with later chronology",
+      "reuse of distinctive names or schema identifiers such as Apollyon, Abaddon, General Brain, VOID-specific warm-start/pair/evidence contracts",
+      "copied documentation language, comments, tests, fixture shapes, hashes, or source-binding conventions",
+      "multiple independent distinctive similarities appearing together"
+    ],
+    "weak_signals": [
+      "generic AI-agent terminology",
+      "leaderboards or benchmark submissions",
+      "reinforcement-learning curricula",
+      "multi-session execution",
+      "replay verification",
+      "common GPL/OpenRA/OpenEnv architecture"
+    ],
+    "decision_rule": "No automatic accusation. Preserve evidence, establish chronology and access/provenance, then perform human/legal review."
+  },
+  "fingerprints": [
+    {
+      "path": "docs/learning/abaddon-generation2-pair03-candidate-attempt-guard-v1.md",
+      "git_blob_sha1": "f77d23021e3f4ea1befd7a8d42a73bfae78bd914",
+      "bytes": 4816,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "docs/learning/abaddon-generation2-pair03-candidate-authorization-request-v1.md",
+      "git_blob_sha1": "2cd67bba19b8602edd86b71a80e18a6045f83c2c",
+      "bytes": 2749,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "docs/learning/abaddon-generation2-pair03-candidate-git-backend-v1.md",
+      "git_blob_sha1": "c0e5c3f5583fdf8aa4f58764a4ed9df92091f8aa",
+      "bytes": 5621,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "docs/learning/abaddon-generation2-pair03-candidate-host-preflight-v1.md",
+      "git_blob_sha1": "4660d94425b73b7dc5ca09e83d62a700981e6bd1",
+      "bytes": 6194,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "docs/learning/abaddon-generation2-pair03-candidate-invocation-v1.md",
+      "git_blob_sha1": "39cf293d8db4c44197b1c7c1b6ebec1bbfd20b6f",
+      "bytes": 6908,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "docs/learning/abaddon-scout-full-main-v1.md",
+      "git_blob_sha1": "78c05b1e703dc935d1c67eb56a962abf21d4f0aa",
+      "bytes": 9770,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "docs/learning/abaddon-scout-host-bridge-v1.md",
+      "git_blob_sha1": "62ced981f0050ae53d5225a3ea610f00b5a62d08",
+      "bytes": 7573,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "docs/learning/abaddon-scout-missions-v1.md",
+      "git_blob_sha1": "e9e1a12df5a380199a865b6c1274dd399d98bba8",
+      "bytes": 7548,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "docs/learning/abaddon-scout-protocol-validation-v1.md",
+      "git_blob_sha1": "f2c9e5f2fddca75123dcb24148a713e9c06f2ebf",
+      "bytes": 8333,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "docs/learning/abaddon-scout-runner-binding-v1.md",
+      "git_blob_sha1": "3471693583618c876945c1e672c1b79544504d19",
+      "bytes": 9201,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/abaddon-brain-generation-0.json",
+      "git_blob_sha1": "6ea8aabaf23df7265bc9c122583c0f1680965868",
+      "bytes": 753,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/abaddon-obedience-kernel-v1.json",
+      "git_blob_sha1": "02f6d46c14e76529215d7e1209705e7a5ebced40",
+      "bytes": 1250,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/abaddon-policy-campaign-generation-1-candidate-0-plan.json",
+      "git_blob_sha1": "6413cd3f98429c18ad4256c2c1736eb570ab21fe",
+      "bytes": 26988,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/abaddon-policy-campaign-generation-2-candidate-252-plan.json",
+      "git_blob_sha1": "3c884e8c35e4099ea51cc5ed46521149ade9a7b0",
+      "bytes": 27020,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/abaddon-policy-genome-generation-1-candidate-0.json",
+      "git_blob_sha1": "51b9c5d7636670cd5e826368b7ee2ba5f1cffd5a",
+      "bytes": 2844,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/abaddon-policy-genome-generation-2-candidate-252.json",
+      "git_blob_sha1": "20091bff54edbb567127722fae81e5a5308737d2",
+      "bytes": 2835,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/apollyon-brain-generation-0.json",
+      "git_blob_sha1": "52b46ddd782bb730fa7e9a9896645757ed6c5727",
+      "bytes": 754,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/apollyon-obedience-kernel-v1.json",
+      "git_blob_sha1": "9363cde96b74a3cf0e9a258bdbb4283fedbe37c1",
+      "bytes": 1251,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/apollyon-v14-campaign-translation-binding-v1.json",
+      "git_blob_sha1": "012addee9c938bdb7cead762e3525a677ee53545",
+      "bytes": 2755,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/scout-missions-v1/abaddon_controller_v1.py",
+      "git_blob_sha1": "938afb496bfe704c5ff75adbf938473d9c431062",
+      "bytes": 14387,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/scout-missions-v1/joint_host_v1_2.py",
+      "git_blob_sha1": "6e751b855da1d9425c4fd2bd5a997ae1c742ae11",
+      "bytes": 53894,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/scout-missions-v1/pair03_saved_observations.json",
+      "git_blob_sha1": "9ce3b34a5bffe260941329b0860fd6988ff6ca18",
+      "bytes": 34471,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/scout-missions-v1/rl_bridge.proto",
+      "git_blob_sha1": "a20e85cf7d9f3b4c1523b1916569942d7b74e694",
+      "bytes": 10331,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "fixtures/learning/scout-missions-v1/warm_start_runner_v1_4.py",
+      "git_blob_sha1": "132a5b2df3c3dbc82df7c0ebc6d457e5b77ffb51",
+      "bytes": 48408,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/__init__.py",
+      "git_blob_sha1": "eecd38ba708b724ee23c5a7e1662e7e0cfc43f99",
+      "bytes": 454,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_abaddon_policy_candidate_reviewed_identity.py",
+      "git_blob_sha1": "d5bf152223d78cf4c3bc22b5689b99f4b0980fdd",
+      "bytes": 485,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_abaddon_policy_candidate.py",
+      "git_blob_sha1": "c7f89e3515e9cf63a58fc42a394004b164fc419b",
+      "bytes": 7748,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_analyzer.py",
+      "git_blob_sha1": "4fb44f45f71c9e1b2aff55b0cdd7d0d900e55b73",
+      "bytes": 13938,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_conditional_v2_1_reviewed_identity.py",
+      "git_blob_sha1": "9e279e091dacc7ca6df7b05866c89fde24b44776",
+      "bytes": 920,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_conditional_v2_1.py",
+      "git_blob_sha1": "a1ca9bf29b3e2348a65bc1a8112d265e95d6b93f",
+      "bytes": 9455,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_conditional_v2_2_reviewed_identity.py",
+      "git_blob_sha1": "8c02d066ba7a9f838abc8b22ea1871f20af8d4bc",
+      "bytes": 921,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_conditional_v2_2.py",
+      "git_blob_sha1": "31a5f38515917927c89965545e292d3f95d1689d",
+      "bytes": 12735,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_conditional_v2_reviewed_identity.py",
+      "git_blob_sha1": "9fcb20f36d9380615b6d67d70ec5d1b7e8823f9c",
+      "bytes": 1320,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_conditional_v2.py",
+      "git_blob_sha1": "e1c8fda0b8ad731886f3980ac26fdf5b623b322a",
+      "bytes": 8741,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_contract.py",
+      "git_blob_sha1": "9a7cabeb7578a40745e344c32f27845bf1659097",
+      "bytes": 7865,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/_spar_metrics.py",
+      "git_blob_sha1": "40bd5b9077004520a13ee25845eb27a9ea3251e0",
+      "bytes": 7357,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_abaddon_policy_candidate_pair.py",
+      "git_blob_sha1": "71f9ac99c11d3539a002d3a4104bdb3195ee85b4",
+      "bytes": 11034,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_pair_binding.py",
+      "git_blob_sha1": "9c84ad7d3d3bdbeb035654f208d27a9cffcdce75",
+      "bytes": 6158,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_pair_comparison.py",
+      "git_blob_sha1": "755033cfb02759c37ddfea188d0de67df98e64c7",
+      "bytes": 18329,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_training_utility.py",
+      "git_blob_sha1": "79a6714cca1f204cdaf986a6d06f67c6d37cd0d0",
+      "bytes": 4790,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_v21_pair_binding.py",
+      "git_blob_sha1": "2e70f7efbcf9b07376c2639c0b306760ca6dd983",
+      "bytes": 4039,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_v21_pair_comparison.py",
+      "git_blob_sha1": "8cc99b68e31a7391c5b8d8bfd8efda7787e9b6d6",
+      "bytes": 12676,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_v22_campaign.py",
+      "git_blob_sha1": "bce051964c78e780b8e82146b5652c39dba8ca2a",
+      "bytes": 7263,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_v22_conversion_utility.py",
+      "git_blob_sha1": "be0754ee50788631c5473dedfb5324856f88c0de",
+      "bytes": 7949,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_v22_matrix.py",
+      "git_blob_sha1": "c549b700ed8522e2e540ea2e2e18fd46d91e556e",
+      "bytes": 10253,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_v22_pair_binding.py",
+      "git_blob_sha1": "db3560282291534dfc3857eff159554c7a8ee5d0",
+      "bytes": 3961,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/analysis/spar_v22_pair_comparison.py",
+      "git_blob_sha1": "dfa8e251aa799785ec93af2b085a1d9422b96bf6",
+      "bytes": 16210,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/__init__.py",
+      "git_blob_sha1": "9863718f04eca9c5a39b38c175a05bcdcd6efa57",
+      "bytes": 729,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_command_materializer_generation2.py",
+      "git_blob_sha1": "4836360e0d284454f815a2a2e32078d2565e6dea",
+      "bytes": 21306,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_command_materializer_source_binding_review_generation2.py",
+      "git_blob_sha1": "dee3750ce5d6acce014a45711e515fccac283574",
+      "bytes": 21958,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_contract_generation2.py",
+      "git_blob_sha1": "7489ed34265c14266fba990669a168f2e4e77d89",
+      "bytes": 3716,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_contract.py",
+      "git_blob_sha1": "a32b206dd0a3aa6950873698c9dc3b57a25447b6",
+      "bytes": 8990,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_cross_control_runtime_selector_generation2.py",
+      "git_blob_sha1": "3ddf54f0fe8a37006d1e272bab62d14faa5904c0",
+      "bytes": 17071,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_cross_control_runtime_selector_source_binding_review_generation2.py",
+      "git_blob_sha1": "63b10239738980873bb26fc4f238b5c3e982a33e",
+      "bytes": 16745,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_execution_adapter_generation2.py",
+      "git_blob_sha1": "994d44d751c530619649322c72a65edf15f6a8c3",
+      "bytes": 15938,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_isolated_workdir_allocator_generation2.py",
+      "git_blob_sha1": "0890fb1e037ab21aa8312ab863e34cfc704e9ea2",
+      "bytes": 14643,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_isolated_workdir_allocator_source_binding_review_generation2.py",
+      "git_blob_sha1": "a1fb192ce13030f814da74d12bc930968e77d765",
+      "bytes": 18390,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_plan_generation2.py",
+      "git_blob_sha1": "86c6feb3072f9d540dbd4f7ee6462addcbac54aa",
+      "bytes": 12180,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_plan.py",
+      "git_blob_sha1": "c007d391353be170b6d22ffd693683e6fe906bac",
+      "bytes": 11932,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_activation_contract_generation2.py",
+      "git_blob_sha1": "a3acb42280c334daa24a3b830105a04666fd603b",
+      "bytes": 20159,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_activation_evidence_generation2.py",
+      "git_blob_sha1": "aac7964d9e80633535003b9f27066cac1bb4bac2",
+      "bytes": 20006,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_collector_contract_generation2.py",
+      "git_blob_sha1": "8014431ad5329137e5ce12334d19d37c877a0b52",
+      "bytes": 14076,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_collector_implementation_generation2.py",
+      "git_blob_sha1": "0003c24390194a4f621f13c6077e0604b9abcd98",
+      "bytes": 14510,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_common_evidence_enrichment_generation2.py",
+      "git_blob_sha1": "7b5776716dfc95fcbf643dac043ecc3b246128b3",
+      "bytes": 10850,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_common_evidence_shape_generation2.py",
+      "git_blob_sha1": "88b3a178533b7878ea43e2b904cdb63a36b6d080",
+      "bytes": 6033,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_evidence_completion_accounting_generation2.py",
+      "git_blob_sha1": "6a998f3f14c4844450d3b303977c9c4b6d24119f",
+      "bytes": 10885,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_evidence_integration_generation2.py",
+      "git_blob_sha1": "28f737514d38c5ef09e9ad9905a2489c0510c70c",
+      "bytes": 13064,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_evidence_shape_progress_generation2.py",
+      "git_blob_sha1": "412edc42c1735d8c26aa6d97a4e7cc607c28d8f2",
+      "bytes": 14612,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_observation_mechanics_generation2.py",
+      "git_blob_sha1": "5fc94c056d1ad7de41b5d7156bce9b3f500f29ba",
+      "bytes": 13257,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_observation_primitive_review_generation2.py",
+      "git_blob_sha1": "97e7b11ec4cb4214e7b9764121ec8059371dab51",
+      "bytes": 14675,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_observer_evidence_composition_generation2.py",
+      "git_blob_sha1": "d069a0a1486b9531d084044d4de19e80893f7dfe",
+      "bytes": 17864,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_observers_generation2.py",
+      "git_blob_sha1": "cc4774e6aa934764c189cebd4040cd8ea4870517",
+      "bytes": 18020,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_path_inputs_generation2.py",
+      "git_blob_sha1": "f65735c7820da9da0205388f1933b6aa9d6dd737",
+      "bytes": 10886,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_primitive_provider_contract_generation2.py",
+      "git_blob_sha1": "807335ae5ee2892917d02acfa6434fd65151960f",
+      "bytes": 19434,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_primitive_provider_source_only_generation2.py",
+      "git_blob_sha1": "f3b48e624172aeed81e28a6e24508533b7b13661",
+      "bytes": 12724,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_activation_binding_review_generation2.py",
+      "git_blob_sha1": "9449b871cb745b67a7aa29f0d73de378f119a488",
+      "bytes": 14200,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_activation_evidence_collector_binding_generation2.py",
+      "git_blob_sha1": "ddda2bac0570f99295b2c15b2000baed8478aa4c",
+      "bytes": 11271,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_bounded_executor_generation2.py",
+      "git_blob_sha1": "c7e20c1157e0bcf7f65036631aad47fb82c7aefd",
+      "bytes": 31874,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_bounded_executor_source_binding_review_generation2.py",
+      "git_blob_sha1": "9111f921db54bf58dc8046328f7d05cf319d6ebb",
+      "bytes": 14144,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_canonical_live_collection_adapter_binding_generation2.py",
+      "git_blob_sha1": "4945f98a5dc12cff282c767013f81cac091e32e8",
+      "bytes": 27105,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_canonical_live_collection_adapter_generation2.py",
+      "git_blob_sha1": "29c4bfa11a841359b6c4f4083659c78c474d94ba",
+      "bytes": 23079,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_canonical_live_collection_entrypoint_binding_generation2.py",
+      "git_blob_sha1": "3950bbdd68f2fdc089f596f8159d480699af9982",
+      "bytes": 16641,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_canonical_live_collection_entrypoint_generation2.py",
+      "git_blob_sha1": "48e579c5d8ef0c05db93d637777d4882493cbf9d",
+      "bytes": 13636,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_canonical_live_collection_invocation_acceptance_generation2.py",
+      "git_blob_sha1": "1ced66b86edbda59b33bdc25a185842d7bd71418",
+      "bytes": 9693,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_collector_implementation_binding_generation2.py",
+      "git_blob_sha1": "bcc12598161a9516cb002d6e1c4eead7e914a425",
+      "bytes": 12726,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_collector_reconciliation_generation2.py",
+      "git_blob_sha1": "6c7dee5f94d32623cd7158868690fe0ac1d0c0c0",
+      "bytes": 9937,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_current_main_preload_live_readiness_evidence_acceptance_generation2.py",
+      "git_blob_sha1": "5986293833ebf710aee8cbdae0a18edadf21e4b6",
+      "bytes": 15533,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_execution_authorization_acceptance_generation2.py",
+      "git_blob_sha1": "2501d48ae889b9ed17cdf42acef033023f7d3886",
+      "bytes": 13381,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_failed_retry_preservation_guard_repair_source_binding_review_generation2.py",
+      "git_blob_sha1": "5fc6e0cb5551a5a1586c676d8e42ef3e3fa8e570",
+      "bytes": 4442,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_first_baseline_invocation_generation2.py",
+      "git_blob_sha1": "5b790efaf4085deb15eaef538635fd11f5cad9a5",
+      "bytes": 24236,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_first_baseline_invocation_source_binding_review_generation2.py",
+      "git_blob_sha1": "405bf2d4c2aee578867f589a1db7af39cbc17673",
+      "bytes": 8089,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_first_baseline_worktree_readiness_repair_source_binding_review_generation2.py",
+      "git_blob_sha1": "01c101bc91cf8a493ece88b6239156e398ad0093",
+      "bytes": 6839,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_frozen_worktree_materializer_generation2.py",
+      "git_blob_sha1": "8c6fb13480e03f094f63fdb753ec19a0ce223c80",
+      "bytes": 34852,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_frozen_worktree_materializer_source_binding_review_generation2.py",
+      "git_blob_sha1": "3dcc325c431ec451a737b6e228c365ce1acb4f98",
+      "bytes": 14715,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_host_preflight_evidence_acceptance_generation2.py",
+      "git_blob_sha1": "b1d10e973f719f998f710bc0509e2c6fdfbdc9a0",
+      "bytes": 11569,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_host_preflight_generation2.py",
+      "git_blob_sha1": "0ae27981a08b27083b235ae4807705c88da259a1",
+      "bytes": 19509,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_host_preflight_source_binding_review_generation2.py",
+      "git_blob_sha1": "c32bfe20abeef1bae1a130a8ebdb280cc604bf7a",
+      "bytes": 9167,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_identity_receipt_validator_generation2.py",
+      "git_blob_sha1": "d1586ba032d78296e200d5016560682b82ee599d",
+      "bytes": 8602,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_live_collection_backend_binding_generation2.py",
+      "git_blob_sha1": "1a480133382dc878c79e110b8f6d8f30d0d7229d",
+      "bytes": 22395,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_live_collection_backend_generation2.py",
+      "git_blob_sha1": "ee78726c7538aeb985ef00140d58792ec75fdcf3",
+      "bytes": 19477,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_live_identity_collector_contract_generation2.py",
+      "git_blob_sha1": "db9fbb58f3d5870c77a796641afb1014acc19ee4",
+      "bytes": 16566,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_live_identity_collector_implementation_generation2.py",
+      "git_blob_sha1": "49b1044a45cdb92d7077028b9856ef710f07b275",
+      "bytes": 13234,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_model_preload_repair_source_binding_review_generation2.py",
+      "git_blob_sha1": "64d79c43c64e2be78f4f03eab1bf46651a193964",
+      "bytes": 4834,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_ollama_observer_binding_generation2.py",
+      "git_blob_sha1": "58364a1d5d71aead9df6dc0fc61661a557131508",
+      "bytes": 14865,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_ollama_readonly_observer_generation2.py",
+      "git_blob_sha1": "9b859e91b8833260a1af7e189ec5cd30d92d9451",
+      "bytes": 12081,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_additional_retry_authorization_acceptance_generation2.py",
+      "git_blob_sha1": "231d234462a701a89be6cf8201f7fce738e929c5",
+      "bytes": 4454,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_additional_retry_authorization_source_binding_review_generation2.py",
+      "git_blob_sha1": "29334c3c91d77262de6e95b982ff2db15c6cae51",
+      "bytes": 5197,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_additional_retry_invocation_generation2.py",
+      "git_blob_sha1": "a00a5b0a206203298386121b79f30234465a4c16",
+      "bytes": 18842,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_additional_retry_invocation_source_binding_review_generation2.py",
+      "git_blob_sha1": "92d611ed4e46b7e25f50a2d900bc50fc807020b7",
+      "bytes": 6332,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_failed_attempt_forensics_acceptance_generation2.py",
+      "git_blob_sha1": "4a9f333927748410b8125fc79b9c602067566eb4",
+      "bytes": 8119,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_failed_attempt_preservation_generation2.py",
+      "git_blob_sha1": "a00bea0b49121664988a80e85db10ea4496b0779",
+      "bytes": 10988,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_failed_attempt_preservation_source_binding_review_generation2.py",
+      "git_blob_sha1": "c302ca722b34ba9722664bf71f4dde7cb566dea9",
+      "bytes": 6167,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_failed_retry_forensics_acceptance_generation2.py",
+      "git_blob_sha1": "885e2cac0723353e73580bd7eed1e0a0e631b73a",
+      "bytes": 9315,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_failed_retry_preservation_evidence_acceptance_generation2.py",
+      "git_blob_sha1": "6e35f4603cc2870d743193e78e977fedeb586c38",
+      "bytes": 9158,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_failed_retry_preservation_evidence_source_binding_review_generation2.py",
+      "git_blob_sha1": "805698c00c71815ff0935837f1ae1bf50b81c2dd",
+      "bytes": 4278,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_failed_retry_preservation_generation2.py",
+      "git_blob_sha1": "b38480ebcb32fb0397f722dad89193e8ec58cb98",
+      "bytes": 4972,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_failed_retry_preservation_source_binding_review_generation2.py",
+      "git_blob_sha1": "6706e17133f63ada9b1e7170128e11e276600f37",
+      "bytes": 5719,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_preservation_evidence_acceptance_generation2.py",
+      "git_blob_sha1": "08b3468f5191a796659981fd7926c79639b51cf4",
+      "bytes": 9199,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_result_review_generation2.py",
+      "git_blob_sha1": "877c9dd0969b1b2220f5d886da7521aa756a9742",
+      "bytes": 5972,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_retry_authorization_acceptance_generation2.py",
+      "git_blob_sha1": "083d41c66838e6795b4536253cd9546d3224e97c",
+      "bytes": 3286,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_retry_authorization_source_binding_review_generation2.py",
+      "git_blob_sha1": "03b2b5572d995a7fbd9423f2b0c484cb759266d8",
+      "bytes": 3864,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_retry_invocation_generation2.py",
+      "git_blob_sha1": "f75bcc19120db9044dbdafe629ab2c625b6a19a9",
+      "bytes": 15835,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_retry_invocation_source_binding_review_generation2.py",
+      "git_blob_sha1": "a25eaee317d261abd388b57607ef6bda7da068b6",
+      "bytes": 4903,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_retry_preload_rebind_source_binding_review_generation2.py",
+      "git_blob_sha1": "d3d937a7fa2492b3b6529448156e9ce41e0f438b",
+      "bytes": 5320,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_retry2_execution_evidence_acceptance_generation2.py",
+      "git_blob_sha1": "037730c77bc67cbd722becc30fc898b50cba842b",
+      "bytes": 11742,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_baseline_retry2_execution_evidence_source_binding_review_generation2.py",
+      "git_blob_sha1": "680ca2f26b5214aef13423cfb62ae7b0874a2080",
+      "bytes": 6608,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_candidate_attempt_guard_generation2.py",
+      "git_blob_sha1": "b47a2befd6d7181aa5a00805ae20e66293625d45",
+      "bytes": 8418,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_candidate_authorization_request_generation2.py",
+      "git_blob_sha1": "07516a24553b2516b859bebca21818c0bd0bf01e",
+      "bytes": 7922,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_candidate_execution_preparation_review_generation2.py",
+      "git_blob_sha1": "ac9d21c6c18b8247b06460ea35240f7fbc810625",
+      "bytes": 12690,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_candidate_git_backend_generation2.py",
+      "git_blob_sha1": "fe578c66b14e08c64e9281a808064b8c8d5e739a",
+      "bytes": 9458,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_candidate_host_preflight_generation2.py",
+      "git_blob_sha1": "32c27cacdcd850022bd3de358f82554112c6fd7b",
+      "bytes": 10898,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_pair03_candidate_invocation_generation2.py",
+      "git_blob_sha1": "a790b5b1568b42b1a629a525387366d2bb499128",
+      "bytes": 19722,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_portable_binding_attestation_generation2.py",
+      "git_blob_sha1": "afdc0421958565e713795dfd0d3c4c683041cc37",
+      "bytes": 7875,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_post_admission_reconciliation_generation2.py",
+      "git_blob_sha1": "fea52c8faf483e85f207ed65a384f34222d4c07a",
+      "bytes": 14008,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_provider_composition_generation2.py",
+      "git_blob_sha1": "4efdf74ac7b140af5f29d5539eccde98694f4a3b",
+      "bytes": 8976,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_rootless_docker_image_backend_binding_generation2.py",
+      "git_blob_sha1": "7075ded7a19454239b95a09e7b4630413124a796",
+      "bytes": 11835,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_rootless_docker_image_backend_generation2.py",
+      "git_blob_sha1": "488497f723ad5bc5ca63b3b2d69cece26bddaaa5",
+      "bytes": 17142,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_runtime_image_readonly_observer_generation2.py",
+      "git_blob_sha1": "8bc118684fb085361fa98dd80b6a1ee37edeb523",
+      "bytes": 11525,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_worktree_observer_generation2.py",
+      "git_blob_sha1": "994f3be5d3344d6ac905c1f5fee9f9490fd4dd3f",
+      "bytes": 14638,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_campaign_runtime_v2r13_worktree_provider_adapter_generation2.py",
+      "git_blob_sha1": "7e6f628c64fe02db42bd6adee67d3965e6b1ae92",
+      "bytes": 9577,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_policy_candidate_admission.py",
+      "git_blob_sha1": "6f51f56120cae4ff6860fd4b3f643024049740aa",
+      "bytes": 5873,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_scout_host_bridge_v1.py",
+      "git_blob_sha1": "1fa8ea14c757e46658813dca035037f125e23880",
+      "bytes": 14371,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_scout_missions_v1.py",
+      "git_blob_sha1": "12ca91f68f595919061dd6d5f927fb46428c9a58",
+      "bytes": 16095,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/abaddon_scout_runner_binding_v1.py",
+      "git_blob_sha1": "9e4894b64f0820a53faf8226974d99687066679b",
+      "bytes": 22632,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/apollyon_opponent_runtime_realizations.py",
+      "git_blob_sha1": "0dbae61b0be96445e5fd6c23a07491a03f18b679",
+      "bytes": 25359,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/apollyon_opponent_snapshots.py",
+      "git_blob_sha1": "e21da6a7dfba414f2f2273956a8d1f42b10327cf",
+      "bytes": 9731,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/apollyon_v10_campaign_translation.py",
+      "git_blob_sha1": "7e86e079590994ff5f16c4b0e3c79b7ab505300f",
+      "bytes": 22671,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/apollyon_v14_campaign_translation_binding.py",
+      "git_blob_sha1": "a9d58a3f6f7ca50215a2d2ac52d9840a0b2ae7c8",
+      "bytes": 4314,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/apollyon_v2r13_portable_checkout.py",
+      "git_blob_sha1": "077fbf5a2847d85113eb8fcba3904b02343ebfef",
+      "bytes": 9946,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/apollyon_v8_campaign_runtime.py",
+      "git_blob_sha1": "fd0e72767ba199e88af9e9eb2455c03ace027a14",
+      "bytes": 40381,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/g2_runtime_candidate_frontier.py",
+      "git_blob_sha1": "99c5ff039e8bcd7af545d1a4e6a602bc5d229bfe",
+      "bytes": 8585,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/g2_runtime_capability_projection.py",
+      "git_blob_sha1": "662e69f6ceedc129cadfdd9231958ecb826b68b0",
+      "bytes": 5550,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/g2_runtime_compiled_comparator_gate.py",
+      "git_blob_sha1": "580923d4f8909b66c5fb1aa8e273e423b7ea988f",
+      "bytes": 13633,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/g2_runtime_tool_classification.py",
+      "git_blob_sha1": "8b12c817a5d4d43ae3afbfd59391d0fc24b8fc9d",
+      "bytes": 4381,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/general_brain_direct_policy.py",
+      "git_blob_sha1": "d7c0af773a0a36657e5f8225e46cb60d38b452dc",
+      "bytes": 4844,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/general_brain_generation.py",
+      "git_blob_sha1": "c6bdc8829f9abe9f5ec6db16ad92e87ff3004248",
+      "bytes": 9604,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/general_brain_policy_adapter.py",
+      "git_blob_sha1": "682d561e57a721a456325c568db6550ebbf19370",
+      "bytes": 20062,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/general_obedience.py",
+      "git_blob_sha1": "e4d9afcd55cebbfa15aafd52c56776d73c96195b",
+      "bytes": 12517,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    },
+    {
+      "path": "openra_env/learning/goal_effect_core_v1.py",
+      "git_blob_sha1": "0bd626f6733a77a4861d71e5dea093d0a899c878",
+      "bytes": 9782,
+      "same_path_in_openra_rl_main": false,
+      "same_path_in_openra_rl_website_main": false
+    }
+  ]
+}

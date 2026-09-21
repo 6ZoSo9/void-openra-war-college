@@ -1,0 +1,90 @@
+name: license-provenance-source-contract
+
+"on":
+  pull_request:
+    paths:
+      - LICENSE
+      - AUTHORS.md
+      - CITATION.cff
+      - CONTRIBUTING.md
+      - NOTICE
+      - README.md
+      - THIRD_PARTY_NOTICES.md
+      - VOID_NETWORK_GPL_ATTRIBUTION_TERMS.md
+      - VOID_PROVENANCE.md
+      - docs/legal/**
+      - tests/test_license_notice_contract.py
+      - .github/workflows/license-provenance-source-contract.yml
+  push:
+    branches:
+      - main
+    paths:
+      - LICENSE
+      - AUTHORS.md
+      - CITATION.cff
+      - CONTRIBUTING.md
+      - NOTICE
+      - README.md
+      - THIRD_PARTY_NOTICES.md
+      - VOID_NETWORK_GPL_ATTRIBUTION_TERMS.md
+      - VOID_PROVENANCE.md
+      - docs/legal/**
+      - tests/test_license_notice_contract.py
+      - .github/workflows/license-provenance-source-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Python ${{ matrix.python-version }} license provenance contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 0
+
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Bind pull-request integration generation
+        if: github.event_name == 'pull_request'
+        env:
+          EXPECTED_INTEGRATION_SHA: ${{ github.sha }}
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_INTEGRATION_SHA"
+          read -r actual_base actual_head extra <<<"$(git show -s --format='%P' HEAD)"
+          test "$actual_base" = "$EXPECTED_BASE_SHA"
+          test "$actual_head" = "$EXPECTED_HEAD_SHA"
+          test -z "${extra:-}"
+          git diff --check "$actual_base" "$actual_head"
+
+      - name: Install focused dependencies
+        run: python -m pip install --disable-pip-version-check pytest ruff
+
+      - name: Run license/provenance contract
+        run: python -m pytest -q tests/test_license_notice_contract.py
+
+      - name: Lint contract test
+        run: python -m ruff check tests/test_license_notice_contract.py
+
+      - name: Prove documentation-only boundary
+        run: |
+          printf '%s\n' \
+            'runtime_execution=false' \
+            'game_execution=false' \
+            'model_execution=false' \
+            'training=false' \
+            'deployment=false' \
+            'wallet_or_funds_action=false'
