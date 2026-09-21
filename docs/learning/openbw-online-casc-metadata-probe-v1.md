@@ -17,15 +17,32 @@ CascLib is pinned to:
 - commit: `2a280f5a231966dc5d1b534978dd9f9f04a374cd`
 - license: MIT
 - LICENSE blob: `3b17df3d9bc1d17b55b61024baec95bfb1f264ea`
+- `src/CascLib.h` blob: `39e9d3bdf360940e165f7793c95acac5fe00a8ca`
+- `src/CascOpenStorage.cpp` blob: `80458a45ee6bc193472002c5e7196fdabd684ea6`
 
-CascLib documents online storage parameters as:
+## Parameter-parser correction
 
-`<local_cache_path>:<product_code>:<region>`
+The pinned CascLib source contains stale public comments that show colon-delimited
+examples for online storage. The actual parser does **not** use colons. Its
+compile-time `CASC_PARAM_SEPARATOR` is `*`, and `ParseOpenParams` explicitly
+parses:
 
-The StarCraft product is `s1`, and this probe uses region `us` plus enUS
-locale, yielding:
+`local_cache_path[*cdn_url]*code_name*region`
 
-`<private-cache>:s1:us`
+The first Precision probe used the stale commented colon form, so
+`<cache>:s1:us` was treated as one literal local path and failed immediately
+with `ERROR_FILE_NOT_FOUND` before any CDN request.
+
+V1 now avoids the string parser entirely. It calls `CascOpenStorageEx` with a
+structured `CASC_OPEN_STORAGE_ARGS`:
+
+- `szLocalPath = <private-cache>`
+- `szCodeName = "s1"`
+- `szRegion = "us"`
+- `dwLocaleMask = CASC_LOCALE_ENUS`
+- `bOnlineStorage = true`
+
+This removes delimiter ambiguity from the gate.
 
 Current Lutris service metadata likewise maps Battle.net `s1` to StarCraft /
 StarCraft Remastered.
@@ -34,7 +51,7 @@ StarCraft Remastered.
 
 The executable:
 
-1. opens Blizzard's online `s1:us` CASC storage;
+1. opens Blizzard's online StarCraft CASC storage through structured args;
 2. records product/build/features/total-file-count metadata;
 3. enumerates the root namespace with a hard cap of 1,000,000 entries;
 4. normalizes case and slash direction;
