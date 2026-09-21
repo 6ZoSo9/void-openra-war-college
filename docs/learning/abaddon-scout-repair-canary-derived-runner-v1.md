@@ -35,9 +35,19 @@ Derived source:
 
 Derived Git blob at this review head:
 
-`166fccd460387b1228702f0032639e99fe4d7f18`
+`40030e2ee61d17fd94abd1df733d3ea22650512b`
 
 The focused proof computes both Git blob identities from bytes.
+
+The derived runner also isolates future operational artifacts from the historical
+training lane:
+
+- run root: `$HOME/dev/void-apollyon-dojo/war-college/scout-repair-canary-v1`;
+- engine-container prefix: `void-scout-repair-canary-`.
+
+These identities give the later post-run backend an exact canary-only stale
+container namespace and prevent canary outputs from landing in the historical
+`joint-duels` directory.
 
 ## Preserved mechanics
 
