@@ -4,7 +4,6 @@
   "host": "zoso-Precision-Tower-7810",
   "merged_main_commit": "6ffee13a6b8b26ed70cbb55aed3df5e9d7d20c73",
   "source_builder_blob": "7f815991a4537c03a18d1f740b44d4999addd706",
-  "receipt_content_sha256": "3b3ee33c7b3c26868b65fd459ccff054fece968b48776cd8010e7ab34f60646d",
   "upstream": {
     "openbw": "4b046d5f65302b10cb0a745f0fecd37ec85b20a8",
     "bwapi": "48124ba8ed1b4d52b3dfd52acbaf34afb9a37fe2",
@@ -74,5 +73,6 @@
     "policy_promotion": false,
     "deployment": false,
     "wallet_or_funds_action": false
-  }
+  },
+  "evidence_payload_sha256": "3b3ee33c7b3c26868b65fd459ccff054fece968b48776cd8010e7ab34f60646d"
 }
