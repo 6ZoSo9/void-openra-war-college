@@ -81,6 +81,13 @@ def test_data_loader_adds_cstdlib_for_getenv():
     assert 'std::getenv("VOID_OPENBW_CASC_ALLOW_DOWNLOAD")' in result
 
 
+def test_generated_loader_uses_real_tabs_not_literal_backslash_t():
+    result = patch.patch_openbw_data_loading(_data_loading_fixture())
+    assert "\\t" not in patch.DATA_LOADING_LOADER_NEW
+    assert "\\t" not in result
+    assert "\tvoid_openbw_casc_storage storage = nullptr;" in result
+
+
 def test_ui_parser_uses_canonical_u32_records():
     result = patch.patch_openbw_ui(_ui_fixture())
     assert "std::array<uint32_t, 16> images" in result
