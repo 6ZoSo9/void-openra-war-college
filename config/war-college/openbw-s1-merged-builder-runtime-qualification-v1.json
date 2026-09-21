@@ -1,0 +1,78 @@
+{
+  "schema": "void.war-college.openbw-s1-merged-builder-runtime-qualification.v1",
+  "qualification_date": "2026-09-21",
+  "host": "zoso-Precision-Tower-7810",
+  "merged_main_commit": "6ffee13a6b8b26ed70cbb55aed3df5e9d7d20c73",
+  "source_builder_blob": "7f815991a4537c03a18d1f740b44d4999addd706",
+  "receipt_content_sha256": "3b3ee33c7b3c26868b65fd459ccff054fece968b48776cd8010e7ab34f60646d",
+  "upstream": {
+    "openbw": "4b046d5f65302b10cb0a745f0fecd37ec85b20a8",
+    "bwapi": "48124ba8ed1b4d52b3dfd52acbaf34afb9a37fe2",
+    "casclib": "2a280f5a231966dc5d1b534978dd9f9f04a374cd"
+  },
+  "single_runtime": {
+    "verifier_sha256": "2f558a50b13fa8db0d36963d65d672be1be0e33d3c257abbd76a5cc375e2ec14",
+    "map": "bwapi/TestAIModule/maps/TestModule/testmap1.scm",
+    "map_git_blob_sha1": "8cbbe751f55a0c622483282e0063710a2dfc7684",
+    "map_size_bytes": 38780,
+    "frames_observed": [
+      120,
+      240,
+      360
+    ],
+    "leave_requested_frame": 480,
+    "end_frame": 481,
+    "runtime_returncode": 0,
+    "cache_growth_bytes": 0,
+    "peak_observed_cache_growth_bytes": 0,
+    "casc_allow_download": false,
+    "complete_map_information": false,
+    "user_input": false,
+    "model_execution": false,
+    "training": false,
+    "terminal": "OPENBW_S1_MERGED_BUILDER_SINGLE_RUNTIME_PRECISION_V1_GREEN"
+  },
+  "dual_runtime": {
+    "verifier_sha256": "65f3dfa73c5addfe5e5acce1ad48ee49a9cba0da65b79cc635b317c68d420d48",
+    "map": "bwapi/TestAIModule/maps/TestModule/MapTest.scx",
+    "map_git_blob_sha1": "ca1ef64453f5c024771c9883eee75a86c1b9b66a",
+    "map_size_bytes": 47310,
+    "lan_mode": "LOCAL_FD",
+    "transport": "preconnected_socketpair",
+    "instance_a_leave_requested_frame": 480,
+    "instance_a_end_frame": 481,
+    "instance_b_named_peer_departure_frame": 483,
+    "instance_b_leave_requested_frame": 483,
+    "instance_b_end_frame": 484,
+    "runtime_returncodes": [
+      0,
+      0
+    ],
+    "cache_growth_bytes": 0,
+    "peak_observed_cache_growth_bytes": 0,
+    "casc_allow_download": false,
+    "two_open_human_lobby_slots_proven": true,
+    "two_instance_local_sync_proven": true,
+    "named_peer_departure_sync_proven": true,
+    "bounded_peer_followup_exit_proven": true,
+    "bounded_dual_game_lifecycle_proven": true,
+    "merged_builder_dual_runtime_proven": true,
+    "production_builder_contains_lobby_promotion": false,
+    "transient_test_only_lobby_slot_promotion": true,
+    "complete_map_information": false,
+    "user_input": false,
+    "model_execution": false,
+    "training": false,
+    "terminal": "OPENBW_S1_MERGED_BUILDER_DUAL_LOCAL_RUNTIME_PRECISION_V2_GREEN"
+  },
+  "boundaries": {
+    "production_builder_modified_by_runtime_qualification": false,
+    "war_college_checkout_mutated": false,
+    "network_payload_download_allowed": false,
+    "battle_net_execution": false,
+    "starcraft_binary_execution": false,
+    "policy_promotion": false,
+    "deployment": false,
+    "wallet_or_funds_action": false
+  }
+}
