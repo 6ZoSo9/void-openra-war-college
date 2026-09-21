@@ -30,13 +30,27 @@ def _dependencies():
     return deepcopy(_dependencies_cached())
 
 
-authorization._raw_validate_dependencies_for_test = _RAW_VALIDATE_DEPENDENCIES
-authorization._validate_dependencies = _dependencies
+def _with_cached_dependencies(fn, *args):
+    original = authorization._validate_dependencies
+    authorization._validate_dependencies = _dependencies
+    try:
+        return fn(*args)
+    finally:
+        authorization._validate_dependencies = original
+
+
+def _accept(value):
+    return _with_cached_dependencies(
+        authorization.accept_v2r13_runtime_execution_authorization,
+        value,
+    )
 
 
 @lru_cache(maxsize=1)
 def _contract_cached():
-    return authorization.v2r13_runtime_execution_authorization_contract()
+    return _with_cached_dependencies(
+        authorization.v2r13_runtime_execution_authorization_contract
+    )
 
 
 def _contract():
@@ -53,12 +67,12 @@ def _expect_hold(message: str, fn) -> None:
 
 
 def test_cached_dependency_snapshot_matches_fresh_validation_and_is_copy_isolated():
-    fresh = authorization._raw_validate_dependencies_for_test()
-    cached = authorization._validate_dependencies()
+    fresh = _RAW_VALIDATE_DEPENDENCIES()
+    cached = _dependencies()
     assert cached == fresh
 
     cached["readiness_acceptance"]["runtime_readiness_admitted"] = False
-    later = authorization._validate_dependencies()
+    later = _dependencies()
     assert later == fresh
     assert later["readiness_acceptance"]["runtime_readiness_admitted"] is True
 
@@ -153,7 +167,7 @@ def test_authorization_is_repository_attestation_not_crypto_proof():
 
 
 def test_embedded_authorization_accepts_exactly():
-    out = authorization.accept_v2r13_runtime_execution_authorization(
+    out = _accept(
         authorization.AUTHORIZATION_ATTESTATION
     )
     assert out["authorization_accepted"] is True
@@ -166,7 +180,7 @@ def test_tampered_scope_is_rejected():
     value["authorization_scope"] = "all_runtime_lanes"
     _expect_hold(
         "authorization drift: authorization_scope",
-        lambda: authorization.accept_v2r13_runtime_execution_authorization(value),
+        lambda: _accept(value),
     )
 
 
@@ -175,7 +189,7 @@ def test_tampered_pair_slots_are_rejected():
     value["authorized_pair_slots"] = (3, 6, 9, 12, 15, 18)
     _expect_hold(
         "authorization drift: authorized_pair_slots",
-        lambda: authorization.accept_v2r13_runtime_execution_authorization(value),
+        lambda: _accept(value),
     )
 
 
@@ -184,7 +198,7 @@ def test_tampered_execution_count_is_rejected():
     value["authorized_execution_arm_count"] = 36
     _expect_hold(
         "authorization drift: authorized_execution_arm_count",
-        lambda: authorization.accept_v2r13_runtime_execution_authorization(value),
+        lambda: _accept(value),
     )
 
 
@@ -193,7 +207,7 @@ def test_training_authority_cannot_be_smuggled_in():
     value["training_authorized"] = True
     _expect_hold(
         "authorization drift: training_authorized",
-        lambda: authorization.accept_v2r13_runtime_execution_authorization(value),
+        lambda: _accept(value),
     )
 
 
@@ -202,7 +216,7 @@ def test_field_set_expansion_is_rejected():
     value["v14_authorized"] = True
     _expect_hold(
         "authorization field-set drift",
-        lambda: authorization.accept_v2r13_runtime_execution_authorization(value),
+        lambda: _accept(value),
     )
 
 
