@@ -24,7 +24,7 @@ CASCLIB = {
 
 PROBE = {
     "source_path": "integrations/openbw/online_casc_metadata_probe.cpp",
-    "source_blob": "4b3a9f90ac85e25c9a391386eb668bad22b058c8",
+    "source_blob": "fe1e3b76e107e7d3df44ed22d2e670080e178ea9",
     "cmake_path": "integrations/openbw/online_casc_metadata_probe.CMakeLists.txt",
     "cmake_blob": "c605e10d3a49e385b57ab491af11eee02ca8a25e",
     "product": "s1",
@@ -66,6 +66,7 @@ def online_casc_metadata_contract() -> dict[str, Any]:
         "behavior": {
             "online_storage_open": True,
             "structured_open_args": True,
+            "internal_metadata_download_flag": True,
             "string_parameter_parser_used": False,
             "enumerate_root_metadata": True,
             "normalize_name_case_and_separators": True,
