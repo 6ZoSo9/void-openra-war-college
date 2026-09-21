@@ -53,6 +53,32 @@ def _git_blob_oid(source: bytes) -> str:
 
 
 class StaticCapabilityGuardTests(unittest.TestCase):
+    def test_current_repository_contract(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        receipt = audit_repository(repository_root)
+
+        self.assertEqual(
+            receipt["schema"],
+            "void.war-college.generation2-static-capability-guard.v1",
+        )
+        self.assertEqual(receipt["target_count"], 1)
+        self.assertEqual(receipt["dependency_count"], 45)
+        self.assertEqual(
+            receipt["targets"][0]["path"],
+            (
+                "openra_env/learning/"
+                "abaddon_policy_campaign_isolated_workdir_allocator_"
+                "source_binding_review_generation2.py"
+            ),
+        )
+        self.assertEqual(
+            receipt["targets"][0]["sha256"],
+            "3985b0fbc74a25e29d44ae09d9c52c051ebb9044058d1bdd93ba6c9d1cca5761",
+        )
+        self.assertIs(receipt["source_only"], True)
+        self.assertIs(receipt["runtime_execution"], False)
+        self.assertIs(receipt["wallet_or_funds_action"], False)
+
     def test_accepts_literal_false_flags_and_held_entrypoints(self):
         source = _source()
         receipt = audit_source(source, _spec(source))
