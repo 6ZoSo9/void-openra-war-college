@@ -17,7 +17,7 @@ from openra_env.learning import abaddon_scout_external_result_evidence_review_v1
 ROOT = Path(__file__).resolve().parents[1]
 HOLD = review.ScoutExternalResultEvidenceReviewHold
 EXPERIMENT = "abaddon-scout-source-bound-v1-attempt-001"
-OBSERVER_BLOB = "e" * 40
+OBSERVER_BLOB = review.POST_RUN_OBSERVER_CONTRACT_GIT_BLOB
 
 
 def _canonical(value) -> bytes:
@@ -54,7 +54,7 @@ def _post_run(marker_sha256, *, observations=None, claims=None, **overrides):
         "record_kind": "independent_post_run_state_declaration",
         "experiment_id": EXPERIMENT,
         "attempt_marker_sha256": marker_sha256,
-        "observer_source_git_blob": OBSERVER_BLOB,
+        "observer_contract_git_blob": OBSERVER_BLOB,
         "observations": {
             field: True for field in review.REQUIRED_POST_RUN_OBSERVATIONS
         },
@@ -101,8 +101,9 @@ def test_exact_in_memory_package_binds_bytes_but_does_not_verify_final_evidence(
     assert receipt["trajectory_digest_verified"] is True
     assert receipt["result_payload_digest_verified"] is True
     assert receipt["post_run_state_structure_verified"] is True
-    assert receipt["post_run_observer_source_git_blob"] == OBSERVER_BLOB
-    assert receipt["post_run_observer_source_verified"] is False
+    assert receipt["post_run_observer_contract_git_blob"] == OBSERVER_BLOB
+    assert receipt["post_run_observer_contract_verified"] is True
+    assert receipt["post_run_observer_implementation_verified"] is False
     assert receipt["result_evidence_verified"] is False
     assert receipt["next_gate"] == review.NEXT_GATE
     assert set(receipt["authority"]) == set(review.FALSE_AUTHORITY_FIELDS)
@@ -176,8 +177,8 @@ def test_post_run_attempt_digest_and_observer_source_identity_are_bound():
             **_package(marker=marker, post_run=wrong_digest)
         )
 
-    invalid_observer = _post_run(marker_sha, observer_source_git_blob="x" * 40)
-    with pytest.raises(HOLD, match="OBSERVER_SOURCE_IDENTITY"):
+    invalid_observer = _post_run(marker_sha, observer_contract_git_blob="0" * 40)
+    with pytest.raises(HOLD, match="OBSERVER_CONTRACT_IDENTITY"):
         review.review_scout_result_evidence(
             **_package(marker=marker, post_run=invalid_observer)
         )
