@@ -14,7 +14,7 @@ def test_contract_pins_source_and_casclib_identity():
     assert c["upstream"]["casclib"]["commit"] == "2a280f5a231966dc5d1b534978dd9f9f04a374cd"
     assert c["upstream"]["casclib"]["license"] == "MIT"
     assert c["upstream"]["casclib"]["string_parameter_separator"] == "*"
-    assert c["probe"]["source_blob"] == "4b3a9f90ac85e25c9a391386eb668bad22b058c8"
+    assert c["probe"]["source_blob"] == "fe1e3b76e107e7d3df44ed22d2e670080e178ea9"
     assert c["probe"]["cmake_blob"] == "c605e10d3a49e385b57ab491af11eee02ca8a25e"
     assert c["probe"]["product"] == "s1"
     assert c["probe"]["region"] == "us"
@@ -32,6 +32,7 @@ def test_probe_uses_structured_online_open_and_is_metadata_only():
     assert 'cache + "*s1*us"' not in source
     assert 'open_args.szCodeName = "s1"' in source
     assert 'open_args.szRegion = "us"' in source
+    assert "open_args.dwFlags = CASC_FEATURE_ALLOW_DOWNLOAD" in source
     assert "CascFindFirstFile" in source
     assert "CascFindNextFile" in source
     assert "CascOpenFile(" not in source
@@ -58,6 +59,7 @@ def test_expected_classic_suffixes_are_bound():
 def test_no_runtime_or_payload_authority():
     c = probe.online_casc_metadata_contract()
     assert c["behavior"]["structured_open_args"] is True
+    assert c["behavior"]["internal_metadata_download_flag"] is True
     assert c["behavior"]["string_parameter_parser_used"] is False
     assert c["behavior"]["open_game_file_payload"] is False
     assert c["behavior"]["read_game_file_payload"] is False
