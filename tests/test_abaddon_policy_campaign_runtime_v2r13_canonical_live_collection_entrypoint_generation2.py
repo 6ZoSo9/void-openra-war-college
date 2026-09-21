@@ -238,7 +238,6 @@ def test_contract_schema_and_snapshot_are_exact():
 
 
 def test_dependency_binding_identity_is_exact():
-    m = _load()
     out = _contract()
     assert out["adapter_binding_git_blob"] == (
         "4945f98a5dc12cff282c767013f81cac091e32e8"
@@ -249,7 +248,6 @@ def test_dependency_binding_identity_is_exact():
 
 
 def test_adapter_identity_is_exact():
-    m = _load()
     out = _contract()
     assert out["adapter_git_blob"] == "29c4bfa11a841359b6c4f4083659c78c474d94ba"
     assert out["adapter_source_sha256"] == (
@@ -258,7 +256,6 @@ def test_adapter_identity_is_exact():
 
 
 def test_entrypoint_implementation_present_but_unbound():
-    m = _load()
     out = _contract()
     assert out["canonical_live_collection_entrypoint_implementation_present"] is True
     assert out["entrypoint_composition_implemented"] is True
@@ -268,7 +265,6 @@ def test_entrypoint_implementation_present_but_unbound():
 
 
 def test_explicit_authority_and_backend_injection_are_required():
-    m = _load()
     out = _contract()
     assert out["entrypoint_collection_requires_explicit_authority"] is True
     assert out["entrypoint_observation_requires_explicit_authority"] is True
@@ -520,7 +516,6 @@ def test_entrypoint_source_binding_remains_false_in_receipt():
 
 
 def test_next_gate_is_entrypoint_source_binding():
-    m = _load()
     out = _contract()
     assert out["next_gate"] == (
         "V2R13_CANONICAL_LIVE_COLLECTION_ENTRYPOINT_SOURCE_BINDING_REQUIRED"
