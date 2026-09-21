@@ -38,7 +38,7 @@ JOINT_ATTESTATION = DOJO / "provenance" / "joint-duel-training-eligibility-v1.js
 JOINT_ATTESTATION_SHA = "1368c737d0f7acae8aabfa539d5e9f51cd87a987bd2d4a03e0cde32d8d0378dd"
 
 CURRICULUM_ID = "symmetric-contact-warm-start-v1"
-RUNS_DIR = DOJO / "war-college" / "joint-duels"
+RUNS_DIR = DOJO / "war-college" / "scout-repair-canary-v1"
 
 PREFERRED_INFANTRY = ("e1", "e3", "e2", "dog")
 INFANTRY_PRODUCTION = ("barr", "tent")
@@ -822,7 +822,7 @@ def run_bound_canary(
     })
 
     import grpc
-    container_name = f"void-warmstart-spar-{os.getpid()}"
+    container_name = f"void-scout-repair-canary-{os.getpid()}"
     port = base.free_port()
     channel = None
     stub = None
