@@ -40,7 +40,14 @@ structured `CASC_OPEN_STORAGE_ARGS`:
 - `szCodeName = "s1"`
 - `szRegion = "us"`
 - `dwLocaleMask = CASC_LOCALE_ENUS`
+- `dwFlags = CASC_FEATURE_ALLOW_DOWNLOAD`
 - `bOnlineStorage = true`
+
+The pinned CascLib implementation requires `CASC_FEATURE_ALLOW_DOWNLOAD` to fetch
+missing internal ENCODING/ROOT manifests when a fresh online cache is opened.
+This does **not** give this probe a game-payload path: the executable deliberately
+contains and links no `CascOpenFile` or `CascReadFile` symbol. The flag is therefore
+bounded to internal metadata/manifests in this gate.
 
 This removes delimiter ambiguity from the gate.
 
