@@ -106,9 +106,9 @@ def test_exact_reviewed_source_inventory_matches_current_branch_bytes():
         {"post_run_state_sha256": ""},
     ],
 )
-def test_invalid_identity_inputs_fail_before_binding(overrides):
+def test_invalid_identity_inputs_fail_before_binding(override):
     with pytest.raises(HOLD):
-        _build(**overrides)
+        _build(**override)
 
 
 def test_payload_mutation_or_declaration_mismatch_fails_closed():
