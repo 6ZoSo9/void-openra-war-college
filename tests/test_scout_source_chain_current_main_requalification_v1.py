@@ -19,7 +19,7 @@ def _receipt() -> dict:
 def test_requalification_lineage_and_base_are_exact():
     row = _receipt()
     assert row["schema"] == "void.war-college.scout-source-chain-current-main-requalification.v1"
-    assert row["base_main_commit"] == "8710799966eb8051c380090bf9d0ae1ee0dc3500"
+    assert row["base_main_commit"] == "3703eaddc7e95f917de72747cc3e6248c78fb295"
     assert row["historical_bound_main_commit"] == "9a151da589f93454d31a475b29297ea8a3d35442"
     assert row["historical_main_binding_preserved"] is True
     assert row["current_main_dependencies_match_historical_binding"] is True
