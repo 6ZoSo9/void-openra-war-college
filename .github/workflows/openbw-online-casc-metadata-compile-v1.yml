@@ -47,6 +47,7 @@ jobs:
           from openra_env.learning.openbw_online_casc_metadata_probe_v1 import online_casc_metadata_contract
           c = online_casc_metadata_contract()
           assert c["behavior"]["structured_open_args"] is True
+          assert c["behavior"]["internal_metadata_download_flag"] is True
           assert c["behavior"]["string_parameter_parser_used"] is False
           assert c["behavior"]["open_game_file_payload"] is False
           assert c["behavior"]["read_game_file_payload"] is False
@@ -87,6 +88,8 @@ jobs:
           probe="$root/probe-build/openbw_online_casc_metadata_probe"
           test -x "$probe"
           nm -D "$probe" | grep -F 'CascOpenStorageEx'
+          grep -F 'open_args.dwFlags = CASC_FEATURE_ALLOW_DOWNLOAD' \
+            integrations/openbw/online_casc_metadata_probe.cpp
           if nm -D "$probe" | grep -Eq 'Casc(Open|Read)File'; then
             echo "forbidden payload symbol linked" >&2
             exit 1
