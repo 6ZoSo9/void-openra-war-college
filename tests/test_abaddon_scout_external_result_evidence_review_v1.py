@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
