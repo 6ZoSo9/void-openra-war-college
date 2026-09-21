@@ -18,16 +18,19 @@ SOURCE = (
 )
 
 
+_RAW_VALIDATE_DEPENDENCIES = authorization._validate_dependencies
+
+
 @lru_cache(maxsize=1)
 def _dependencies_cached():
-    return authorization._validate_dependencies()
+    return _RAW_VALIDATE_DEPENDENCIES()
 
 
 def _dependencies():
     return deepcopy(_dependencies_cached())
 
 
-authorization._raw_validate_dependencies_for_test = authorization._validate_dependencies
+authorization._raw_validate_dependencies_for_test = _RAW_VALIDATE_DEPENDENCIES
 authorization._validate_dependencies = _dependencies
 
 
