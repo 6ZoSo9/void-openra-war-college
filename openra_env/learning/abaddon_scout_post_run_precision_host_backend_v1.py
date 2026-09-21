@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import stat
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
@@ -291,6 +292,7 @@ class ScoutPostRunPrecisionHostBackend:
         expected_attempt_directory_identity: tuple[int, int],
         expected_source_head: str,
         run_command: CommandRunner = host_readonly_command_runner,
+        hostname: Callable[[], str] = socket.gethostname,
     ):
         _require(
             callable(read_authority_check),
@@ -314,11 +316,16 @@ class ScoutPostRunPrecisionHostBackend:
             callable(run_command),
             "SCOUT_POST_RUN_COMMAND_RUNNER_REQUIRED",
         )
+        _require(
+            callable(hostname),
+            "SCOUT_POST_RUN_HOSTNAME_CALLBACK_REQUIRED",
+        )
         self._authority_check = read_authority_check
         self._attempt_directory_fd = attempt_directory_fd
         self._attempt_directory_identity = expected_attempt_directory_identity
         self._expected_source_head = expected_source_head
         self._run_command = run_command
+        self._hostname = hostname
 
     def _authority(self) -> None:
         try:
@@ -330,6 +337,10 @@ class ScoutPostRunPrecisionHostBackend:
         _require(
             allowed is True,
             "SCOUT_POST_RUN_READ_AUTHORITY_REQUIRED",
+        )
+        _require(
+            self._hostname() == EXPECTED_HOST,
+            "SCOUT_POST_RUN_HOSTNAME_DRIFT",
         )
 
     def _attempt_directory(self) -> os.stat_result:
@@ -484,6 +495,7 @@ def observe_post_run_with_precision_backend(
     expected_attempt_directory_identity: tuple[int, int],
     read_authority_check: Callable[[], bool],
     run_command: CommandRunner = host_readonly_command_runner,
+    hostname: Callable[[], str] = socket.gethostname,
 ) -> bytes:
     """Compose the existing observer with this exact backend; never automatic."""
     backend = ScoutPostRunPrecisionHostBackend(
@@ -492,6 +504,7 @@ def observe_post_run_with_precision_backend(
         expected_attempt_directory_identity=expected_attempt_directory_identity,
         expected_source_head=expected_source_head,
         run_command=run_command,
+        hostname=hostname,
     )
     return observer.observe_post_run_state(
         experiment_id=experiment_id,
