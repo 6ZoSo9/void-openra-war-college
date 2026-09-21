@@ -65,6 +65,7 @@ int main(int argc, char** argv) {
   open_args.szCodeName = "s1";
   open_args.szRegion = "us";
   open_args.dwLocaleMask = CASC_LOCALE_ENUS;
+  open_args.dwFlags = CASC_FEATURE_ALLOW_DOWNLOAD;
 
   std::cout << "schema=void.war-college.openbw-online-casc-metadata-probe.v1\n";
   std::cout << "product_requested=s1\n";
