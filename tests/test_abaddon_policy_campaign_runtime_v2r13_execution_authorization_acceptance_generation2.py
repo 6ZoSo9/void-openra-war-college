@@ -19,6 +19,19 @@ SOURCE = (
 
 
 @lru_cache(maxsize=1)
+def _dependencies_cached():
+    return authorization._validate_dependencies()
+
+
+def _dependencies():
+    return deepcopy(_dependencies_cached())
+
+
+authorization._raw_validate_dependencies_for_test = authorization._validate_dependencies
+authorization._validate_dependencies = _dependencies
+
+
+@lru_cache(maxsize=1)
 def _contract_cached():
     return authorization.v2r13_runtime_execution_authorization_contract()
 
@@ -34,6 +47,17 @@ def _expect_hold(message: str, fn) -> None:
         assert message in str(exc)
     else:
         raise AssertionError("expected authorization hold")
+
+
+def test_cached_dependency_snapshot_matches_fresh_validation_and_is_copy_isolated():
+    fresh = authorization._raw_validate_dependencies_for_test()
+    cached = authorization._validate_dependencies()
+    assert cached == fresh
+
+    cached["readiness_acceptance"]["runtime_readiness_admitted"] = False
+    later = authorization._validate_dependencies()
+    assert later == fresh
+    assert later["readiness_acceptance"]["runtime_readiness_admitted"] is True
 
 
 def test_authorization_scope_is_exactly_v2r13_only():
