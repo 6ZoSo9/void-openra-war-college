@@ -62,7 +62,7 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             "void.war-college.generation2-static-capability-guard.v1",
         )
         self.assertEqual(receipt["target_count"], 1)
-        self.assertEqual(receipt["dependency_count"], 45)
+        self.assertEqual(receipt["dependency_count"], 48)
         self.assertEqual(
             receipt["targets"][0]["path"],
             (
@@ -465,9 +465,31 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                     ):
                         audit_repository(root, (spec,))
 
-    def test_rejects_relative_local_dependency_import(self):
+    def test_accepts_bound_same_package_relative_dependency_import(self):
         target_path = "openra_env/learning/fixture_target.py"
+        dependency_path = "openra_env/learning/fixture_dependency.py"
+        dependency_source = b"VALUE = 1\n"
         target_source = b"from . import fixture_dependency\n" + _source()
+        spec = replace(
+            _spec(target_source),
+            path=target_path,
+            dependency_blobs=((dependency_path, _git_blob_oid(dependency_source)),),
+        )
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / target_path
+            dependency = root / dependency_path
+            target.parent.mkdir(parents=True)
+            target.write_bytes(target_source)
+            dependency.write_bytes(dependency_source)
+
+            receipt = audit_repository(root, (spec,))
+            self.assertEqual(receipt["dependency_count"], 1)
+
+    def test_rejects_relative_parent_escape(self):
+        target_path = "openra_env/learning/fixture_target.py"
+        target_source = b"from .. import fixture_dependency\n" + _source()
         spec = replace(_spec(target_source), path=target_path)
 
         with TemporaryDirectory() as temporary:
@@ -476,7 +498,10 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             target.parent.mkdir(parents=True)
             target.write_bytes(target_source)
 
-            with self.assertRaisesRegex(CapabilityGuardError, "relative local import"):
+            with self.assertRaisesRegex(
+                CapabilityGuardError,
+                "relative local import escapes reviewed package",
+            ):
                 audit_repository(root, (spec,))
 
     def test_rejects_ambiguous_local_package_imports(self):
