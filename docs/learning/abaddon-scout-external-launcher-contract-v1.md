@@ -133,6 +133,40 @@ The result layer is split deliberately:
 
 No result declaration is accepted as evidence by either layer.
 
+## Structural evidence review and observer contract
+
+`abaddon_scout_external_result_evidence_review_v1.py` reviews supplied bytes
+entirely in memory. It computes the actual attempt-marker, trajectory,
+result-payload, and post-run-state SHA-256 values and requires the result-binding
+declaration to match those bytes exactly.
+
+It also requires the attempt marker to remain single-use and non-authorizing,
+rejects pair-03 reuse/reset and automatic retry, and requires canonical post-run
+evidence containing literal positive observations for:
+
+- attempt marker still present;
+- runtime service inactive;
+- engine container absent;
+- model process absent; and
+- source checkout clean.
+
+Callback return and historical cleanup output must remain explicitly false as
+shutdown-proof claims.
+
+The post-run evidence is now bound to the exact pure observer contract at Git
+blob `fd71ac745c10349047d49f753ecfce1aab712648`. The observer contract itself
+contains no host access and hard-HOLDs any attempt to observe host state.
+
+The evidence reviewer and observer contract are jointly pinned by
+`abaddon_scout_result_evidence_review_source_binding_v1.py`. Consequently the
+remaining gate is narrowly
+`SCOUT_POST_RUN_OBSERVER_IMPLEMENTATION_REVIEW_REQUIRED`.
+
+Structural byte/digest verification does not yet equal final evidence
+acceptance: until the observer implementation is separately reviewed,
+`post_run_observer_implementation_verified` and
+`result_evidence_verified` remain false.
+
 ## Result boundary
 
 `scout_result_requirements()` only describes the evidence a future result
