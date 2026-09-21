@@ -42,6 +42,7 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 22. rejects interpreter packaging and compilation surfaces through `compileall`, `ensurepip`, `py_compile`, `venv`, and `zipapp` before reviewed source can write bytecode or archives, bootstrap package tooling, or create execution environments.
 23. rejects implicit host-file opening through `bz2`, `configparser`, `fileinput`, `gzip`, `logging`, `lzma`, `mailbox`, and `wave` before reviewed source can read, create, replace, or append host files without importing `open`, `io`, `os`, or `pathlib` directly.
 24. defaults all import roots to denied unless they are explicitly reviewed safe roots or the exact local `openra_env` dependency namespace; local dependencies remain transitively Git-blob pinned.
+25. confines admitted `openra_env` imports to the reviewed `openra_env.learning` namespace so sibling-package imports cannot bypass the transitive Git-blob dependency census.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 
