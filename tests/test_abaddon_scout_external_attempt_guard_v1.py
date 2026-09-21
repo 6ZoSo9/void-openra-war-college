@@ -155,8 +155,9 @@ def test_every_existing_marker_holds_without_replacing_it(namespace, tmp_path, k
     else:
         marker.write_bytes(b"" if kind == "empty" else b"not-json")
 
+    mode = marker.lstat().st_mode
+    bytes_before = marker.read_bytes() if stat.S_ISREG(mode) else None
     before = marker.lstat()
-    bytes_before = marker.read_bytes() if stat.S_ISREG(before.st_mode) else None
 
     with pytest.raises(HOLD, match="ALREADY_EXISTS") as caught:
         consume(namespace)
