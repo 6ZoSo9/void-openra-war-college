@@ -1,7 +1,7 @@
 {
   "schema": "void.war-college.scout-source-chain-current-main-requalification.v1",
   "requalification_date": "2026-09-21",
-  "base_main_commit": "8710799966eb8051c380090bf9d0ae1ee0dc3500",
+  "base_main_commit": "3703eaddc7e95f917de72747cc3e6248c78fb295",
   "historical_bound_main_commit": "9a151da589f93454d31a475b29297ea8a3d35442",
   "historical_main_binding_preserved": true,
   "current_main_dependencies_match_historical_binding": true,
