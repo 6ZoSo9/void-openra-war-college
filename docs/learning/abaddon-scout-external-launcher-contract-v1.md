@@ -1,0 +1,105 @@
+# Abaddon scout external launcher contract v1
+
+## Purpose
+
+This source-only contract records the exact inputs and remaining gates for a
+future Abaddon scout experiment after the scout lifecycle source merged through
+PR #181.
+
+It is not a launcher, runtime permit, attempt guard, result verifier, or game
+executor. It intentionally has no filesystem, process, network, model, engine,
+Precision, wallet, chain, or funds capability.
+
+## Current source binding
+
+The proposal is bound to War College `main`
+`9a151da589f93454d31a475b29297ea8a3d35442` and pins these Git blobs:
+
+- scout runner binding: `9e4894b64f0820a53faf8226974d99687066679b`
+- scout host bridge: `1fa8ea14c757e46658813dca035037f125e23880`
+- scout missions: `12ca91f68f595919061dd6d5f927fb46428c9a58`
+- goal/effect core: `0bd626f6733a77a4861d71e5dea093d0a899c878`
+- frozen warm-start runner fixture: `132a5b2df3c3dbc82df7c0ebc6d457e5b77ffb51`
+- frozen joint-host fixture: `6e751b855da1d9425c4fd2bd5a997ae1c742ae11`
+- frozen Abaddon-controller fixture: `938afb496bfe704c5ff75adbf938473d9c431062`
+- protocol fixture: `a20e85cf7d9f3b4c1523b1916569942d7b74e694`
+
+The historical fixtures additionally retain their already reviewed SHA-256
+identities for the warm-start runner, joint host, and controller.
+
+## Fixed proposal
+
+The canonical request SHA-256 is
+`67582949d9cbb6815c59ba9c78e6ac40fc303080320b5d707ad2b9e64e9baf55`.
+
+Matching those bytes does **not** grant execution authority.
+
+The proposal fixes:
+
+- one future scout experiment attempt;
+- zero automatic retries;
+- no reuse of the consumed pair-03 attempt;
+- no reset of the consumed pair-03 attempt;
+- no automatic training admission;
+- no automatic policy promotion;
+- no deployment, VOID mutation, wallet, or funds authority.
+
+All authority fields remain false in this module.
+
+## Required next gates
+
+A future implementation still must independently establish:
+
+1. exact launcher source review;
+2. exact admitted source inventory;
+3. a fresh experiment identity;
+4. a fresh durable single-use attempt guard;
+5. explicit non-reuse of the consumed pair-03 slot;
+6. current operation authority immediately before effects;
+7. fresh runtime readiness;
+8. independent post-run runtime/service/container/source observations; and
+9. result and trajectory binding to the admitted source inventory.
+
+The existing scout binding cannot satisfy these gates merely by being
+constructed or by returning successfully. Its own snapshots correctly record
+that source identity is not verified by the binding.
+
+## Result boundary
+
+`scout_result_requirements()` only describes the evidence a future result
+binder must require. This module accepts no caller-supplied result as verified.
+
+In particular:
+
+- callback return is not shutdown proof;
+- historical cleanup output is not shutdown proof;
+- a trajectory must have an exact digest;
+- the result record must have an exact digest;
+- the result must identify the fresh attempt;
+- post-run state must be independently observed; and
+- result evidence cannot create training or promotion authority.
+
+## Tests
+
+The dedicated tests are source-only. They verify:
+
+- canonical proposal bytes and pinned digest;
+- all authority fields remain false;
+- pair-03 reuse/reset remain false;
+- every current source Git blob matches the checkout;
+- historical fixture SHA-256 values match the checkout;
+- mutated requests fail closed;
+- public snapshots cannot mutate future contract values;
+- execution and result-acceptance entrypoints always HOLD; and
+- the module imports only `hashlib`, `json`, `typing`, and
+  `__future__`, with no runtime/filesystem/network/local execution imports.
+
+## Non-goals
+
+This work does not execute a model or game, consume an attempt, create a runtime
+permit, touch OpenBW, operate on Precision, change a scheduler, admit training
+data, promote a policy, deploy anything, or move funds.
+
+The next implementation step after source review is a separately reviewed,
+durable fresh-attempt guard and external invocation boundary. Actual experiment
+execution remains a separate explicit decision.
