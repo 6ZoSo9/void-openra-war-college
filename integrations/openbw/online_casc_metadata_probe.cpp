@@ -53,26 +53,33 @@ int main(int argc, char** argv) {
   }
 
   const std::string cache = argv[1];
-  if (cache.empty() || cache.find(':') != std::string::npos) {
+  if (cache.empty()) {
     std::cerr << "HOLD=cache_path_invalid\n";
     return 65;
   }
 
-  const std::string params = cache + ":s1:us";
   HANDLE storage = nullptr;
+  CASC_OPEN_STORAGE_ARGS open_args{};
+  open_args.Size = sizeof(open_args);
+  open_args.szLocalPath = cache.c_str();
+  open_args.szCodeName = "s1";
+  open_args.szRegion = "us";
+  open_args.dwLocaleMask = CASC_LOCALE_ENUS;
 
   std::cout << "schema=void.war-college.openbw-online-casc-metadata-probe.v1\n";
   std::cout << "product_requested=s1\n";
   std::cout << "region_requested=us\n";
   std::cout << "locale_requested=enUS\n";
+  std::cout << "open_transport=CASC_OPEN_STORAGE_ARGS\n";
+  std::cout << "string_parameter_parser_used=false\n";
   std::cout << "file_payload_open=false\n";
   std::cout << "game_execution=false\n";
   std::cout << "battle_net_execution=false\n";
   std::cout << "openbw_execution=false\n";
 
-  if (!CascOpenOnlineStorage(params.c_str(), CASC_LOCALE_ENUS, &storage) ||
+  if (!CascOpenStorageEx(nullptr, &open_args, true, &storage) ||
       storage == nullptr) {
-    std::cerr << "HOLD=CascOpenOnlineStorage_failed\n";
+    std::cerr << "HOLD=CascOpenStorageEx_online_failed\n";
     std::cerr << "casc_error=" << GetCascError() << "\n";
     return 66;
   }
