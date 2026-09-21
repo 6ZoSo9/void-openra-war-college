@@ -235,7 +235,7 @@ data_files_loader_T data_files_directory(a_string path) {
 }
 '''
 
-DATA_LOADING_LOADER_NEW = r'''struct casc_file_loader {
+DATA_LOADING_LOADER_NEW = '''struct casc_file_loader {
 \tvoid_openbw_casc_storage storage = nullptr;
 \ta_string root;
 
