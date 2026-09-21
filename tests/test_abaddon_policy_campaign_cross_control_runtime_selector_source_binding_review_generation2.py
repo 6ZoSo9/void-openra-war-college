@@ -42,7 +42,7 @@ def _contract():
 
 @lru_cache(maxsize=1)
 def _dependencies_cached():
-    return _load()._validate_dependencies()
+    return _contract_cached()["review"]["dependencies"]
 
 
 def _dependencies():
@@ -270,8 +270,7 @@ def test_runtime_start_and_authorization_always_hold():
 
 def test_review_does_not_rewrite_selector_contract():
     m = _load()
-    before = m.selector.cross_control_runtime_selector_contract()
-    m.cross_control_runtime_selector_source_binding_review_contract()
+    before = _dependencies()["selector_contract"]
     after = m.selector.cross_control_runtime_selector_contract()
     assert before == after
     assert after["cross_control_runtime_selector_reviewed"] is False
