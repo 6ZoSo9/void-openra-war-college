@@ -6,6 +6,7 @@ import importlib.util
 import json
 import sys
 from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
@@ -22,6 +23,7 @@ SOURCE = (
 EXPECTED_SOURCE_SHA256 = "e1cf2acb9fec1fec1d4282312fd26443979f72bda93a3244d1caa5556136d6fa"
 
 
+@lru_cache(maxsize=1)
 def _load():
     raw = SOURCE.read_bytes()
     assert hashlib.sha256(raw).hexdigest() == EXPECTED_SOURCE_SHA256
@@ -37,6 +39,15 @@ def _load():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@lru_cache(maxsize=1)
+def _contract_cached():
+    return _load().v2r13_canonical_live_collection_entrypoint_contract()
+
+
+def _contract():
+    return deepcopy(_contract_cached())
 
 
 def _expect_hold(exc_type, pattern, fn):
@@ -179,7 +190,7 @@ def _portable_receipt(m):
     }
 
 
-def _collect(m):
+def _collect_uncached(m):
     http_calls = []
     docker_calls = []
     out = m.collect_v2r13_canonical_live_collection(
@@ -191,6 +202,16 @@ def _collect(m):
         portable_binding_attestation=_portable_receipt(m),
     )
     return out, http_calls, docker_calls
+
+
+@lru_cache(maxsize=1)
+def _collect_cached():
+    return _collect_uncached(_load())
+
+
+def _collect(m):
+    assert m is _load()
+    return deepcopy(_collect_cached())
 
 
 def _dotted(node):
@@ -208,7 +229,7 @@ def test_source_sha_is_exact():
 
 def test_contract_schema_and_snapshot_are_exact():
     m = _load()
-    out = m.v2r13_canonical_live_collection_entrypoint_contract()
+    out = _contract()
     assert out["schema"] == (
         "void.abaddon.generation2."
         "v2r13-canonical-live-collection-entrypoint-contract.v1"
@@ -218,7 +239,7 @@ def test_contract_schema_and_snapshot_are_exact():
 
 def test_dependency_binding_identity_is_exact():
     m = _load()
-    out = m.v2r13_canonical_live_collection_entrypoint_contract()
+    out = _contract()
     assert out["adapter_binding_git_blob"] == (
         "4945f98a5dc12cff282c767013f81cac091e32e8"
     )
@@ -229,7 +250,7 @@ def test_dependency_binding_identity_is_exact():
 
 def test_adapter_identity_is_exact():
     m = _load()
-    out = m.v2r13_canonical_live_collection_entrypoint_contract()
+    out = _contract()
     assert out["adapter_git_blob"] == "29c4bfa11a841359b6c4f4083659c78c474d94ba"
     assert out["adapter_source_sha256"] == (
         "a4236e3c727fcf6eee915ee9e3b44d2ba2e2666e8ac52499c9b342fd71935afb"
@@ -238,7 +259,7 @@ def test_adapter_identity_is_exact():
 
 def test_entrypoint_implementation_present_but_unbound():
     m = _load()
-    out = m.v2r13_canonical_live_collection_entrypoint_contract()
+    out = _contract()
     assert out["canonical_live_collection_entrypoint_implementation_present"] is True
     assert out["entrypoint_composition_implemented"] is True
     assert out["canonical_live_collection_entrypoint_source_binding_present"] is False
@@ -248,7 +269,7 @@ def test_entrypoint_implementation_present_but_unbound():
 
 def test_explicit_authority_and_backend_injection_are_required():
     m = _load()
-    out = m.v2r13_canonical_live_collection_entrypoint_contract()
+    out = _contract()
     assert out["entrypoint_collection_requires_explicit_authority"] is True
     assert out["entrypoint_observation_requires_explicit_authority"] is True
     assert out["explicit_http_backend_injection_required"] is True
@@ -338,6 +359,18 @@ def test_missing_docker_backend_holds():
             portable_binding_attestation=_portable_receipt(m),
         ),
     )
+
+
+def test_cached_happy_path_matches_fresh_collection_and_is_copy_isolated():
+    m = _load()
+    cached = _collect(m)
+    fresh = _collect_uncached(m)
+    assert cached == fresh
+
+    cached[0]["runtime_readiness_admitted"] = False
+    later = _collect(m)
+    assert later == fresh
+    assert later[0]["runtime_readiness_admitted"] is True
 
 
 def test_fake_entrypoint_invokes_adapter_and_binding_validation():
@@ -488,7 +521,7 @@ def test_entrypoint_source_binding_remains_false_in_receipt():
 
 def test_next_gate_is_entrypoint_source_binding():
     m = _load()
-    out = m.v2r13_canonical_live_collection_entrypoint_contract()
+    out = _contract()
     assert out["next_gate"] == (
         "V2R13_CANONICAL_LIVE_COLLECTION_ENTRYPOINT_SOURCE_BINDING_REQUIRED"
     )
