@@ -58,10 +58,29 @@ The pinned CascLib API exposes `GetCascError()`, and its Linux port maps
 `ERROR_FILE_NOT_FOUND` to `ENOENT`. The eventual bridge must surface that last
 open error so the adapter can implement this exact discrimination.
 
+## Deterministic source patch builder
+
+The lane also contains a source-only builder for the exact pinned OpenBW/BWAPI
+sources. It emits a small C bridge over CascLib and deterministic replacements
+for OpenBW `data_loading.h`, `ui/ui.h`, and BWAPI OpenBWData CMake wiring.
+
+The bridge exposes `GetCascError()` and an exact file-not-found predicate.
+Download capability is explicit: the generated loader enables CASC download
+only when `VOID_OPENBW_CASC_ALLOW_DOWNLOAD=1`; otherwise the storage is opened
+without `CASC_FEATURE_ALLOW_DOWNLOAD`.
+
+Every source replacement requires exactly one admitted preimage anchor, and the
+builder records Git blob identities for all patched/generated outputs. Upstream
+source identity remains pinned before the builder may be used.
+
 ## Boundaries
 
-This commit is a deterministic semantic contract and regression surface. It does
-not yet wire CascLib/OpenBW into the repository build, does not promote the
-Precision test-only lobby-slot adaptation, and does not claim full StarCraft
-binary compatibility. The next source gate is the deterministic bridge/patch
-builder that consumes this contract while retaining exact upstream pins.
+This lane is a deterministic semantic and source-generation contract. Importing
+or testing it does not clone upstream repositories, access CASC, compile C++,
+start OpenBW, execute StarCraft, load a bot, or train a model. It does not
+promote the Precision test-only lobby-slot adaptation and does not claim full
+StarCraft binary compatibility.
+
+The next gate is a compile-only verifier that applies this deterministic builder
+to the exact pinned upstream bytes, builds CascLib + the bridge + BWAPI/OpenBWData,
+and performs no game-data or game execution.
