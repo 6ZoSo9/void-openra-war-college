@@ -167,7 +167,7 @@ def test_every_forbidden_post_run_claim_must_remain_false(field):
         )
 
 
-def test_post_run_attempt_digest_and_observer_source_identity_are_bound():
+def test_post_run_attempt_digest_and_observer_contract_identity_are_bound():
     marker = _marker()
     marker_sha = hashlib.sha256(marker).hexdigest()
 
