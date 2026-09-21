@@ -126,6 +126,12 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 with self.assertRaisesRegex(CapabilityGuardError, "forbidden"):
                     audit_source(source, spec)
 
+    def test_rejects_unreviewed_import_root_even_when_not_denylisted(self):
+        source = b"import platform\n" + _source()
+        spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+        with self.assertRaisesRegex(CapabilityGuardError, "forbidden import root platform"):
+            audit_source(source, spec)
+
     def test_rejects_indirect_host_execution_imports(self):
         for statement in (
             "import builtins\nbuiltins.open('x')",
