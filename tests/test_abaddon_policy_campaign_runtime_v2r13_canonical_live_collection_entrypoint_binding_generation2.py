@@ -256,7 +256,6 @@ def test_contract_schema_and_snapshot_are_exact():
 
 
 def test_entrypoint_identity_is_pinned_exactly():
-    m = _load()
     out = _contract()
     assert out["entrypoint_git_blob"] == "48e579c5d8ef0c05db93d637777d4882493cbf9d"
     assert out["entrypoint_source_sha256"] == (
@@ -265,7 +264,6 @@ def test_entrypoint_identity_is_pinned_exactly():
 
 
 def test_binding_is_separate_and_non_self_referential():
-    m = _load()
     out = _contract()
     assert out["separate_binding_instrument"] is True
     assert out["entrypoint_source_is_not_self_bound"] is True
@@ -273,7 +271,6 @@ def test_binding_is_separate_and_non_self_referential():
 
 
 def test_dependency_entrypoint_remains_unbound_in_its_own_source():
-    m = _load()
     out = _contract()
     dep = out["dependency_contracts"]["entrypoint"]
     assert dep["canonical_live_collection_entrypoint_source_binding_present"] is False
@@ -346,7 +343,6 @@ def test_binding_validation_marks_path_complete_but_not_enabled():
 
 
 def test_binding_contract_marks_path_complete_but_not_enabled():
-    m = _load()
     out = _contract()
     assert out["canonical_live_collection_path_complete"] is True
     assert out["canonical_collection_enabled"] is False
@@ -471,7 +467,6 @@ def test_tampered_dependency_snapshot_is_rejected():
 
 
 def test_next_gate_is_explicit_live_collection_authorization():
-    m = _load()
     out = _contract()
     assert out["next_gate"] == (
         "V2R13_CANONICAL_LIVE_COLLECTION_INVOCATION_AUTHORIZATION_REQUIRED"
