@@ -17,7 +17,7 @@ HISTORICAL_GIT_BLOB = "132a5b2df3c3dbc82df7c0ebc6d457e5b77ffb51"
 HISTORICAL_SHA256 = (
     "ad7655e3ebfee198aed4ec879aa630f1fa4676eb75d8be432e6e5242dbc3d901"
 )
-DERIVED_GIT_BLOB = "166fccd460387b1228702f0032639e99fe4d7f18"
+DERIVED_GIT_BLOB = "40030e2ee61d17fd94abd1df733d3ea22650512b"
 
 PRESERVED_FUNCTIONS = (
     "find_mcv",
@@ -222,6 +222,14 @@ def test_derived_runner_records_external_dormancy_as_unverified() -> None:
     source = DERIVED.read_text(encoding="utf-8")
     assert '"independent_post_run_dormancy_verified": False' in source
     assert "model_service_preflight_delegated_to_reviewed_launcher=true" in source
+
+
+def test_canary_storage_and_container_identity_are_isolated() -> None:
+    source = DERIVED.read_text(encoding="utf-8")
+    assert 'RUNS_DIR = DOJO / "war-college" / "scout-repair-canary-v1"' in source
+    assert 'container_name = f"void-scout-repair-canary-{os.getpid()}"' in source
+    assert 'RUNS_DIR = DOJO / "war-college" / "joint-duels"' not in source
+    assert 'container_name = f"void-warmstart-spar-{os.getpid()}"' not in source
 
 
 def test_source_does_not_mutate_training_or_policy_authority() -> None:
