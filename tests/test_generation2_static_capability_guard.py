@@ -442,6 +442,29 @@ class StaticCapabilityGuardTests(unittest.TestCase):
                 audit_repository(root, (spec,))
 
 
+    def test_rejects_local_imports_outside_reviewed_namespace(self):
+        for statement in (
+            "import openra_env.other",
+            "from openra_env.other import fixture_dependency",
+            "from openra_env import fixture_dependency",
+        ):
+            with self.subTest(statement=statement):
+                target_path = "openra_env/learning/fixture_target.py"
+                target_source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(target_source), path=target_path)
+
+                with TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    target = root / target_path
+                    target.parent.mkdir(parents=True)
+                    target.write_bytes(target_source)
+
+                    with self.assertRaisesRegex(
+                        CapabilityGuardError,
+                        "local import outside reviewed namespace|ambiguous local package import",
+                    ):
+                        audit_repository(root, (spec,))
+
     def test_rejects_relative_local_dependency_import(self):
         target_path = "openra_env/learning/fixture_target.py"
         target_source = b"from . import fixture_dependency\n" + _source()
