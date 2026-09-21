@@ -110,6 +110,29 @@ Successful marker creation is **attempt consumption only**. It remains false for
 scout execution authorization, execution performed, training authorization,
 automatic retry, and automatic policy promotion.
 
+## Reviewed attempt/result chain
+
+The durable attempt guard is itself pinned by
+`abaddon_scout_external_attempt_guard_review_v1.py`. That review binds the
+launcher contract, launcher review, and attempt guard source identities and
+advances only to `SCOUT_EXTERNAL_RESULT_BINDING_REQUIRED`.
+
+The result layer is split deliberately:
+
+- `abaddon_scout_external_result_binding_v1.py` constructs a canonical record
+  containing a fresh scout experiment ID plus **declared** SHA-256 values for
+  the attempt marker, trajectory, result payload, and independent post-run-state
+  evidence.
+- It also binds the twelve reviewed source identities spanning the original
+  scout source/fixtures and the external launcher/attempt chain.
+- Every verification and authority field remains false. A caller-supplied digest
+  is explicitly not self-authenticating.
+- `abaddon_scout_external_result_binding_review_v1.py` pins the exact result
+  binding source and advances only to
+  `SCOUT_EXTERNAL_RESULT_EVIDENCE_REVIEW_REQUIRED`.
+
+No result declaration is accepted as evidence by either layer.
+
 ## Result boundary
 
 `scout_result_requirements()` only describes the evidence a future result
