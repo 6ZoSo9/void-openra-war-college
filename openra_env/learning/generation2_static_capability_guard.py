@@ -137,6 +137,15 @@ TARGETS = (
     ),
 )
 
+ALLOWED_IMPORT_ROOTS = {
+    "__future__",
+    "copy",
+    "functools",
+    "json",
+    "openra_env",
+    "typing",
+}
+
 FORBIDDEN_IMPORT_ROOTS = {
     "_ctypes",
     "_io",
@@ -330,10 +339,16 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 root = alias.name.split(".", 1)[0]
-                _require(root not in FORBIDDEN_IMPORT_ROOTS, f"{label}: forbidden import {root}")
+                _require(
+                    root in ALLOWED_IMPORT_ROOTS and root not in FORBIDDEN_IMPORT_ROOTS,
+                    f"{label}: forbidden import root {root}",
+                )
         elif isinstance(node, ast.ImportFrom):
             root = (node.module or "").split(".", 1)[0]
-            _require(root not in FORBIDDEN_IMPORT_ROOTS, f"{label}: forbidden import {root}")
+            _require(
+                root in ALLOWED_IMPORT_ROOTS and root not in FORBIDDEN_IMPORT_ROOTS,
+                f"{label}: forbidden import root {root}",
+            )
         elif isinstance(node, ast.Name):
             _require(
                 node.id not in FORBIDDEN_NAME_REFERENCES,
