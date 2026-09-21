@@ -5,7 +5,7 @@
 - Repository: `6ZoSo9/void-openra-war-college`
 - Original audited `main`: `b51137277ab5b17631712ecd035af85d4b8d81c8`
 - Forward-port base `main`: `9a151da589f93454d31a475b29297ea8a3d35442`
-- Verification: protected target SHA-256 `3985b0fbc74a25e29d44ae09d9c52c051ebb9044058d1bdd93ba6c9d1cca5761` is unchanged; all 45 dependency Git blob bindings match current `main`.
+- Verification: protected target SHA-256 `3985b0fbc74a25e29d44ae09d9c52c051ebb9044058d1bdd93ba6c9d1cca5761` is unchanged; all 48 transitive dependency Git blob bindings match current `main`.
 - Audit mode: source-only; no game execution, training, model loading, weight update, promotion, deployment, service action, VOID mutation, credentials, wallets, transactions, or funds action.
 
 ## Live capability audit
@@ -43,6 +43,7 @@ Add a dedicated static CI guard that enumerates Generation-2 runtime-gated modul
 23. rejects implicit host-file opening through `bz2`, `configparser`, `fileinput`, `gzip`, `logging`, `lzma`, `mailbox`, and `wave` before reviewed source can read, create, replace, or append host files without importing `open`, `io`, `os`, or `pathlib` directly.
 24. defaults all import roots to denied unless they are explicitly reviewed safe roots or the exact local `openra_env` dependency namespace; local dependencies remain transitively Git-blob pinned.
 25. confines admitted `openra_env` imports to the reviewed `openra_env.learning` namespace so sibling-package imports cannot bypass the transitive Git-blob dependency census.
+26. resolves single-dot imports inside `openra_env.learning` into exact same-package dependency paths while rejecting parent-package (`..`) escapes; the previously hidden Apollyon snapshot/V10/V14 dependencies are now pinned explicitly.
 
 The guard should operate only on committed source and AST/contract output. It must not import modules that can perform host I/O, start a runtime, contact a provider, load a model, or execute a game. The first implementation should exclude the overlapping #148–#152 files until that stack lands, then bind them in a follow-up exact-head update.
 
