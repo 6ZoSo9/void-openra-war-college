@@ -76,6 +76,40 @@ The existing scout binding cannot satisfy these gates merely by being
 constructed or by returning successfully. Its own snapshots correctly record
 that source identity is not verified by the binding.
 
+## Fresh durable attempt guard
+
+The companion `abaddon_scout_external_attempt_guard_v1.py` implements the next
+bounded prerequisite without adding runtime authority.
+
+It accepts only the canonical launcher request, the reviewed launcher-contract
+Git blob, a lowercase scout experiment identity, the exact caller-admitted
+private directory identity, and the explicit state-write confirmation token.
+
+The guard then:
+
+- duplicates the caller's directory descriptor without taking ownership of it;
+- requires a private `0700` same-user directory;
+- uses one fixed marker name with `O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC`;
+- writes a private `0600` marker with bounded partial-I/O loops;
+- fsyncs the file and directory;
+- reads the exact marker bytes back;
+- rechecks the inode through both descriptor and directory lookup; and
+- returns only a consumption receipt whose execution/training/promotion fields
+  remain false.
+
+Any existing marker—including empty, junk, symlink, hardlink, directory, valid,
+or uncertain crash residue—HOLDs. The guard never deletes, renames, resets, or
+reuses a marker. Changing the experiment name cannot reopen the fixed slot.
+
+Regression coverage includes concurrent threads, independent processes, partial
+read/write failures, short I/O, fsync failure, close failure, process loss before
+the first write, process loss after file fsync, and a completed claim followed
+by a fresh-process retry. No test starts a model or game.
+
+Successful marker creation is **attempt consumption only**. It remains false for
+scout execution authorization, execution performed, training authorization,
+automatic retry, and automatic policy promotion.
+
 ## Result boundary
 
 `scout_result_requirements()` only describes the evidence a future result
