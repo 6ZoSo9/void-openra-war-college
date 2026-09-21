@@ -5,7 +5,7 @@ declaration. It performs no filesystem, process, network, model, engine, service
 or wallet action.
 
 A structurally valid package is still not final evidence: the independent
-post-run observer source is only declared here, not source-verified. Final result
+post-run observer contract is source-bound here, but its effectful implementation is not reviewed. Final result
 acceptance therefore remains closed.
 """
 
@@ -50,7 +50,7 @@ FALSE_POST_RUN_CLAIMS = (
 )
 
 FALSE_AUTHORITY_FIELDS = (
-    "post_run_observer_source_verified",
+    "post_run_observer_implementation_verified",
     "result_evidence_verified",
     "operator_authenticated",
     "scout_execution_authorized",
@@ -92,14 +92,6 @@ def _canonical_json(raw: bytes, label: str) -> dict[str, Any]:
     ).encode("ascii")
     _require(raw == canonical, f"{label}_NONCANONICAL")
     return value
-
-
-def _hex40(value: Any) -> bool:
-    return (
-        type(value) is str
-        and len(value) == 40
-        and all(character in "0123456789abcdef" for character in value)
-    )
 
 
 def _review_attempt_marker(
