@@ -253,12 +253,15 @@ def _validate_source_chain(parts) -> None:
         request_review,
         attempt_review,
         preflight_review,
-        git_review,
     ):
         _require(
             reviewed.get("pair09_baseline_execution_authorized") is False,
             "PAIR09_INVOCATION_PREMATURE_RUNTIME_AUTHORITY",
         )
+    _require(
+        git_review.get("runtime_execution_authorized") is False,
+        "PAIR09_INVOCATION_PREMATURE_RUNTIME_AUTHORITY",
+    )
 
 
 def _check_python() -> None:
