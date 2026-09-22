@@ -19,7 +19,7 @@ SOURCE = (
     "abaddon_policy_campaign_runtime_v2r13_pair03_candidate_invocation_source_binding_review_generation2.py"
 )
 EXPECTED_SOURCE_SHA256 = (
-    "671276d10db7e10b3c099d45a9749d9e5335b4af1da561375b32578ff5744598"
+    "4d30eb0ca6e293a02c418b9a8404bac752c7b2316535cc039d01cb63a0aa5c48"
 )
 
 
@@ -45,6 +45,21 @@ def test_review_pins_exact_invocation_and_adversarial_test_surface():
     assert out["candidate_invocation_source_identity_pinned_by_sha256"] is True
     assert out["candidate_invocation_test_identity_pinned_by_git_blob"] is True
     assert out["candidate_invocation_test_identity_pinned_by_sha256"] is True
+    assert out["precision_cli_git_blob"] == "267a7348ce08ac66d2c46fbc931bb5cf1fb4e8af"
+    assert out["precision_cli_source_sha256"] == (
+        "516a6192ed45a8596372bf50e087991340508b71d6e0b8b8109e1c4c78079f87"
+    )
+    assert out["precision_cli_test_git_blob"] == "cdeee21152bd135523d217feb17823fe4acfd994"
+    assert out["precision_cli_test_sha256"] == (
+        "fadaa3386ff90045f3fee0f4c016dd3786d4fa5ad15fdba3d1c901bd14333aaa"
+    )
+    assert out["precision_cli_identity_pinned_by_git_blob"] is True
+    assert out["precision_cli_identity_pinned_by_sha256"] is True
+    assert out["precision_cli_test_identity_pinned_by_git_blob"] is True
+    assert out["precision_cli_test_identity_pinned_by_sha256"] is True
+    assert out["precision_cli_requires_expected_main_head"] is True
+    assert out["precision_cli_pins_reviewed_invocation_source_sha256"] is True
+    assert out["precision_cli_requires_explicit_confirmation"] is True
 
 
 def test_review_is_separate_and_does_not_self_bind_invocation():
