@@ -46,7 +46,7 @@ def test_accepted_evidence_pins_marker_result_and_run_artifacts():
     )
 
 
-def test_pair09_baseline_measurement_is_complete_but_nondeci­sive():
+def test_pair09_baseline_measurement_is_complete_but_nondecisive():
     out = acceptance.accept_pair09_baseline_execution_evidence(
         acceptance.EXPECTED_EVIDENCE
     )
