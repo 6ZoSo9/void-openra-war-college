@@ -120,7 +120,6 @@ def test_cached_review_matches_fresh_review_and_is_copy_isolated():
 
 
 def test_contract_pins_exact_reviewed_dependency_identities():
-    m = _load()
     out = _contract()
     assert out["activation_contract_git_blob"] == (
         "a3acb42280c334daa24a3b830105a04666fd603b"
@@ -161,7 +160,6 @@ def test_historical_activation_contract_is_retained_not_rewritten():
 
 
 def test_activation_binding_and_model_digest_review_close_semantically():
-    m = _load()
     out = _review()
     assert out["activation_binding_reviewed"] is True
     assert out["active_model_digest_probe_reviewed"] is True
@@ -173,7 +171,6 @@ def test_activation_binding_and_model_digest_review_close_semantically():
 
 
 def test_worktree_observer_is_reviewed_but_materializer_remains_open():
-    m = _load()
     out = _review()
     assert out["frozen_worktree_observer_reviewed"] is True
     assert out["frozen_worktree_materializer_reviewed"] is False
@@ -195,7 +192,6 @@ def test_remaining_activation_blockers_are_exact():
 
 
 def test_activation_is_not_claimed_proven_or_complete():
-    m = _load()
     out = _review()
     assert out["activation_proven"] is False
     assert out["runtime_activation_performed"] is False
@@ -204,7 +200,6 @@ def test_activation_is_not_claimed_proven_or_complete():
 
 
 def test_accepted_collection_does_not_enable_automatic_collection():
-    m = _load()
     out = _review()
     assert out["canonical_collection_enabled"] is False
     accepted = out["dependencies"]["accepted_live_invocation_contract"]
@@ -217,7 +212,6 @@ def test_accepted_collection_does_not_enable_automatic_collection():
 
 
 def test_model_identity_review_is_grounded_in_canonical_ollama_binding():
-    m = _load()
     out = _review()
     ollama = out["dependencies"]["ollama_observer_binding_contract"]
     assert ollama["canonical_observer_source_binding_present"] is True
@@ -229,7 +223,6 @@ def test_model_identity_review_is_grounded_in_canonical_ollama_binding():
 
 
 def test_execution_materialization_remains_independently_open():
-    m = _load()
     out = _review()
     assert out["execution_materialization_remains_open"] is True
     assert out["execution_materialization_blockers"] == (
@@ -244,7 +237,6 @@ def test_execution_materialization_remains_independently_open():
 
 
 def test_next_gate_is_frozen_worktree_materializer_implementation():
-    m = _load()
     out = _contract()
     assert out["next_gate"] == (
         "V2R13_FROZEN_WORKTREE_MATERIALIZER_IMPLEMENTATION_REQUIRED"
@@ -256,7 +248,6 @@ def test_next_gate_is_frozen_worktree_materializer_implementation():
 
 
 def test_review_contract_requires_no_live_or_runtime_action():
-    m = _load()
     out = _contract()
     for field in (
         "live_observation_required_for_this_change",
