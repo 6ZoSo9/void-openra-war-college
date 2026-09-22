@@ -589,3 +589,25 @@ def test_invocation_advances_only_to_source_binding_review():
         "V2R13_PAIR09_BASELINE_INVOCATION_"
         "SOURCE_BINDING_REVIEW_REQUIRED"
     )
+
+
+def test_source_chain_distinguishes_git_runtime_capability_from_pair09_authority(
+    monkeypatch,
+):
+    parts = invocation._components()
+    git_review = parts.git_review.v2r13_pair09_baseline_git_backend_review_contract()
+    assert "pair09_baseline_execution_authorized" not in git_review
+    assert git_review["runtime_execution_authorized"] is False
+
+    invocation._validate_source_chain(parts)
+
+    def elevated_git_review():
+        return {**git_review, "runtime_execution_authorized": True}
+
+    monkeypatch.setattr(
+        parts.git_review,
+        "v2r13_pair09_baseline_git_backend_review_contract",
+        elevated_git_review,
+    )
+    with pytest.raises(HOLD, match="PAIR09_INVOCATION_PREMATURE_RUNTIME_AUTHORITY"):
+        invocation._validate_source_chain(parts)
