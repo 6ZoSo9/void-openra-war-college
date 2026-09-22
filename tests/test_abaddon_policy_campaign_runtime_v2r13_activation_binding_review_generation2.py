@@ -113,10 +113,10 @@ def test_cached_review_matches_fresh_review_and_is_copy_isolated():
     cached = _review()
     assert cached == fresh
 
-    cached["runtime_readiness_admitted"] = False
+    cached["activation_binding_reviewed"] = False
     later = _review()
     assert later == fresh
-    assert later["runtime_readiness_admitted"] is True
+    assert later["activation_binding_reviewed"] is True
 
 
 def test_contract_pins_exact_reviewed_dependency_identities():
