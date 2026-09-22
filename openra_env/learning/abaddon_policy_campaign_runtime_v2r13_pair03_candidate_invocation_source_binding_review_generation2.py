@@ -42,6 +42,14 @@ INVOCATION_TEST_GIT_BLOB = "4823d4cbb6824dcd8b0628b70d611a321c12bc10"
 INVOCATION_TEST_SHA256 = (
     "24330d7aeb436926e27d875abf9532164a35c2d17080e6f8d3d63791f01309ac"
 )
+PRECISION_CLI_GIT_BLOB = "267a7348ce08ac66d2c46fbc931bb5cf1fb4e8af"
+PRECISION_CLI_SOURCE_SHA256 = (
+    "516a6192ed45a8596372bf50e087991340508b71d6e0b8b8109e1c4c78079f87"
+)
+PRECISION_CLI_TEST_GIT_BLOB = "cdeee21152bd135523d217feb17823fe4acfd994"
+PRECISION_CLI_TEST_SHA256 = (
+    "fadaa3386ff90045f3fee0f4c016dd3786d4fa5ad15fdba3d1c901bd14333aaa"
+)
 REQUEST_GIT_BLOB = "07516a24553b2516b859bebca21818c0bd0bf01e"
 ATTEMPT_GUARD_GIT_BLOB = "b47a2befd6d7181aa5a00805ae20e66293625d45"
 HOST_PREFLIGHT_GIT_BLOB = "32c27cacdcd850022bd3de358f82554112c6fd7b"
@@ -181,6 +189,13 @@ def v2r13_pair03_candidate_invocation_source_binding_review() -> dict[str, Any]:
         "candidate_invocation_source_identity_pinned_by_sha256": True,
         "candidate_invocation_test_identity_pinned_by_git_blob": True,
         "candidate_invocation_test_identity_pinned_by_sha256": True,
+        "precision_cli_identity_pinned_by_git_blob": True,
+        "precision_cli_identity_pinned_by_sha256": True,
+        "precision_cli_test_identity_pinned_by_git_blob": True,
+        "precision_cli_test_identity_pinned_by_sha256": True,
+        "precision_cli_requires_expected_main_head": True,
+        "precision_cli_pins_reviewed_invocation_source_sha256": True,
+        "precision_cli_requires_explicit_confirmation": True,
         "candidate_invocation_source_is_not_self_bound": True,
         "separate_review_instrument": True,
         "candidate_specific_confirmation_required": True,
@@ -227,6 +242,10 @@ def v2r13_pair03_candidate_invocation_source_binding_review_contract() -> dict[s
         "invocation_source_sha256": INVOCATION_SOURCE_SHA256,
         "invocation_test_git_blob": INVOCATION_TEST_GIT_BLOB,
         "invocation_test_sha256": INVOCATION_TEST_SHA256,
+        "precision_cli_git_blob": PRECISION_CLI_GIT_BLOB,
+        "precision_cli_source_sha256": PRECISION_CLI_SOURCE_SHA256,
+        "precision_cli_test_git_blob": PRECISION_CLI_TEST_GIT_BLOB,
+        "precision_cli_test_sha256": PRECISION_CLI_TEST_SHA256,
         "request_git_blob": REQUEST_GIT_BLOB,
         "attempt_guard_git_blob": ATTEMPT_GUARD_GIT_BLOB,
         "host_preflight_git_blob": HOST_PREFLIGHT_GIT_BLOB,
@@ -237,6 +256,13 @@ def v2r13_pair03_candidate_invocation_source_binding_review_contract() -> dict[s
         "candidate_invocation_source_identity_pinned_by_sha256": True,
         "candidate_invocation_test_identity_pinned_by_git_blob": True,
         "candidate_invocation_test_identity_pinned_by_sha256": True,
+        "precision_cli_identity_pinned_by_git_blob": True,
+        "precision_cli_identity_pinned_by_sha256": True,
+        "precision_cli_test_identity_pinned_by_git_blob": True,
+        "precision_cli_test_identity_pinned_by_sha256": True,
+        "precision_cli_requires_expected_main_head": True,
+        "precision_cli_pins_reviewed_invocation_source_sha256": True,
+        "precision_cli_requires_explicit_confirmation": True,
         "candidate_invocation_source_is_not_self_bound": True,
         "separate_review_instrument": True,
         "pair_slot": PAIR_SLOT,
