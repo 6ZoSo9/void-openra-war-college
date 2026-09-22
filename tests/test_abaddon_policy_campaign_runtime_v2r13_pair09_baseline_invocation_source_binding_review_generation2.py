@@ -19,27 +19,27 @@ SOURCE = (
 
 def test_review_pins_exact_invocation_cli_and_tests():
     out = review.v2r13_pair09_baseline_invocation_review_contract()
-    assert out["invocation_git_blob"] == "9ae40fdb2976f3d6bb38e8bf6aaf4c884ae13292"
+    assert out["invocation_git_blob"] == "312215c5b82296f15200544a61cc500d908ff9cf"
     assert out["invocation_source_sha256"] == (
-        "1920cf9892f0962cd7b14b12db7848eda7d45552c3b43ef96ba2cb5b68c2cd4a"
+        "815d824bfa7aabc2659ff1fd2e4407c81dff7d5101103ac6868e6c1dfa5b768b"
     )
     assert out["invocation_test_git_blob"] == (
-        "01bb7df18cacc09fb15ed88e2a773dd3c9fd4b40"
+        "eea23bdc6a453689d3f77de160761aaf453a5639"
     )
     assert out["invocation_test_sha256"] == (
-        "b56827c30561363f84d2a7725ef150a8f36e92ca65c30190f2f9d3e504105b55"
+        "c347ceb4584cd6bfbfe1f517d772097cb3b70f226bf680670c04e2f26147b4cc"
     )
     assert out["precision_cli_git_blob"] == (
-        "7f44099744feafe1a8cf1d239c5280da63257795"
+        "c9e26cffd595e5dde8b4e166ee25abcf43496345"
     )
     assert out["precision_cli_source_sha256"] == (
-        "7b2c54ff17941cf905690a561f787c429e164d8d351800ddb09e69e7d1f04ecf"
+        "0b24777dcbe290375323bb852754fe873fc65e4d32004ddad0f986e00df8607f"
     )
     assert out["precision_cli_test_git_blob"] == (
-        "9d6a9ec187fa62e1b1e6c0701686fdb1a85efa70"
+        "8a31d97fc828d5322840ba61446c8a03415acdbc"
     )
     assert out["precision_cli_test_sha256"] == (
-        "63b9eaa9acaa4599b651f47ea301adce4b7b3d2f17da80c61534712ab84e7aea"
+        "9173453692f017682813c8195454b6abd6dc99356821e7ceef37e641c6126e33"
     )
 
 
