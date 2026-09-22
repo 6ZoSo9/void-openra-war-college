@@ -4,6 +4,8 @@ import ast
 import hashlib
 import importlib.util
 import sys
+from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -42,6 +44,7 @@ FORBIDDEN_CALLS = {
 }
 
 
+@lru_cache(maxsize=1)
 def _load():
     raw = SOURCE.read_bytes()
     assert hashlib.sha256(raw).hexdigest() == EXPECTED_SOURCE_SHA256
@@ -54,6 +57,19 @@ def _load():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@lru_cache(maxsize=1)
+def _contract_cached():
+    return _load().v2r13_activation_binding_review_contract()
+
+
+def _contract():
+    return deepcopy(_contract_cached())
+
+
+def _review():
+    return deepcopy(_contract_cached()["review"])
 
 
 def _expect_hold(exc_type, pattern, fn):
@@ -91,9 +107,21 @@ def test_static_source_has_no_direct_host_io_or_execution_surface():
             assert _dotted(node.func) not in FORBIDDEN_CALLS
 
 
+def test_cached_review_matches_fresh_review_and_is_copy_isolated():
+    m = _load()
+    fresh = m.v2r13_activation_binding_review()
+    cached = _review()
+    assert cached == fresh
+
+    cached["runtime_readiness_admitted"] = False
+    later = _review()
+    assert later == fresh
+    assert later["runtime_readiness_admitted"] is True
+
+
 def test_contract_pins_exact_reviewed_dependency_identities():
     m = _load()
-    out = m.v2r13_activation_binding_review_contract()
+    out = _contract()
     assert out["activation_contract_git_blob"] == (
         "a3acb42280c334daa24a3b830105a04666fd603b"
     )
@@ -122,7 +150,7 @@ def test_contract_pins_exact_reviewed_dependency_identities():
 
 def test_historical_activation_contract_is_retained_not_rewritten():
     m = _load()
-    out = m.v2r13_activation_binding_review_contract()
+    out = _contract()
     assert out["historical_activation_contract_retained"] is True
     assert out["historical_activation_blockers"] == (
         "V2R13_ACTIVATION_BINDING_NOT_REVIEWED",
@@ -134,7 +162,7 @@ def test_historical_activation_contract_is_retained_not_rewritten():
 
 def test_activation_binding_and_model_digest_review_close_semantically():
     m = _load()
-    out = m.v2r13_activation_binding_review()
+    out = _review()
     assert out["activation_binding_reviewed"] is True
     assert out["active_model_digest_probe_reviewed"] is True
     assert out["accepted_live_invocation_present"] is True
@@ -146,7 +174,7 @@ def test_activation_binding_and_model_digest_review_close_semantically():
 
 def test_worktree_observer_is_reviewed_but_materializer_remains_open():
     m = _load()
-    out = m.v2r13_activation_binding_review()
+    out = _review()
     assert out["frozen_worktree_observer_reviewed"] is True
     assert out["frozen_worktree_materializer_reviewed"] is False
     worktree = out["dependencies"]["worktree_observer_contract"]
@@ -158,7 +186,7 @@ def test_worktree_observer_is_reviewed_but_materializer_remains_open():
 
 def test_remaining_activation_blockers_are_exact():
     m = _load()
-    out = m.v2r13_activation_binding_review()
+    out = _review()
     assert out["remaining_activation_blockers"] == (
         "V2R13_FROZEN_WORKTREE_MATERIALIZER_NOT_REVIEWED",
         m.activation_contract.RUNTIME_AUTHORITY_BLOCKER,
@@ -168,7 +196,7 @@ def test_remaining_activation_blockers_are_exact():
 
 def test_activation_is_not_claimed_proven_or_complete():
     m = _load()
-    out = m.v2r13_activation_binding_review()
+    out = _review()
     assert out["activation_proven"] is False
     assert out["runtime_activation_performed"] is False
     assert out["runtime_activation_path_complete"] is False
@@ -177,7 +205,7 @@ def test_activation_is_not_claimed_proven_or_complete():
 
 def test_accepted_collection_does_not_enable_automatic_collection():
     m = _load()
-    out = m.v2r13_activation_binding_review()
+    out = _review()
     assert out["canonical_collection_enabled"] is False
     accepted = out["dependencies"]["accepted_live_invocation_contract"]
     assert accepted["canonical_live_collection_invocation_accepted"] is True
@@ -190,7 +218,7 @@ def test_accepted_collection_does_not_enable_automatic_collection():
 
 def test_model_identity_review_is_grounded_in_canonical_ollama_binding():
     m = _load()
-    out = m.v2r13_activation_binding_review()
+    out = _review()
     ollama = out["dependencies"]["ollama_observer_binding_contract"]
     assert ollama["canonical_observer_source_binding_present"] is True
     assert ollama["endpoint_liveness_provider_primitive_implemented"] is True
@@ -202,7 +230,7 @@ def test_model_identity_review_is_grounded_in_canonical_ollama_binding():
 
 def test_execution_materialization_remains_independently_open():
     m = _load()
-    out = m.v2r13_activation_binding_review()
+    out = _review()
     assert out["execution_materialization_remains_open"] is True
     assert out["execution_materialization_blockers"] == (
         "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED",
@@ -217,7 +245,7 @@ def test_execution_materialization_remains_independently_open():
 
 def test_next_gate_is_frozen_worktree_materializer_implementation():
     m = _load()
-    out = m.v2r13_activation_binding_review_contract()
+    out = _contract()
     assert out["next_gate"] == (
         "V2R13_FROZEN_WORKTREE_MATERIALIZER_IMPLEMENTATION_REQUIRED"
     )
@@ -229,7 +257,7 @@ def test_next_gate_is_frozen_worktree_materializer_implementation():
 
 def test_review_contract_requires_no_live_or_runtime_action():
     m = _load()
-    out = m.v2r13_activation_binding_review_contract()
+    out = _contract()
     for field in (
         "live_observation_required_for_this_change",
         "filesystem_observation_required_for_this_change",
