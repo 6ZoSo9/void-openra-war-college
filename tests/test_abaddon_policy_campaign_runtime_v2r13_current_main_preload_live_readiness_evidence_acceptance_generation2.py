@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import sys
 from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
@@ -23,6 +24,7 @@ SOURCE = (
 EXPECTED_SOURCE_SHA256 = "a91350385ede0e3e6575cbf81fbacf88bc336bd0ea3d37b86035d46d442b0778"
 
 
+@lru_cache(maxsize=1)
 def _load():
     raw = SOURCE.read_bytes()
     assert hashlib.sha256(raw).hexdigest() == EXPECTED_SOURCE_SHA256
@@ -37,6 +39,18 @@ def _load():
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+
+    raw_validate_dependencies = module._validate_dependencies
+
+    @lru_cache(maxsize=1)
+    def cached_dependencies():
+        return raw_validate_dependencies()
+
+    def copy_isolated_dependencies():
+        return deepcopy(cached_dependencies())
+
+    module._raw_validate_dependencies_for_test = raw_validate_dependencies
+    module._validate_dependencies = copy_isolated_dependencies
     return module
 
 
@@ -128,6 +142,18 @@ def test_bound_receipt_hashes_are_exact():
         "afda05a169f0848ab94900283935caf1a367a9f1719884fee5b18514815ab6e9"
     )
     assert evidence["bound_live_receipt_validation_green"] is True
+
+
+def test_cached_dependency_snapshot_matches_fresh_validation_and_is_copy_isolated():
+    m = _load()
+    fresh = m._raw_validate_dependencies_for_test()
+    cached = m._validate_dependencies()
+    assert cached == fresh
+
+    cached["entrypoint_binding"]["canonical_live_collection_path_complete"] = False
+    later = m._validate_dependencies()
+    assert later == fresh
+    assert later["entrypoint_binding"]["canonical_live_collection_path_complete"] is True
 
 
 def test_exact_evidence_is_accepted():
