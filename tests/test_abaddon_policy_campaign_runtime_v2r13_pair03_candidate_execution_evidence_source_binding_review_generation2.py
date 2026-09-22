@@ -19,13 +19,13 @@ SOURCE = (
 
 def test_exact_acceptance_identities_are_pinned():
     out = review.v2r13_pair03_candidate_execution_evidence_review_contract()
-    assert out["acceptance_source_git_blob"] == "8d5d0966f1f6f68e57cff2c21fa4033399e13818"
+    assert out["acceptance_source_git_blob"] == "79f9a674272a2bf67f315d79cc61778a8f53408d"
     assert out["acceptance_source_sha256"] == (
-        "7f2f37be4252f4384905a5eb47f9579ea6cd7b518df6c378c58d301661fba368"
+        "97d5d6127fa450207e32d4262d21490d8bcc15633779644142af27fdba8d57de"
     )
-    assert out["acceptance_test_git_blob"] == "9861923d5ee909a44a43d218267a2ac48cca6431"
+    assert out["acceptance_test_git_blob"] == "cb35ebdddcefa6110baf3b1fa5d63df60911fcfc"
     assert out["acceptance_test_sha256"] == (
-        "2ced0c18ab73b3f30a74cf6c78259429aae3208691f401c45d598e7d2b0da199"
+        "e087428b5a9469ec234ba0cdc32f4010e1f0405655c1140d750e142a82f86317"
     )
 
 
