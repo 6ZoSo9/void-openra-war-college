@@ -43,6 +43,9 @@ def test_completed_candidate_receipts_and_artifacts_are_exact():
     assert evidence["summary_sha256"] == (
         "0819a0714a40dffb79208e5d35e01723143fe9a36eaf2a6feb988fcb4e76a5a0"
     )
+    assert evidence["baseline_summary_sha256"] == (
+        "d37ab54fa8dbb2269a5ac61ca0880f7ae189188f0eea144031e484815bcdf7d6"
+    )
 
 
 def test_candidate_execution_completed_once_and_is_not_replayable():
