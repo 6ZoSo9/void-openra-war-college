@@ -11,10 +11,10 @@ from openra_env.learning import (
 def test_review_pins_exact_acceptance_source_and_tests():
     out = review.pair06_v8_baseline_load_evidence_review_contract()
     assert out["acceptance_source_git_blob"] == (
-        "0ea17348c2cfcc4ad9f200bc556c0a81305ea736"
+        "85486fd19830f20f834f6d5af19b24f65aaef372"
     )
     assert out["acceptance_source_sha256"] == (
-        "e91d62488132d120f7e068c5dfc0a81ece80e908180819de861ead486555b090"
+        "0c4caefd9686b9832ad7cb31c0b541cab97dce044d423e967276bcfec71990a3"
     )
     assert out["acceptance_test_git_blob"] == (
         "cbe4735c1097f32fd33989ce97e92ae704ee84e4"
@@ -79,24 +79,24 @@ def test_review_preserves_training_deployment_chain_and_funds_boundaries():
         assert out[field] is False
 
 
-def test_review_advances_only_to_game_execution_authorization_request():
+def test_review_advances_only_to_game_execution_implementation():
     out = review.pair06_v8_baseline_load_evidence_review_contract()
-    assert out["baseline_game_execution_authorization_request_required"] is True
+    assert out["baseline_game_execution_implementation_required"] is True
     assert out["source_frontier_closed"] is True
     assert out["execution_blockers"] == (
-        "PAIR06_V8_BASELINE_GAME_EXECUTION_AUTHORIZATION_REQUEST_REQUIRED",
+        "PAIR06_V8_BASELINE_GAME_EXECUTION_IMPLEMENTATION_REQUIRED",
     )
     assert out["next_gate"] == (
-        "PAIR06_V8_BASELINE_GAME_EXECUTION_AUTHORIZATION_REQUEST_REQUIRED"
+        "PAIR06_V8_BASELINE_GAME_EXECUTION_IMPLEMENTATION_REQUIRED"
     )
     assert out["next_change_class"] == (
-        "source_only_pair06_v8_baseline_game_execution_authorization_request"
+        "source_only_pair06_v8_baseline_game_execution_implementation"
     )
 
 
-def test_game_authorization_entrypoint_holds():
+def test_game_execution_entrypoint_holds_until_implementation():
     with pytest.raises(
         review.Pair06V8BaselineLoadEvidenceReviewHold,
-        match="PAIR06_V8_BASELINE_GAME_EXECUTION_AUTHORIZATION_REQUEST_REQUIRED",
+        match="PAIR06_V8_BASELINE_GAME_EXECUTION_IMPLEMENTATION_REQUIRED",
     ):
         review.authorize_game_execution()
