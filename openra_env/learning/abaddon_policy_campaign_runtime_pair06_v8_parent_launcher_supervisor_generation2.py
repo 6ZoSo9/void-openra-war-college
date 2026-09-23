@@ -56,9 +56,9 @@ RECEIPT_SCHEMA = (
     "pair06-v8-parent-launcher-supervisor-receipt.v1"
 )
 
-CHILD_REVIEW_GIT_BLOB = "49d608c24f61e3cad45745e1d958e1a16f022fac"
+CHILD_REVIEW_GIT_BLOB = "bd2d7d97a9ed9c04be3bddae5f64977265686fa5"
 CHILD_REVIEW_SOURCE_SHA256 = (
-    "6892246299338d6bcaf21fca39e20ca7c52d538fd6ac7030fbecda8146554dfc"
+    "8a6d62ca43f3475fab51481e75670a0a5e79ddc7cbc3865ad4ad34db50d8536c"
 )
 
 PAIR_SLOT = 6
