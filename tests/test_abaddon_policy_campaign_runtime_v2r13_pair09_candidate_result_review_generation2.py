@@ -27,7 +27,7 @@ def test_result_review_pins_exact_candidate_evidence_review_and_baseline():
     )
 
 
-def test_pair09_measurements_are_matched_and_nondeci­sive():
+def test_pair09_measurements_are_matched_and_nondecisive():
     out = review.v2r13_pair09_candidate_result_review_contract()
     assert out["candidate_result_reviewed"] is True
     assert out["pair_slot"] == 9
