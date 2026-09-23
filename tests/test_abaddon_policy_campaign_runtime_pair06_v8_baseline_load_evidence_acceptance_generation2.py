@@ -48,6 +48,8 @@ def test_acceptance_records_exact_single_baseline_load():
     assert accepted["runtime_load_authorized"] is True
     assert accepted["runtime_load_performed"] is True
     assert accepted["model_weights_loaded"] is True
+    assert accepted["persistent_runtime_handle_exported"] is False
+    assert accepted["runtime_residency_after_launcher_attested"] is False
     assert accepted["another_baseline_load_authorized"] is False
 
 
