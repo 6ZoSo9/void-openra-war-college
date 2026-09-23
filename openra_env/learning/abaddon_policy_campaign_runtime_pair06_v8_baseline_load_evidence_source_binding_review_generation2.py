@@ -16,17 +16,17 @@ CONTRACT_SCHEMA = (
     "pair06-v8-baseline-load-evidence-review-contract.v1"
 )
 
-ACCEPTANCE_SOURCE_GIT_BLOB = "0ea17348c2cfcc4ad9f200bc556c0a81305ea736"
+ACCEPTANCE_SOURCE_GIT_BLOB = "85486fd19830f20f834f6d5af19b24f65aaef372"
 ACCEPTANCE_SOURCE_SHA256 = (
-    "e91d62488132d120f7e068c5dfc0a81ece80e908180819de861ead486555b090"
+    "0c4caefd9686b9832ad7cb31c0b541cab97dce044d423e967276bcfec71990a3"
 )
 ACCEPTANCE_TEST_GIT_BLOB = "cbe4735c1097f32fd33989ce97e92ae704ee84e4"
 ACCEPTANCE_TEST_SHA256 = (
     "eaf5f28f93c11a46f3414af276a4b51cdb4aab19a46aace7e86db9a83b911c35"
 )
 
-NEXT_GATE = "PAIR06_V8_BASELINE_GAME_EXECUTION_AUTHORIZATION_REQUEST_REQUIRED"
-NEXT_CHANGE_CLASS = "source_only_pair06_v8_baseline_game_execution_authorization_request"
+NEXT_GATE = "PAIR06_V8_BASELINE_GAME_EXECUTION_IMPLEMENTATION_REQUIRED"
+NEXT_CHANGE_CLASS = "source_only_pair06_v8_baseline_game_execution_implementation"
 
 
 class Pair06V8BaselineLoadEvidenceReviewHold(ValueError):
@@ -81,7 +81,7 @@ def _validate_acceptance_cached() -> dict[str, Any]:
     )
     _require(contract.get("automatic_retry") is False, "pair06 automatic retry enabled")
     _require(
-        contract.get("baseline_game_execution_authorization_request_required") is True,
+        contract.get("baseline_game_execution_implementation_required") is True,
         "pair06 game authorization-request frontier missing",
     )
 
@@ -188,7 +188,7 @@ def pair06_v8_baseline_load_evidence_review_contract() -> dict[str, Any]:
         "void_chain_mutation_performed": False,
         "wallet_or_funds_action_authorized": False,
         "wallet_or_funds_action_performed": False,
-        "baseline_game_execution_authorization_request_required": True,
+        "baseline_game_execution_implementation_required": True,
         "execution_blockers": (NEXT_GATE,),
         "source_frontier_closed": True,
         "next_gate": NEXT_GATE,
