@@ -527,7 +527,7 @@ def execute_pair06_v8_baseline_game(
         "PAIR06_V8_BASELINE_GAME_SPECIFIC_CONFIRMATION_REQUIRED",
     )
 
-    dependencies = _dependency_contracts()
+    _dependency_contracts()
     _check_python()
     source_sha = _verify_self(expected_invocation_source_sha256)
     main = _current_main(expected_main_head)
