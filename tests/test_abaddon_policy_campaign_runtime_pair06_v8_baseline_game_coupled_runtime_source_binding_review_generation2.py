@@ -10,13 +10,13 @@ from openra_env.learning import (
 
 def test_review_pins_exact_runtime_core_and_tests():
     out = review.pair06_v8_baseline_game_coupled_runtime_review_contract()
-    assert out["runtime_core_git_blob"] == "2397438189757be5bd48be2fd2e0ae088db65de7"
+    assert out["runtime_core_git_blob"] == "032966cc0e41a1841eee4637b4c9d798de16a562"
     assert out["runtime_core_source_sha256"] == (
-        "5f2af3a09e73e0da8b9de647fe81930d85b3bef96459d9ef0f61525ced0fe903"
+        "2aa75242b04dbf533ab6fa100524209844cd9f7c029f6b3a736867c4d6a842d6"
     )
-    assert out["runtime_core_test_git_blob"] == "34c051be541119ac4f1773ff2b6ac151090ec8b7"
+    assert out["runtime_core_test_git_blob"] == "2337b3848d4bb294d409e5132159b4248ab3ccc0"
     assert out["runtime_core_test_sha256"] == (
-        "201c144dac74bc265d7c4175e0b203c064ccaaef531e29766cdab44765a457eb"
+        "9179039fcc75cbc5125ce413271465b16cdab3c09cb35f1aa9724d1190e5f85a"
     )
 
 
@@ -41,6 +41,7 @@ def test_review_confirms_same_process_load_game_and_authority_checks():
     assert out["authority_check_before_each_inference_implemented"] is True
     assert out["fresh_environment_verification_delegated_to_reviewed_loader"] is True
     assert out["exact_asset_verification_delegated_to_reviewed_loader"] is True
+    assert out["model_reference_release_in_finally_implemented"] is True
 
 
 def test_review_keeps_adapter_claim_invocation_as_separate_gates():
