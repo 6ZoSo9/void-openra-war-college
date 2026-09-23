@@ -167,7 +167,7 @@ def test_noncanonical_duplicate_and_oversized_payloads_fail_closed():
         bridge.decode_frame(header + raw, direction="parent_to_child")
 
     canonical = json.dumps(hello(), sort_keys=True, separators=(",", ":")).encode()
-    noncanonical = canonical.replace(b',"arm"', b', "arm"', 1)
+    noncanonical = canonical.replace(b',"attempt_id"', b', "attempt_id"', 1)
     frame = struct.pack(">I", len(noncanonical)) + noncanonical
     with pytest.raises(bridge.Pair06V8IPCBridgeHold, match="not canonical JSON"):
         bridge.decode_frame(frame, direction="parent_to_child")
