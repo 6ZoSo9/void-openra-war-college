@@ -18,7 +18,7 @@ That deterministically selects pair 6:
 
 This module selects the allocation only. Pair 6 is not currently in the V2R13
 bounded executor's authorized pair-slot set, so execution remains impossible
-until a separate source-only capability extension is reviewed.
+until a separate source-only accepted-V8 runtime capability is reviewed.
 
 No runtime, replay, held-out, training, promotion, deployment, VOID-chain,
 wallet, or funds authority is granted.
@@ -36,6 +36,10 @@ from openra_env.learning import (
 from openra_env.learning import (
     abaddon_policy_campaign_command_materializer_generation2
     as command_materializer,
+)
+from openra_env.learning import (
+    abaddon_policy_campaign_runtime_activation_contract_generation2
+    as runtime_activation,
 )
 from openra_env.learning import (
     abaddon_policy_campaign_runtime_v2r13_bounded_executor_generation2
@@ -56,6 +60,7 @@ CAMPAIGN_PLAN_GIT_BLOB = "86c6feb3072f9d540dbd4f7ee6462addcbac54aa"
 PLAN_FIXTURE_GIT_BLOB = "3c884e8c35e4099ea51cc5ed46521149ade9a7b0"
 COMMAND_MATERIALIZER_GIT_BLOB = "4836360e0d284454f815a2a2e32078d2565e6dea"
 BOUNDED_EXECUTOR_GIT_BLOB = "c7e20c1157e0bcf7f65036631aad47fb82c7aefd"
+RUNTIME_ACTIVATION_GIT_BLOB = "a3acb42280c334daa24a3b830105a04666fd603b"
 
 COMPLETED_NONHELDOUT_PAIR_SLOTS = (3, 9)
 HISTORICAL_CONTROL_ROLES = (
@@ -76,8 +81,8 @@ SELECTED_OPPONENT_SNAPSHOT_SHA256 = (
     "5c51082219530a302ce25b28daba9928f56a436c11d1508ca0bef755f4a86667"
 )
 
-NEXT_GATE = "V2R13_PAIR06_BOUNDED_CAPABILITY_EXTENSION_REQUIRED"
-NEXT_CHANGE_CLASS = "source_only_v2r13_pair06_bounded_capability_extension"
+NEXT_GATE = "PAIR06_V8_RUNTIME_CAPABILITY_IMPLEMENTATION_REQUIRED"
+NEXT_CHANGE_CLASS = "source_only_pair06_v8_runtime_capability_implementation"
 
 
 class V2R13Pair06NonheldoutAllocationHold(ValueError):
@@ -289,12 +294,59 @@ def v2r13_pair06_nonheldout_allocation_contract() -> dict[str, Any]:
     )
     _require(
         SELECTED_PAIR_SLOT not in bounded_executor.AUTHORIZED_PAIR_SLOTS,
-        "pair06 unexpectedly already executable",
+        "pair06 unexpectedly already executable through V2R13 executor",
     )
     _require(
         SELECTED_PAIR_SLOT not in bounded_executor.HELD_OUT_PAIR_SLOTS,
         "pair06 unexpectedly held-out",
     )
+
+    activation_plans = {
+        arm: runtime_activation.arm_runtime_activation_plan(
+            pair_slot=SELECTED_PAIR_SLOT,
+            arm=arm,
+        )
+        for arm in ("baseline", "candidate")
+    }
+    expected_reasons = (
+        "V8_MODEL_DIR_BINDING_NOT_REVIEWED",
+        "V8_ADAPTER_DIR_BINDING_NOT_REVIEWED",
+        "V8_LOAD_CALL_BINDING_NOT_REVIEWED",
+        "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED",
+    )
+    for arm, plan in activation_plans.items():
+        _require(plan.get("pair_slot") == SELECTED_PAIR_SLOT, f"{arm} activation slot drift")
+        _require(plan.get("arm") == arm, f"{arm} activation arm drift")
+        _require(plan.get("held_out") is False, f"{arm} activation became held-out")
+        _require(
+            plan.get("opponent_snapshot_id") == SELECTED_OPPONENT_SNAPSHOT_ID,
+            f"{arm} activation snapshot drift",
+        )
+        activation = plan.get("activation")
+        _require(isinstance(activation, dict), f"{arm} activation descriptor missing")
+        _require(
+            activation.get("activation_kind") == "inprocess_accepted_v8_runtime",
+            f"{arm} is not routed to accepted V8 runtime",
+        )
+        _require(
+            activation.get("model_dir_path_bound") is False
+            and activation.get("adapter_dir_path_bound") is False
+            and activation.get("load_call_materialized") is False
+            and activation.get("model_weights_loaded") is False,
+            f"{arm} V8 capability unexpectedly materialized",
+        )
+        _require(
+            tuple(plan.get("reasons", ())) == expected_reasons,
+            f"{arm} V8 blocker frontier drift",
+        )
+        _require(plan.get("activation_implementation_present") is False, f"{arm} activation already implemented")
+        _require(plan.get("runtime_started") is False, f"{arm} runtime already started")
+        authority = plan.get("authority")
+        _require(isinstance(authority, dict), f"{arm} activation authority missing")
+        _require(
+            authority.get("runtime_execution_authorized") is False,
+            f"{arm} V8 execution prematurely authorized",
+        )
 
     return {
         "schema": CONTRACT_SCHEMA,
@@ -303,6 +355,7 @@ def v2r13_pair06_nonheldout_allocation_contract() -> dict[str, Any]:
         "plan_fixture_git_blob": PLAN_FIXTURE_GIT_BLOB,
         "command_materializer_git_blob": COMMAND_MATERIALIZER_GIT_BLOB,
         "bounded_executor_git_blob": BOUNDED_EXECUTOR_GIT_BLOB,
+        "runtime_activation_git_blob": RUNTIME_ACTIVATION_GIT_BLOB,
         "new_nonheldout_allocation_selected": True,
         "selection_rule": (
             "lowest_unused_nonheldout_historical_control_pair_slot"
@@ -330,7 +383,13 @@ def v2r13_pair06_nonheldout_allocation_contract() -> dict[str, Any]:
         "canonical_pair_row": deepcopy(selected),
         "bounded_executor_current_pair_slots": (3, 9, 15),
         "bounded_executor_current_held_out_pair_slots": (15,),
-        "bounded_executor_extension_required": True,
+        "v2r13_executor_not_applicable_to_pair06": True,
+        "pair06_v8_runtime_capability_required": True,
+        "pair06_v8_activation_kind": "inprocess_accepted_v8_runtime",
+        "pair06_v8_model_dir_binding_reviewed": False,
+        "pair06_v8_adapter_dir_binding_reviewed": False,
+        "pair06_v8_load_call_binding_reviewed": False,
+        "pair06_v8_activation_plans": deepcopy(activation_plans),
         "pair06_runtime_execution_authorized": False,
         "pair06_runtime_execution_performed": False,
         "pair15_execution_authorized": False,
