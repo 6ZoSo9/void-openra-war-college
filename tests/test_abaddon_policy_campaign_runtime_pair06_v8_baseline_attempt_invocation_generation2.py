@@ -21,6 +21,7 @@ def test_contract_closes_attempt_claim_and_invocation_implementation_only():
     assert out["reviewed_worktree_materializer_reused"] is True
     assert out["pair06_specific_git_backend_required"] is True
     assert out["preclaim_worktree_materialization_implemented"] is True
+    assert out["preclaim_materialization_cleanup_on_hold_implemented"] is True
     assert out["durable_create_only_attempt_marker_implemented"] is True
     assert out["marker_deletion_api_implemented"] is False
     assert out["reset_api_implemented"] is False
