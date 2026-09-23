@@ -7,6 +7,7 @@ import pytest
 
 from openra_env.learning.apollyon_v8_campaign_runtime import (
     ACCEPTED_TOOL_NAMES,
+    FrozenV8LocalToolRuntime,
     LEGACY_SYSTEM_PROMPT,
     TRANSFER_SYSTEM_PROMPT,
     V8CampaignRuntimeError,
@@ -139,6 +140,9 @@ def test_contract_binds_accepted_v8_transport_and_stays_nonexecuting():
     assert result["offline_only_model_load"] is True
     assert result["accepted_chat_template_generation_implemented"] is True
     assert result["campaign_decision_adapter_implemented"] is True
+    assert result["input_device_bound_to_embedding_weight"] is True
+    assert result["hard_coded_cuda_input_transfer"] is False
+    assert result["cpu_offload_input_supported"] is True
     assert result["runtime_python_major_minor"] == [3, 12]
     assert result["runtime_environment_pip_freeze_verified_before_load"] is True
     assert result["runtime_environment_live_pip_freeze_match_required"] is True
@@ -378,8 +382,132 @@ def test_unavailable_accepted_tool_is_rejected_before_host_mapping():
         )
 
 
+
+class _FakeDevice:
+    def __init__(self, device_type: str):
+        self.type = device_type
+
+    def __repr__(self) -> str:
+        return self.type
+
+
+class _FakeTensor:
+    def __init__(self, *, shape=(1, 7)):
+        self.shape = shape
+        self.to_device = None
+
+    def to(self, device):
+        self.to_device = device
+        return self
+
+
+class _FakeGeneratedIds:
+    def detach(self):
+        return self
+
+    def cpu(self):
+        return self
+
+
+class _FakeOutput:
+    def __getitem__(self, key):
+        return _FakeGeneratedIds()
+
+
+class _FakeInferenceMode:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeTorch:
+    @staticmethod
+    def inference_mode():
+        return _FakeInferenceMode()
+
+
+class _FakeTokenizer:
+    pad_token_id = 0
+    eos_token_id = 1
+
+    def __init__(self):
+        self.encoded = {
+            "input_ids": _FakeTensor(),
+            "attention_mask": _FakeTensor(),
+        }
+
+    def apply_chat_template(self, messages, **kwargs):
+        return "prompt"
+
+    def __call__(self, prompt, **kwargs):
+        return self.encoded
+
+    def decode(self, ids, **kwargs):
+        return (
+            "<tool_call><function=advance><parameter=ticks>50</parameter>"
+            "</function></tool_call>"
+        )
+
+
+class _FakeModel:
+    def __init__(self, device):
+        self.device = device
+        self.generated = None
+
+    def get_input_embeddings(self):
+        class _Embedding:
+            pass
+
+        embedding = _Embedding()
+        embedding.weight = type("_Weight", (), {"device": self.device})()
+        return embedding
+
+    def generate(self, **kwargs):
+        self.generated = kwargs
+        return _FakeOutput()
+
+
+@pytest.mark.parametrize("device_type", ["cpu", "cuda"])
+def test_generate_places_encoded_inputs_on_actual_embedding_device(device_type):
+    device = _FakeDevice(device_type)
+    model = _FakeModel(device)
+    tokenizer = _FakeTokenizer()
+    runtime = FrozenV8LocalToolRuntime(
+        model=model,
+        tokenizer=tokenizer,
+        torch_module=_FakeTorch(),
+    )
+    turn = _turn()
+
+    raw = runtime.generate(
+        messages=turn["messages"],
+        tools=turn["tools"],
+    )
+
+    assert raw.startswith("<tool_call>")
+    assert tokenizer.encoded["input_ids"].to_device is device
+    assert tokenizer.encoded["attention_mask"].to_device is device
+    assert model.generated["input_ids"].to_device is device
+    assert model.generated["attention_mask"].to_device is device
+
+
+def test_input_device_rejects_meta_embedding_device():
+    runtime = FrozenV8LocalToolRuntime(
+        model=_FakeModel(_FakeDevice("meta")),
+        tokenizer=_FakeTokenizer(),
+        torch_module=_FakeTorch(),
+    )
+    with pytest.raises(
+        V8CampaignRuntimeError,
+        match="input embedding device is unsupported",
+    ):
+        runtime._input_device()
+
+
 def test_source_hash_is_stable_for_runtime_realization_binding():
     path = Path(__file__).parents[1] / "openra_env/learning/apollyon_v8_campaign_runtime.py"
     assert hashlib.sha256(path.read_bytes()).hexdigest() == (
-        "faf4b64ea4755fabdbdfc778f3df534a87f056a638763aa1560c7965c482b5af"
+        "8c1f69ad53bba9e4696e502f965c2bdb34677674877a81eb02cb0eb9c652a360"
     )
