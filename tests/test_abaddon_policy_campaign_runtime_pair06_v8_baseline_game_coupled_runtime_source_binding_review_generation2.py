@@ -75,23 +75,23 @@ def test_review_grants_no_execution_authority():
     assert out["automatic_retry"] is False
 
 
-def test_review_advances_only_to_game_runner_adapter_implementation():
+def test_review_advances_only_to_apollyon_decision_adapter():
     out = review.pair06_v8_baseline_game_coupled_runtime_review_contract()
     assert out["source_frontier_closed"] is True
     assert out["execution_blockers"] == (
-        "PAIR06_V8_BASELINE_GAME_RUNNER_ADAPTER_IMPLEMENTATION_REQUIRED",
+        "PAIR06_V8_BASELINE_APOLLYON_DECISION_ADAPTER_IMPLEMENTATION_REQUIRED",
     )
     assert out["next_gate"] == (
-        "PAIR06_V8_BASELINE_GAME_RUNNER_ADAPTER_IMPLEMENTATION_REQUIRED"
+        "PAIR06_V8_BASELINE_APOLLYON_DECISION_ADAPTER_IMPLEMENTATION_REQUIRED"
     )
     assert out["next_change_class"] == (
-        "source_only_pair06_v8_baseline_game_runner_adapter_implementation"
+        "source_only_pair06_v8_baseline_apollyon_decision_adapter_implementation"
     )
 
 
 def test_execution_entrypoint_holds():
     with pytest.raises(
         review.Pair06V8BaselineGameCoupledRuntimeReviewHold,
-        match="PAIR06_V8_BASELINE_GAME_RUNNER_ADAPTER_IMPLEMENTATION_REQUIRED",
+        match="PAIR06_V8_BASELINE_APOLLYON_DECISION_ADAPTER_IMPLEMENTATION_REQUIRED",
     ):
         review.execute_game()
