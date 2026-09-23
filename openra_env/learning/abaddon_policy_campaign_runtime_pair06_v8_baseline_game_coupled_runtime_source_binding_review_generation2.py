@@ -25,8 +25,8 @@ RUNTIME_CORE_TEST_SHA256 = (
     "9179039fcc75cbc5125ce413271465b16cdab3c09cb35f1aa9724d1190e5f85a"
 )
 
-NEXT_GATE = "PAIR06_V8_BASELINE_GAME_RUNNER_ADAPTER_IMPLEMENTATION_REQUIRED"
-NEXT_CHANGE_CLASS = "source_only_pair06_v8_baseline_game_runner_adapter_implementation"
+NEXT_GATE = "PAIR06_V8_BASELINE_APOLLYON_DECISION_ADAPTER_IMPLEMENTATION_REQUIRED"
+NEXT_CHANGE_CLASS = "source_only_pair06_v8_baseline_apollyon_decision_adapter_implementation"
 
 
 class Pair06V8BaselineGameCoupledRuntimeReviewHold(ValueError):
