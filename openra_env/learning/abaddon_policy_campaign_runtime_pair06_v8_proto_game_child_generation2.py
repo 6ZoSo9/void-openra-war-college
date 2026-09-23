@@ -392,8 +392,12 @@ def run_pair06_v8_proto_game_child(
     _dependencies()
     _require(execution_authorized is True, "PAIR06_V8_CHILD_GAME_EXECUTION_AUTHORIZATION_REQUIRED")
     _require(
-        Path(sys.executable).resolve() == PROTO_PYTHON.resolve(),
-        "pair06 child must use accepted proto Python",
+        Path(sys.executable) == PROTO_PYTHON,
+        "pair06 child must use exact accepted proto venv executable",
+    )
+    _require(
+        Path(sys.prefix).resolve() == PROTO_PYTHON.parent.parent.resolve(),
+        "pair06 child sys.prefix must be accepted proto venv",
     )
     _require(os.getpid() == os.getpgrp(), "pair06 child must lead private process group")
 
@@ -433,13 +437,13 @@ def run_pair06_v8_proto_game_child(
 
     try:
         legacy.RUNS_DIR = runs
-        with portable_checkout.PortableRunnerBinding(
-            legacy,
-            frozen_source_root=Path(frozen_source_root),
-            exact_engine_root=Path(exact_engine_root),
-        ):
-            hooks.install()
-            try:
+        hooks.install()
+        try:
+            with portable_checkout.PortableRunnerBinding(
+                legacy,
+                frozen_source_root=Path(frozen_source_root),
+                exact_engine_root=Path(exact_engine_root),
+            ):
                 sys.argv = [
                     str(LEGACY_RUNNER),
                     "--seed", str(SEED),
@@ -450,9 +454,9 @@ def run_pair06_v8_proto_game_child(
                     "--staging-max-ticks", str(STAGING_MAX_TICKS),
                 ]
                 legacy.main()
-            finally:
-                hooks.restore()
-                sys.argv = old_argv
+        finally:
+            hooks.restore()
+            sys.argv = old_argv
         result = _game_result(runs)
         _require(
             hooks.legacy_ollama_start_calls == 1,
