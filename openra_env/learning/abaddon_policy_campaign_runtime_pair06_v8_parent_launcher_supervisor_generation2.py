@@ -24,7 +24,6 @@ import signal
 import socket
 import subprocess
 import sys
-import time
 from typing import Any, Mapping, Protocol
 
 from openra_env.learning import (
