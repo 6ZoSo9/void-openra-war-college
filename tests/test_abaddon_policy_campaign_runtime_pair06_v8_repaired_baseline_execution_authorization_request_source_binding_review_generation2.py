@@ -18,6 +18,10 @@ def test_review_pins_exact_repaired_request_source_and_test():
     assert out["request_test_sha256"] == (
         "9be522fe7a687bc9d65094d3657557e5de15f62c722824cd79299a5fe55c52db"
     )
+    assert out["request_bytes_sha256"] == (
+        "31c0069869915eb01221d7ea0aa867c0517df0a702eeff58ca69f70dec07a410"
+    )
+    assert out["request_sha256"] == out["request_bytes_sha256"]
 
 
 def test_review_confirms_fresh_repaired_one_shot_only():
