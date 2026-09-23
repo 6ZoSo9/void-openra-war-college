@@ -10,9 +10,9 @@ from openra_env.learning import (
 
 def test_review_pins_exact_child_source_and_tests():
     out = review.pair06_v8_proto_game_child_review_contract()
-    assert out["child_git_blob"] == "061041126c8859ea77a1e131a87ab26af95291b8"
+    assert out["child_git_blob"] == "7ea5d27c2d2bb499dfec4c00d2812d7ed043f8bc"
     assert out["child_source_sha256"] == (
-        "429d9e76977d5fe734d3e714a4bad7ac5dc03f940d57dd106e23739feb23f9e2"
+        "d621ecd7a20c824ead5247d84fef5fb817df337063cd5ab558c68d42f346601a"
     )
     assert out["child_test_git_blob"] == "26b914adfbeba260b5ad3273567dc75673f3e2fa"
     assert out["child_test_sha256"] == (

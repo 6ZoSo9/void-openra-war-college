@@ -18,9 +18,9 @@ def test_review_pins_exact_entrypoint_and_supervisor_sources():
     assert out["entrypoint_test_sha256"] == (
         "2a593cef0b481bf0444a60f2fd767704ba8aaad05231aa28dc148be7f4322e32"
     )
-    assert out["supervisor_git_blob"] == "cec19a6edebc1ac05a0eba08b5cefeb3b528d0d5"
+    assert out["supervisor_git_blob"] == "e88f3ef7d22aba630c9235ed32d0d57847afa3a0"
     assert out["supervisor_source_sha256"] == (
-        "7fa91033336e1d03f96c540d156d390b096ac2758c30549659ae32c217152814"
+        "f924cdf1be34d2d21a2c07f2cd057231a7ec72339e0a4219d2f5d62864e4101b"
     )
     assert out["supervisor_test_git_blob"] == "7a0ef5837a2bba7e9e2abd29334f92eec693c78e"
     assert out["supervisor_test_sha256"] == (
