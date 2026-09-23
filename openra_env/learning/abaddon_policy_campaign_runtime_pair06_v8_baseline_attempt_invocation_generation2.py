@@ -549,14 +549,31 @@ def execute_pair06_v8_baseline_game(
     backend = git_backend.Pair06V8BaselineGitBackend(
         confirm=git_backend.CONFIRM_TOKEN
     )
-    materialization = _materialize(backend)
+    materialization = None
+    try:
+        materialization = _materialize(backend)
 
-    # Everything above this line is pre-claim preparation. A failure may be
-    # corrected and retried because no durable game-attempt marker exists.
-    _current_main(expected_main_head)
-    _verify_self(expected_invocation_source_sha256)
-    _not_revoked()
-    _fresh_preflight()
+        # Everything in this block is pre-claim preparation. If any later
+        # pre-claim recheck fails, remove only the worktrees owned by this
+        # backend instance so the still-unconsumed attempt remains retryable.
+        _current_main(expected_main_head)
+        _verify_self(expected_invocation_source_sha256)
+        _not_revoked()
+        _fresh_preflight()
+    except BaseException:
+        if materialization is not None:
+            try:
+                materializer.cleanup_v2r13_frozen_worktrees(
+                    materialization,
+                    cleanup_authorized=True,
+                    path_exists=backend.path_exists,
+                    run_git=backend.run_git,
+                )
+            except BaseException as cleanup_error:
+                raise Pair06V8BaselineAttemptInvocationHold(
+                    "PAIR06_V8_INVOCATION_PRECLAIM_CLEANUP_FAILED"
+                ) from cleanup_error
+        raise
 
     marker_payload = {
         "schema": (
