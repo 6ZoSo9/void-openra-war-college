@@ -22,6 +22,7 @@ deployment, VOID-chain, wallet, and funds authority remain closed.
 from __future__ import annotations
 
 from copy import deepcopy
+import gc
 import hashlib
 import json
 from typing import Any, Mapping, Protocol
@@ -199,6 +200,7 @@ def pair06_v8_baseline_game_coupled_runtime_contract() -> dict[str, Any]:
         "authority_check_before_each_inference_implemented": True,
         "fresh_environment_verification_delegated_to_reviewed_loader": True,
         "exact_asset_verification_delegated_to_reviewed_loader": True,
+        "model_reference_release_in_finally_implemented": True,
         "game_runner_adapter_required": True,
         "game_runner_adapter_implemented_by_this_source": False,
         "durable_game_attempt_claim_implemented_by_this_source": False,
@@ -259,6 +261,9 @@ def execute_pair06_baseline_game_coupled_runtime(
     )
 
     inference_count = 0
+    game_receipt: Mapping[str, Any] | None = None
+    model_reference_release_attempted = False
+    model_reference_release_completed = False
 
     def apollyon_decider(
         *,
@@ -274,6 +279,7 @@ def execute_pair06_baseline_game_coupled_runtime(
             authority_check(PAIR_SLOT, ARM) is True,
             "PAIR06_V8_BASELINE_GAME_AUTHORITY_REVOKED_BEFORE_INFERENCE",
         )
+        _require(runtime is not None, "pair06 V8 runtime released before inference")
         result = runtime.decide_campaign_turn(
             state=state,
             typed_tools=typed_tools,
@@ -286,20 +292,27 @@ def execute_pair06_baseline_game_coupled_runtime(
         inference_count += 1
         return deepcopy(dict(result))
 
-    receipt = game_runner(
-        pair_slot=PAIR_SLOT,
-        arm=ARM,
-        seed=SEED,
-        rounds=ROUNDS,
-        ticks_per_round=TICKS_PER_ROUND,
-        starter_infantry=STARTER_INFANTRY,
-        staging_max_ticks=STAGING_MAX_TICKS,
-        runtime_selection_key=RUNTIME_SELECTION_KEY,
-        apollyon_decider=apollyon_decider,
-        authority_check=authority_check,
-    )
-    _require(isinstance(receipt, Mapping), "pair06 game-runner receipt must be object")
-    supplied = dict(receipt)
+    try:
+        game_receipt = game_runner(
+            pair_slot=PAIR_SLOT,
+            arm=ARM,
+            seed=SEED,
+            rounds=ROUNDS,
+            ticks_per_round=TICKS_PER_ROUND,
+            starter_infantry=STARTER_INFANTRY,
+            staging_max_ticks=STAGING_MAX_TICKS,
+            runtime_selection_key=RUNTIME_SELECTION_KEY,
+            apollyon_decider=apollyon_decider,
+            authority_check=authority_check,
+        )
+    finally:
+        model_reference_release_attempted = True
+        runtime = None
+        gc.collect()
+        model_reference_release_completed = True
+
+    _require(isinstance(game_receipt, Mapping), "pair06 game-runner receipt must be object")
+    supplied = dict(game_receipt)
 
     for field, expected in (
         ("pair_slot", PAIR_SLOT),
@@ -319,12 +332,11 @@ def execute_pair06_baseline_game_coupled_runtime(
         )
 
     for field in (
-        "runtime_load_performed",
-        "runtime_started",
+        "game_started",
         "model_inference_performed",
         "game_execution_performed",
-        "runtime_cleanup_attempted",
-        "runtime_cleanup_completed",
+        "game_cleanup_attempted",
+        "game_cleanup_completed",
     ):
         _require(
             supplied.get(field) is True,
@@ -354,6 +366,12 @@ def execute_pair06_baseline_game_coupled_runtime(
             f"pair06 game-runner boundary drift: {field}",
         )
 
+    _require(
+        model_reference_release_attempted is True
+        and model_reference_release_completed is True,
+        "pair06 V8 model reference release incomplete",
+    )
+
     body = {
         "schema": RECEIPT_SCHEMA,
         "pair_slot": PAIR_SLOT,
@@ -371,9 +389,12 @@ def execute_pair06_baseline_game_coupled_runtime(
         "model_inference_performed": True,
         "model_inference_count": inference_count,
         "game_execution_authorized": True,
+        "game_started": True,
         "game_execution_performed": True,
-        "runtime_cleanup_attempted": True,
-        "runtime_cleanup_completed": True,
+        "game_cleanup_attempted": True,
+        "game_cleanup_completed": True,
+        "model_reference_release_attempted": True,
+        "model_reference_release_completed": True,
         "automatic_retry": False,
         "candidate_runtime_load_performed": False,
         "candidate_execution_performed": False,
