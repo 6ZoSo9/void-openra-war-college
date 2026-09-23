@@ -18,13 +18,13 @@ def test_review_pins_exact_entrypoint_and_supervisor_sources():
     assert out["entrypoint_test_sha256"] == (
         "2a593cef0b481bf0444a60f2fd767704ba8aaad05231aa28dc148be7f4322e32"
     )
-    assert out["supervisor_git_blob"] == "e88f3ef7d22aba630c9235ed32d0d57847afa3a0"
+    assert out["supervisor_git_blob"] == "e46bf2ed3553b32c15d150145b5b5aa6040984d3"
     assert out["supervisor_source_sha256"] == (
-        "f924cdf1be34d2d21a2c07f2cd057231a7ec72339e0a4219d2f5d62864e4101b"
+        "f559af541d922ee9ec8c8d3c4fdfe019fb6f7a8bc764a32a1525377b4602fbe6"
     )
-    assert out["supervisor_test_git_blob"] == "7a0ef5837a2bba7e9e2abd29334f92eec693c78e"
+    assert out["supervisor_test_git_blob"] == "352eb50a3c5fa03622b7310f69e08683a8898dba"
     assert out["supervisor_test_sha256"] == (
-        "2c1a4bef16cb0f5bbeb57254394168eb62d9e5207e7f5983bc7e51b7c3be8758"
+        "e1b4ffdfea2cd24d55787636ce5899e4585fc58ea94689ff94c04dc4453c9e8b"
     )
 
 
@@ -41,6 +41,8 @@ def test_review_confirms_complete_parent_child_supervision_surface():
         "parent_decision_service_loop_implemented",
         "authority_check_before_load_implemented",
         "authority_check_before_each_inference_implemented",
+        "offload_safe_generate_adapter_reviewed",
+        "offload_safe_generate_bound_after_load_before_child_spawn",
         "natural_exit_verification_implemented",
         "term_then_kill_retirement_implemented",
         "v8_reference_release_in_finally_implemented",
