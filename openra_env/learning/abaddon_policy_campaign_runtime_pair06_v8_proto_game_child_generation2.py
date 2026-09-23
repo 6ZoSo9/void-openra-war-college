@@ -29,7 +29,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import stat
 import sys
 from typing import Any, Mapping
 
