@@ -276,15 +276,7 @@ def execute_pair06_v8_parent_supervisor(
         _require(isinstance(value, str) and value.startswith("/"), f"{label} must be absolute")
 
     paths = dependencies["host_path_review"]
-    runtime = capability.load_pair06_v8_runtime(
-        pair_slot=PAIR_SLOT,
-        arm=ARM,
-        model_dir=paths["model_dir"],
-        adapter_dir=paths["adapter_dir"],
-        runtime_load_authorized=True,
-        authority_check=authority_check,
-    )
-
+    runtime = None
     parent_sock = None
     child_sock = None
     process = None
@@ -296,6 +288,14 @@ def execute_pair06_v8_parent_supervisor(
     retirement_terminal = None
 
     try:
+        runtime = capability.load_pair06_v8_runtime(
+            pair_slot=PAIR_SLOT,
+            arm=ARM,
+            model_dir=paths["model_dir"],
+            adapter_dir=paths["adapter_dir"],
+            runtime_load_authorized=True,
+            authority_check=authority_check,
+        )
         parent_sock, child_sock = socket.socketpair()
         parent_sock.settimeout(SOCKET_TIMEOUT_S)
         child_sock.settimeout(SOCKET_TIMEOUT_S)
