@@ -16,13 +16,13 @@ CONTRACT_SCHEMA = (
     "pair06-v8-baseline-game-coupled-runtime-review-contract.v1"
 )
 
-RUNTIME_CORE_GIT_BLOB = "2397438189757be5bd48be2fd2e0ae088db65de7"
+RUNTIME_CORE_GIT_BLOB = "032966cc0e41a1841eee4637b4c9d798de16a562"
 RUNTIME_CORE_SOURCE_SHA256 = (
-    "5f2af3a09e73e0da8b9de647fe81930d85b3bef96459d9ef0f61525ced0fe903"
+    "2aa75242b04dbf533ab6fa100524209844cd9f7c029f6b3a736867c4d6a842d6"
 )
-RUNTIME_CORE_TEST_GIT_BLOB = "34c051be541119ac4f1773ff2b6ac151090ec8b7"
+RUNTIME_CORE_TEST_GIT_BLOB = "2337b3848d4bb294d409e5132159b4248ab3ccc0"
 RUNTIME_CORE_TEST_SHA256 = (
-    "201c144dac74bc265d7c4175e0b203c064ccaaef531e29766cdab44765a457eb"
+    "9179039fcc75cbc5125ce413271465b16cdab3c09cb35f1aa9724d1190e5f85a"
 )
 
 NEXT_GATE = "PAIR06_V8_BASELINE_GAME_RUNNER_ADAPTER_IMPLEMENTATION_REQUIRED"
@@ -70,6 +70,7 @@ def _validate_runtime_core_cached() -> dict[str, Any]:
         "authority_check_before_each_inference_implemented",
         "fresh_environment_verification_delegated_to_reviewed_loader",
         "exact_asset_verification_delegated_to_reviewed_loader",
+        "model_reference_release_in_finally_implemented",
         "game_runner_adapter_required",
     ):
         _require(contract.get(field) is True, f"pair06 runtime implementation drift: {field}")
@@ -141,6 +142,7 @@ def pair06_v8_baseline_game_coupled_runtime_review_contract() -> dict[str, Any]:
         "authority_check_before_each_inference_implemented": True,
         "fresh_environment_verification_delegated_to_reviewed_loader": True,
         "exact_asset_verification_delegated_to_reviewed_loader": True,
+        "model_reference_release_in_finally_implemented": True,
         "game_runner_adapter_required": True,
         "game_runner_adapter_implemented": False,
         "durable_game_attempt_claim_implemented": False,
