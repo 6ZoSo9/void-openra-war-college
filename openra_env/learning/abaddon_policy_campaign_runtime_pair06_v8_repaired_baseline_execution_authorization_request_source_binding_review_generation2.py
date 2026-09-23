@@ -24,6 +24,7 @@ REQUEST_TEST_GIT_BLOB = "36b7f78c0edc6a5c02da025532a08813c0057096"
 REQUEST_TEST_SHA256 = (
     "9be522fe7a687bc9d65094d3657557e5de15f62c722824cd79299a5fe55c52db"
 )
+REQUEST_BYTES_SHA256 = "31c0069869915eb01221d7ea0aa867c0517df0a702eeff58ca69f70dec07a410"
 
 NEXT_GATE = "PAIR06_V8_REPAIRED_BASELINE_EXECUTION_AUTHORIZATION_REQUIRED"
 NEXT_CHANGE_CLASS = "explicit_pair06_v8_repaired_baseline_execution_authorization"
@@ -106,6 +107,10 @@ def _validated() -> dict[str, Any]:
         and all(value is False for value in authority.values()),
         "repaired pair06 authority map drift",
     )
+    _require(
+        out.get("request_sha256") == REQUEST_BYTES_SHA256,
+        "repaired pair06 request byte digest drift",
+    )
     _require(out.get("next_gate") == NEXT_GATE, "repaired pair06 next gate drift")
     return deepcopy(out)
 
@@ -118,6 +123,7 @@ def pair06_v8_repaired_baseline_execution_authorization_request_review_contract(
         "request_source_sha256": REQUEST_SOURCE_SHA256,
         "request_test_git_blob": REQUEST_TEST_GIT_BLOB,
         "request_test_sha256": REQUEST_TEST_SHA256,
+        "request_bytes_sha256": REQUEST_BYTES_SHA256,
         "pair06_v8_repaired_baseline_execution_authorization_request_source_binding_present": True,
         "pair06_v8_repaired_baseline_execution_authorization_request_reviewed": True,
         "request_sha256": validated["request_sha256"],
