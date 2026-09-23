@@ -62,13 +62,47 @@ def test_pair06_baseline_and_candidate_are_matched_and_inert():
         assert command["weights_updated"] is False
 
 
-def test_pair06_requires_bounded_executor_extension():
+def test_pair06_routes_to_v8_capability_not_v2r13_executor():
     out = allocation.v2r13_pair06_nonheldout_allocation_contract()
     assert out["bounded_executor_current_pair_slots"] == (3, 9, 15)
     assert out["bounded_executor_current_held_out_pair_slots"] == (15,)
-    assert out["bounded_executor_extension_required"] is True
+    assert out["v2r13_executor_not_applicable_to_pair06"] is True
+    assert out["pair06_v8_runtime_capability_required"] is True
+    assert out["pair06_v8_activation_kind"] == "inprocess_accepted_v8_runtime"
+    assert out["pair06_v8_model_dir_binding_reviewed"] is False
+    assert out["pair06_v8_adapter_dir_binding_reviewed"] is False
+    assert out["pair06_v8_load_call_binding_reviewed"] is False
     assert out["pair06_runtime_execution_authorized"] is False
     assert out["pair06_runtime_execution_performed"] is False
+
+
+def test_pair06_v8_activation_plans_are_inert_and_blocked():
+    out = allocation.v2r13_pair06_nonheldout_allocation_contract()
+    expected_reasons = [
+        "V8_MODEL_DIR_BINDING_NOT_REVIEWED",
+        "V8_ADAPTER_DIR_BINDING_NOT_REVIEWED",
+        "V8_LOAD_CALL_BINDING_NOT_REVIEWED",
+        "RUNTIME_EXECUTION_AUTHORIZATION_REQUIRED",
+    ]
+    for arm in ("baseline", "candidate"):
+        plan = out["pair06_v8_activation_plans"][arm]
+        assert plan["pair_slot"] == 6
+        assert plan["arm"] == arm
+        assert plan["held_out"] is False
+        assert plan["opponent_snapshot_id"] == (
+            "apollyon-v3-v8-accepted-model-control"
+        )
+        assert plan["activation"]["activation_kind"] == (
+            "inprocess_accepted_v8_runtime"
+        )
+        assert plan["activation"]["model_dir_path_bound"] is False
+        assert plan["activation"]["adapter_dir_path_bound"] is False
+        assert plan["activation"]["load_call_materialized"] is False
+        assert plan["activation"]["model_weights_loaded"] is False
+        assert plan["activation_implementation_present"] is False
+        assert plan["runtime_started"] is False
+        assert plan["reasons"] == expected_reasons
+        assert plan["authority"]["runtime_execution_authorized"] is False
 
 
 def test_pair15_and_existing_pair_replays_remain_closed():
@@ -92,14 +126,14 @@ def test_allocation_grants_no_training_promotion_or_external_authority():
         assert out[field] is False
 
 
-def test_allocation_frontier_is_capability_extension():
+def test_allocation_frontier_is_v8_capability_implementation():
     out = allocation.v2r13_pair06_nonheldout_allocation_contract()
     assert out["source_frontier_closed"] is True
     assert out["execution_blockers"] == (
-        "V2R13_PAIR06_BOUNDED_CAPABILITY_EXTENSION_REQUIRED",
+        "PAIR06_V8_RUNTIME_CAPABILITY_IMPLEMENTATION_REQUIRED",
     )
     assert out["next_gate"] == (
-        "V2R13_PAIR06_BOUNDED_CAPABILITY_EXTENSION_REQUIRED"
+        "PAIR06_V8_RUNTIME_CAPABILITY_IMPLEMENTATION_REQUIRED"
     )
 
 
