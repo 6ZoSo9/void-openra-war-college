@@ -113,14 +113,14 @@ def test_load_rejects_wrong_scope_or_missing_authority(
 ):
     called = []
 
-    def fake_load(*, model_dir, adapter_dir):
+    def fake_load(cls, *, model_dir, adapter_dir):
         called.append((model_dir, adapter_dir))
         return object()
 
     monkeypatch.setattr(
         capability.v8_runtime.FrozenV8LocalToolRuntime,
         "load",
-        fake_load,
+        classmethod(fake_load),
     )
 
     with pytest.raises(capability.Pair06V8RuntimeCapabilityHold):
@@ -138,14 +138,14 @@ def test_load_rejects_wrong_scope_or_missing_authority(
 def test_load_rejects_revoked_authority_without_calling_loader(monkeypatch):
     called = []
 
-    def fake_load(*, model_dir, adapter_dir):
+    def fake_load(cls, *, model_dir, adapter_dir):
         called.append((model_dir, adapter_dir))
         return object()
 
     monkeypatch.setattr(
         capability.v8_runtime.FrozenV8LocalToolRuntime,
         "load",
-        fake_load,
+        classmethod(fake_load),
     )
 
     with pytest.raises(
@@ -167,14 +167,14 @@ def test_mocked_authorized_load_binds_exact_paths_without_real_model_load(monkey
     sentinel = object()
     called = []
 
-    def fake_load(*, model_dir, adapter_dir):
+    def fake_load(cls, *, model_dir, adapter_dir):
         called.append((str(model_dir), str(adapter_dir)))
         return sentinel
 
     monkeypatch.setattr(
         capability.v8_runtime.FrozenV8LocalToolRuntime,
         "load",
-        fake_load,
+        classmethod(fake_load),
     )
 
     observed = capability.load_pair06_v8_runtime(
