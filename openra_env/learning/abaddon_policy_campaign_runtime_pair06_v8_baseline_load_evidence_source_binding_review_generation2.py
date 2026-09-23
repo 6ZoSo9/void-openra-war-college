@@ -16,17 +16,17 @@ CONTRACT_SCHEMA = (
     "pair06-v8-baseline-load-evidence-review-contract.v1"
 )
 
-ACCEPTANCE_SOURCE_GIT_BLOB = "85486fd19830f20f834f6d5af19b24f65aaef372"
+ACCEPTANCE_SOURCE_GIT_BLOB = "d99e829b0cab74d03c7964b1b43cca19c7623f3a"
 ACCEPTANCE_SOURCE_SHA256 = (
-    "0c4caefd9686b9832ad7cb31c0b541cab97dce044d423e967276bcfec71990a3"
+    "25b9cb96b0f153f31748fde9f5e93df33454d6c8738e36ad7be84f7d394cfbbd"
 )
-ACCEPTANCE_TEST_GIT_BLOB = "cbe4735c1097f32fd33989ce97e92ae704ee84e4"
+ACCEPTANCE_TEST_GIT_BLOB = "5eb293962affb23ba5e4ab06513ba4a065409b17"
 ACCEPTANCE_TEST_SHA256 = (
-    "eaf5f28f93c11a46f3414af276a4b51cdb4aab19a46aace7e86db9a83b911c35"
+    "c127fb543beada2f68ee71ec062d387e1e5823019797298036e55dd8f7367be4"
 )
 
-NEXT_GATE = "PAIR06_V8_BASELINE_GAME_EXECUTION_IMPLEMENTATION_REQUIRED"
-NEXT_CHANGE_CLASS = "source_only_pair06_v8_baseline_game_execution_implementation"
+NEXT_GATE = "PAIR06_V8_BASELINE_RUNTIME_LIFETIME_HANDOFF_DESIGN_REQUIRED"
+NEXT_CHANGE_CLASS = "source_only_pair06_v8_baseline_runtime_lifetime_handoff_design"
 
 
 class Pair06V8BaselineLoadEvidenceReviewHold(ValueError):
@@ -68,6 +68,10 @@ def _validate_acceptance_cached() -> dict[str, Any]:
         "another pair06 baseline load unexpectedly authorized",
     )
     _require(
+        contract.get("runtime_lifetime_handoff_design_required") is True,
+        "pair06 runtime lifetime handoff frontier missing",
+    )
+    _require(
         contract.get("candidate_runtime_load_authorized") is False,
         "pair06 candidate load unexpectedly authorized",
     )
@@ -81,7 +85,7 @@ def _validate_acceptance_cached() -> dict[str, Any]:
     )
     _require(contract.get("automatic_retry") is False, "pair06 automatic retry enabled")
     _require(
-        contract.get("baseline_game_execution_implementation_required") is True,
+        contract.get("runtime_lifetime_handoff_design_required") is True,
         "pair06 game authorization-request frontier missing",
     )
 
@@ -104,6 +108,11 @@ def _validate_acceptance_cached() -> dict[str, Any]:
         and accepted.get("runtime_load_performed") is True
         and accepted.get("model_weights_loaded") is True,
         "pair06 accepted load completion missing",
+    )
+    _require(
+        accepted.get("persistent_runtime_handle_exported") is False
+        and accepted.get("runtime_residency_after_launcher_attested") is False,
+        "pair06 runtime lifetime boundary missing",
     )
     _require(
         accepted.get("model_inference_authorized") is False
@@ -167,6 +176,8 @@ def pair06_v8_baseline_load_evidence_review_contract() -> dict[str, Any]:
         "verified_asset_count": 17,
         "runtime_load_performed": True,
         "model_weights_loaded": True,
+        "persistent_runtime_handle_exported": False,
+        "runtime_residency_after_launcher_attested": False,
         "another_baseline_load_authorized": False,
         "candidate_runtime_load_authorized": False,
         "model_inference_authorized": False,
@@ -188,7 +199,7 @@ def pair06_v8_baseline_load_evidence_review_contract() -> dict[str, Any]:
         "void_chain_mutation_performed": False,
         "wallet_or_funds_action_authorized": False,
         "wallet_or_funds_action_performed": False,
-        "baseline_game_execution_implementation_required": True,
+        "runtime_lifetime_handoff_design_required": True,
         "execution_blockers": (NEXT_GATE,),
         "source_frontier_closed": True,
         "next_gate": NEXT_GATE,
