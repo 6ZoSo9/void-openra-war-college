@@ -16,17 +16,17 @@ CONTRACT_SCHEMA = (
     "v2r13-pair06-nonheldout-allocation-source-binding-review-contract.v1"
 )
 
-ALLOCATION_GIT_BLOB = "ffc2208c7d75609937bfeda44083de1e5b70853e"
+ALLOCATION_GIT_BLOB = "434cd0e7e471b8b176434faf051252482354a1cc"
 ALLOCATION_SOURCE_SHA256 = (
-    "257977fde8a2bfdd266736bf69b554e41545aa9944b21c9ecc1499d999382a66"
+    "d5ba7bf9e3431d2f1389a417baab574431198e1f12e3f62a37cfacc689a30adf"
 )
-ALLOCATION_TEST_GIT_BLOB = "08fc2f300dbb1f87fae8a08fe521f8a49828c16e"
+ALLOCATION_TEST_GIT_BLOB = "bcfec926f5a94df4fe744fa29fec6db9630af42f"
 ALLOCATION_TEST_SHA256 = (
-    "fbde05698ea4da12ac314557ba7dea20061eae64fa2ed84510266292d7208cae"
+    "12ef48a49ebe02ffcc6de02b03c948aebfd5b236c183d16fc639f9a03df32671"
 )
 
-NEXT_GATE = "V2R13_PAIR06_BOUNDED_CAPABILITY_EXTENSION_REQUIRED"
-NEXT_CHANGE_CLASS = "source_only_v2r13_pair06_bounded_capability_extension"
+NEXT_GATE = "PAIR06_V8_RUNTIME_CAPABILITY_IMPLEMENTATION_REQUIRED"
+NEXT_CHANGE_CLASS = "source_only_pair06_v8_runtime_capability_implementation"
 
 
 class V2R13Pair06NonheldoutAllocationReviewHold(ValueError):
@@ -93,8 +93,22 @@ def _validate_allocation_cached() -> dict[str, Any]:
         "current bounded executor held-out set drift",
     )
     _require(
-        contract.get("bounded_executor_extension_required") is True,
-        "pair06 capability extension not required",
+        contract.get("v2r13_executor_not_applicable_to_pair06") is True,
+        "pair06 incorrectly routed through V2R13 executor",
+    )
+    _require(
+        contract.get("pair06_v8_runtime_capability_required") is True,
+        "pair06 V8 runtime capability not required",
+    )
+    _require(
+        contract.get("pair06_v8_activation_kind") == "inprocess_accepted_v8_runtime",
+        "pair06 V8 activation kind drift",
+    )
+    _require(
+        contract.get("pair06_v8_model_dir_binding_reviewed") is False
+        and contract.get("pair06_v8_adapter_dir_binding_reviewed") is False
+        and contract.get("pair06_v8_load_call_binding_reviewed") is False,
+        "pair06 V8 capability unexpectedly pre-bound",
     )
     _require(
         contract.get("pair06_runtime_execution_authorized") is False,
@@ -133,7 +147,7 @@ def _validate_allocation_cached() -> dict[str, Any]:
 
     _require(
         contract.get("next_gate")
-        == "V2R13_PAIR06_BOUNDED_CAPABILITY_EXTENSION_REQUIRED",
+        == "PAIR06_V8_RUNTIME_CAPABILITY_IMPLEMENTATION_REQUIRED",
         "pair06 allocation frontier drift",
     )
     return deepcopy(contract)
@@ -163,7 +177,12 @@ def v2r13_pair06_nonheldout_allocation_review_contract() -> dict[str, Any]:
         "selected_opponent_snapshot_sha256": (
             "5c51082219530a302ce25b28daba9928f56a436c11d1508ca0bef755f4a86667"
         ),
-        "bounded_executor_extension_required": True,
+        "v2r13_executor_not_applicable_to_pair06": True,
+        "pair06_v8_runtime_capability_required": True,
+        "pair06_v8_activation_kind": "inprocess_accepted_v8_runtime",
+        "pair06_v8_model_dir_binding_reviewed": False,
+        "pair06_v8_adapter_dir_binding_reviewed": False,
+        "pair06_v8_load_call_binding_reviewed": False,
         "pair06_runtime_execution_authorized": False,
         "pair06_runtime_execution_performed": False,
         "pair15_execution_authorized": False,
