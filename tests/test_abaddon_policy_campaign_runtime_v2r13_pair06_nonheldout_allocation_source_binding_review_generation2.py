@@ -11,16 +11,16 @@ from openra_env.learning import (
 def test_review_pins_exact_allocation_source_and_tests():
     out = review.v2r13_pair06_nonheldout_allocation_review_contract()
     assert out["allocation_git_blob"] == (
-        "ffc2208c7d75609937bfeda44083de1e5b70853e"
+        "434cd0e7e471b8b176434faf051252482354a1cc"
     )
     assert out["allocation_source_sha256"] == (
-        "257977fde8a2bfdd266736bf69b554e41545aa9944b21c9ecc1499d999382a66"
+        "d5ba7bf9e3431d2f1389a417baab574431198e1f12e3f62a37cfacc689a30adf"
     )
     assert out["allocation_test_git_blob"] == (
-        "08fc2f300dbb1f87fae8a08fe521f8a49828c16e"
+        "bcfec926f5a94df4fe744fa29fec6db9630af42f"
     )
     assert out["allocation_test_sha256"] == (
-        "fbde05698ea4da12ac314557ba7dea20061eae64fa2ed84510266292d7208cae"
+        "12ef48a49ebe02ffcc6de02b03c948aebfd5b236c183d16fc639f9a03df32671"
     )
 
 
@@ -39,9 +39,14 @@ def test_review_confirms_exact_pair06_allocation():
     )
 
 
-def test_review_requires_bounded_capability_extension():
+def test_review_routes_pair06_to_v8_capability():
     out = review.v2r13_pair06_nonheldout_allocation_review_contract()
-    assert out["bounded_executor_extension_required"] is True
+    assert out["v2r13_executor_not_applicable_to_pair06"] is True
+    assert out["pair06_v8_runtime_capability_required"] is True
+    assert out["pair06_v8_activation_kind"] == "inprocess_accepted_v8_runtime"
+    assert out["pair06_v8_model_dir_binding_reviewed"] is False
+    assert out["pair06_v8_adapter_dir_binding_reviewed"] is False
+    assert out["pair06_v8_load_call_binding_reviewed"] is False
     assert out["pair06_runtime_execution_authorized"] is False
     assert out["pair06_runtime_execution_performed"] is False
 
@@ -67,14 +72,14 @@ def test_review_grants_no_training_promotion_or_external_authority():
         assert out[field] is False
 
 
-def test_review_frontier_is_bounded_capability_extension():
+def test_review_frontier_is_v8_capability_implementation():
     out = review.v2r13_pair06_nonheldout_allocation_review_contract()
     assert out["source_frontier_closed"] is True
     assert out["execution_blockers"] == (
-        "V2R13_PAIR06_BOUNDED_CAPABILITY_EXTENSION_REQUIRED",
+        "PAIR06_V8_RUNTIME_CAPABILITY_IMPLEMENTATION_REQUIRED",
     )
     assert out["next_gate"] == (
-        "V2R13_PAIR06_BOUNDED_CAPABILITY_EXTENSION_REQUIRED"
+        "PAIR06_V8_RUNTIME_CAPABILITY_IMPLEMENTATION_REQUIRED"
     )
 
 
