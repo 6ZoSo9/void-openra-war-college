@@ -1,0 +1,221 @@
+"""Source-only review of the pair-06 non-held-out allocation selection."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from functools import lru_cache
+from typing import Any
+
+from openra_env.learning import (
+    abaddon_policy_campaign_runtime_v2r13_pair06_nonheldout_allocation_generation2
+    as allocation,
+)
+
+CONTRACT_SCHEMA = (
+    "void.abaddon.generation2."
+    "v2r13-pair06-nonheldout-allocation-source-binding-review-contract.v1"
+)
+
+ALLOCATION_GIT_BLOB = "434cd0e7e471b8b176434faf051252482354a1cc"
+ALLOCATION_SOURCE_SHA256 = (
+    "d5ba7bf9e3431d2f1389a417baab574431198e1f12e3f62a37cfacc689a30adf"
+)
+ALLOCATION_TEST_GIT_BLOB = "bcfec926f5a94df4fe744fa29fec6db9630af42f"
+ALLOCATION_TEST_SHA256 = (
+    "12ef48a49ebe02ffcc6de02b03c948aebfd5b236c183d16fc639f9a03df32671"
+)
+
+NEXT_GATE = "PAIR06_V8_RUNTIME_CAPABILITY_IMPLEMENTATION_REQUIRED"
+NEXT_CHANGE_CLASS = "source_only_pair06_v8_runtime_capability_implementation"
+
+
+class V2R13Pair06NonheldoutAllocationReviewHold(ValueError):
+    pass
+
+
+def _require(condition: bool, message: str) -> None:
+    if not condition:
+        raise V2R13Pair06NonheldoutAllocationReviewHold(message)
+
+
+@lru_cache(maxsize=1)
+def _validate_allocation_cached() -> dict[str, Any]:
+    contract = allocation.v2r13_pair06_nonheldout_allocation_contract()
+
+    _require(
+        contract.get("new_nonheldout_allocation_selected") is True,
+        "pair06 allocation missing",
+    )
+    _require(
+        contract.get("selection_rule")
+        == "lowest_unused_nonheldout_historical_control_pair_slot",
+        "pair06 selection rule drift",
+    )
+    _require(
+        tuple(contract.get("completed_nonheldout_pair_slots", ())) == (3, 9),
+        "completed non-held-out pair set drift",
+    )
+    _require(
+        tuple(contract.get("eligible_unused_historical_control_pair_slots", ()))
+        == (6, 12),
+        "eligible pair06 allocation set drift",
+    )
+    _require(contract.get("selected_pair_slot") == 6, "selected pair-slot drift")
+    _require(contract.get("selected_seed") == 208354846, "selected seed drift")
+    _require(contract.get("selected_rounds") == 36, "selected round-limit drift")
+    _require(contract.get("selected_held_out") is False, "pair06 became held-out")
+    _require(
+        contract.get("selected_opponent_role") == "prior_accepted_model_control",
+        "pair06 opponent role drift",
+    )
+    _require(
+        contract.get("selected_opponent_snapshot_id")
+        == "apollyon-v3-v8-accepted-model-control",
+        "pair06 opponent snapshot drift",
+    )
+    _require(
+        contract.get("selected_opponent_snapshot_sha256")
+        == "5c51082219530a302ce25b28daba9928f56a436c11d1508ca0bef755f4a86667",
+        "pair06 opponent snapshot SHA drift",
+    )
+    _require(
+        contract.get("matched_baseline_candidate_required") is True,
+        "pair06 matched-arm requirement missing",
+    )
+    _require(
+        tuple(contract.get("bounded_executor_current_pair_slots", ()))
+        == (3, 9, 15),
+        "current bounded executor pair-slot set drift",
+    )
+    _require(
+        tuple(contract.get("bounded_executor_current_held_out_pair_slots", ()))
+        == (15,),
+        "current bounded executor held-out set drift",
+    )
+    _require(
+        contract.get("v2r13_executor_not_applicable_to_pair06") is True,
+        "pair06 incorrectly routed through V2R13 executor",
+    )
+    _require(
+        contract.get("pair06_v8_runtime_capability_required") is True,
+        "pair06 V8 runtime capability not required",
+    )
+    _require(
+        contract.get("pair06_v8_activation_kind") == "inprocess_accepted_v8_runtime",
+        "pair06 V8 activation kind drift",
+    )
+    _require(
+        contract.get("pair06_v8_model_dir_binding_reviewed") is False
+        and contract.get("pair06_v8_adapter_dir_binding_reviewed") is False
+        and contract.get("pair06_v8_load_call_binding_reviewed") is False,
+        "pair06 V8 capability unexpectedly pre-bound",
+    )
+    _require(
+        contract.get("pair06_runtime_execution_authorized") is False,
+        "pair06 execution prematurely authorized",
+    )
+    _require(
+        contract.get("pair06_runtime_execution_performed") is False,
+        "pair06 execution already performed",
+    )
+    _require(
+        contract.get("pair15_execution_authorized") is False,
+        "pair15 execution prematurely authorized",
+    )
+    _require(
+        contract.get("pair15_execution_performed") is False,
+        "pair15 execution already performed",
+    )
+    _require(
+        contract.get("pair03_replay_authorized") is False,
+        "pair03 replay authorized",
+    )
+    _require(
+        contract.get("pair09_replay_authorized") is False,
+        "pair09 replay authorized",
+    )
+
+    for field in (
+        "training_authorized",
+        "weights_update_authorized",
+        "automatic_policy_promotion_authorized",
+        "deployment_authorized",
+        "void_chain_mutation_authorized",
+        "wallet_or_funds_action_authorized",
+    ):
+        _require(contract.get(field) is False, f"pair06 allocation authority drift: {field}")
+
+    _require(
+        contract.get("next_gate")
+        == "PAIR06_V8_RUNTIME_CAPABILITY_IMPLEMENTATION_REQUIRED",
+        "pair06 allocation frontier drift",
+    )
+    return deepcopy(contract)
+
+
+def v2r13_pair06_nonheldout_allocation_review_contract() -> dict[str, Any]:
+    reviewed = _validate_allocation_cached()
+    return {
+        "schema": CONTRACT_SCHEMA,
+        "allocation_git_blob": ALLOCATION_GIT_BLOB,
+        "allocation_source_sha256": ALLOCATION_SOURCE_SHA256,
+        "allocation_test_git_blob": ALLOCATION_TEST_GIT_BLOB,
+        "allocation_test_sha256": ALLOCATION_TEST_SHA256,
+        "separate_review_instrument": True,
+        "allocation_source_identity_pinned_by_git_blob": True,
+        "allocation_source_identity_pinned_by_sha256": True,
+        "allocation_test_identity_pinned_by_git_blob": True,
+        "allocation_test_identity_pinned_by_sha256": True,
+        "pair06_nonheldout_allocation_reviewed": True,
+        "selected_pair_slot": 6,
+        "selected_seed": 208354846,
+        "selected_held_out": False,
+        "selected_opponent_role": "prior_accepted_model_control",
+        "selected_opponent_snapshot_id": (
+            "apollyon-v3-v8-accepted-model-control"
+        ),
+        "selected_opponent_snapshot_sha256": (
+            "5c51082219530a302ce25b28daba9928f56a436c11d1508ca0bef755f4a86667"
+        ),
+        "v2r13_executor_not_applicable_to_pair06": True,
+        "pair06_v8_runtime_capability_required": True,
+        "pair06_v8_activation_kind": "inprocess_accepted_v8_runtime",
+        "pair06_v8_model_dir_binding_reviewed": False,
+        "pair06_v8_adapter_dir_binding_reviewed": False,
+        "pair06_v8_load_call_binding_reviewed": False,
+        "pair06_runtime_execution_authorized": False,
+        "pair06_runtime_execution_performed": False,
+        "pair15_execution_authorized": False,
+        "pair15_execution_performed": False,
+        "pair03_replay_authorized": False,
+        "pair09_replay_authorized": False,
+        "training_authorized": False,
+        "weights_update_authorized": False,
+        "automatic_policy_promotion_authorized": False,
+        "deployment_authorized": False,
+        "void_chain_mutation_authorized": False,
+        "wallet_or_funds_action_authorized": False,
+        "reviewed_allocation": deepcopy(reviewed),
+        "source_frontier_closed": True,
+        "execution_blockers": (NEXT_GATE,),
+        "next_gate": NEXT_GATE,
+        "next_change_class": NEXT_CHANGE_CLASS,
+    }
+
+
+def execute_pair06(*args: Any, **kwargs: Any) -> None:
+    raise V2R13Pair06NonheldoutAllocationReviewHold(
+        "V2R13_PAIR06_RUNTIME_EXECUTION_NOT_AUTHORIZED"
+    )
+
+
+def execute_pair15(*args: Any, **kwargs: Any) -> None:
+    raise V2R13Pair06NonheldoutAllocationReviewHold(
+        "V2R13_PAIR15_HELD_OUT_EXECUTION_NOT_AUTHORIZED"
+    )
+
+
+def promote_or_train_candidate(*args: Any, **kwargs: Any) -> None:
+    raise V2R13Pair06NonheldoutAllocationReviewHold(
+        "V2R13_CANDIDATE_PROMOTION_AND_TRAINING_NOT_AUTHORIZED"
+    )
