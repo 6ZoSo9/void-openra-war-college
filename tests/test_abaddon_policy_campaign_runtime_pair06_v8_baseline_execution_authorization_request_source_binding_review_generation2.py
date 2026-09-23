@@ -10,9 +10,9 @@ from openra_env.learning import (
 
 def test_review_pins_exact_request_source_and_test():
     out = review.pair06_v8_baseline_execution_authorization_request_review_contract()
-    assert out["request_git_blob"] == "c68d79a9210259d6cc54373f2b3ba7eeffdb037d"
+    assert out["request_git_blob"] == "10932f1ca523d3675df02e5a5a25763dc014d7a1"
     assert out["request_source_sha256"] == (
-        "3aefebee23de9cf02ade3327d00b6b64021dc9b01f492efebe5b77534a421a31"
+        "b9958a25d2bf83968a647fd00d0cf9e4f783fdba7267550fc54fc2845c429548"
     )
     assert out["request_test_git_blob"] == "595382831314c8e4a920fe1db569b6e897ba8dee"
     assert out["request_test_sha256"] == (

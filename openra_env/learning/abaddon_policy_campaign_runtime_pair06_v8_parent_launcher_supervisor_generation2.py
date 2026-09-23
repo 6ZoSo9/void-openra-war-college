@@ -35,6 +35,14 @@ from openra_env.learning import (
     as host_path_review,
 )
 from openra_env.learning import (
+    abaddon_policy_campaign_runtime_pair06_v8_offload_safe_generate_adapter_generation2
+    as offload_adapter,
+)
+from openra_env.learning import (
+    abaddon_policy_campaign_runtime_pair06_v8_offload_safe_generate_adapter_source_binding_review_generation2
+    as offload_adapter_review,
+)
+from openra_env.learning import (
     abaddon_policy_campaign_runtime_pair06_v8_parent_child_ipc_bridge_generation2
     as ipc,
 )
@@ -59,6 +67,10 @@ RECEIPT_SCHEMA = (
 CHILD_REVIEW_GIT_BLOB = "bd2d7d97a9ed9c04be3bddae5f64977265686fa5"
 CHILD_REVIEW_SOURCE_SHA256 = (
     "8a6d62ca43f3475fab51481e75670a0a5e79ddc7cbc3865ad4ad34db50d8536c"
+)
+OFFLOAD_ADAPTER_REVIEW_GIT_BLOB = "74dce709c20b147ca5fd42213ac7014c82a672f1"
+OFFLOAD_ADAPTER_REVIEW_SOURCE_SHA256 = (
+    "bbb39b01e162a92aef5f8f0d09c3d4adee964cdb1c923d78bc61e92aaf40dc83"
 )
 
 PAIR_SLOT = 6
@@ -114,9 +126,28 @@ def _dependencies() -> dict[str, Any]:
     paths = host_path_review.pair06_v8_host_path_binding_review_contract()
     _require(paths.get("pair_slot") == PAIR_SLOT, "pair06 host path slot drift")
     _require(paths.get("verified_asset_count") == 17, "pair06 asset count drift")
+
+    offload = offload_adapter_review.pair06_v8_offload_safe_generate_adapter_review_contract()
+    _require(
+        offload.get("pair06_v8_offload_safe_generate_adapter_reviewed") is True,
+        "pair06 offload-safe generate adapter not reviewed",
+    )
+    _require(offload.get("pair_slot") == PAIR_SLOT, "pair06 offload adapter slot drift")
+    _require(offload.get("arm") == ARM, "pair06 offload adapter arm drift")
+    _require(
+        offload.get("input_device_from_embedding_weight") is True
+        and offload.get("hard_coded_cuda_input_transfer_used") is False,
+        "pair06 offload adapter device-placement drift",
+    )
+    _require(
+        offload.get("next_gate")
+        == "PAIR06_V8_PARENT_SUPERVISOR_OFFLOAD_ADAPTER_BINDING_REQUIRED",
+        "pair06 offload adapter frontier drift",
+    )
     return {
         "child_review": deepcopy(child_contract),
         "host_path_review": deepcopy(paths),
+        "offload_adapter_review": deepcopy(offload),
     }
 
 
@@ -295,6 +326,7 @@ def execute_pair06_v8_parent_supervisor(
             runtime_load_authorized=True,
             authority_check=authority_check,
         )
+        runtime = offload_adapter.bind_pair06_v8_offload_safe_generate(runtime)
         parent_sock, child_sock = socket.socketpair()
         parent_sock.settimeout(SOCKET_TIMEOUT_S)
         child_sock.settimeout(SOCKET_TIMEOUT_S)
@@ -461,6 +493,8 @@ def pair06_v8_parent_launcher_supervisor_contract() -> dict[str, Any]:
         "schema": CONTRACT_SCHEMA,
         "child_review_git_blob": CHILD_REVIEW_GIT_BLOB,
         "child_review_source_sha256": CHILD_REVIEW_SOURCE_SHA256,
+        "offload_adapter_review_git_blob": OFFLOAD_ADAPTER_REVIEW_GIT_BLOB,
+        "offload_adapter_review_source_sha256": OFFLOAD_ADAPTER_REVIEW_SOURCE_SHA256,
         "pair06_v8_parent_launcher_supervisor_implemented": True,
         "pair06_v8_parent_launcher_supervisor_reviewed": False,
         "pair_slot": PAIR_SLOT,
@@ -474,6 +508,9 @@ def pair06_v8_parent_launcher_supervisor_contract() -> dict[str, Any]:
         "parent_decision_service_loop_implemented": True,
         "authority_check_before_load_implemented": True,
         "authority_check_before_each_inference_implemented": True,
+        "offload_safe_generate_adapter_reviewed": True,
+        "offload_safe_generate_bound_after_load_before_child_spawn": True,
+        "hard_coded_cuda_input_transfer_used_by_pair06_parent": False,
         "natural_exit_verification_implemented": True,
         "term_then_kill_retirement_implemented": True,
         "v8_reference_release_in_finally_implemented": True,
