@@ -277,32 +277,43 @@ def _remove_worktree(repository: Path, path: Path) -> None:
 
 
 def _expected_tree(root: Path, *, include_worktrees: bool) -> None:
-    expected = {
-        Path("."),
-        CLAIMS_REL,
-        MARKER_REL,
-        RUNS_REL,
-        RUN_REL,
-        WARM_REL,
-        TRAJECTORY_REL,
-    }
+    expected_top = {"claims-v1", "runs-v1"}
     if include_worktrees:
-        expected.update({FROZEN_SOURCE_REL, ENGINE_REL})
+        expected_top.update({"frozen-source", "engine"})
+    actual_top = {entry.name for entry in root.iterdir()}
+    _require(actual_top == expected_top, "failed attempt top-level tree drift")
 
-    actual = {Path(".")}
-    for path in root.rglob("*"):
-        rel = path.relative_to(root)
-        if include_worktrees and (
-            rel == FROZEN_SOURCE_REL
-            or FROZEN_SOURCE_REL in rel.parents
-            or rel == ENGINE_REL
-            or ENGINE_REL in rel.parents
-        ):
-            if rel in {FROZEN_SOURCE_REL, ENGINE_REL}:
-                actual.add(rel)
-            continue
-        actual.add(rel)
-    _require(actual == expected, "failed attempt tree drift")
+    claims = root / CLAIMS_REL
+    runs = root / RUNS_REL
+    run = root / RUN_REL
+    _require(claims.is_dir() and not claims.is_symlink(), "claims directory drift")
+    _require(runs.is_dir() and not runs.is_symlink(), "runs directory drift")
+    _require(run.is_dir() and not run.is_symlink(), "run directory drift")
+
+    _require(
+        {entry.name for entry in claims.iterdir()} == {MARKER_REL.name},
+        "claims tree drift",
+    )
+    _require(
+        {entry.name for entry in runs.iterdir()} == {RUN_REL.name},
+        "runs tree drift",
+    )
+    _require(
+        {entry.name for entry in run.iterdir()}
+        == {WARM_REL.name, TRAJECTORY_REL.name},
+        "run artifact tree drift",
+    )
+
+    if include_worktrees:
+        for rel in (FROZEN_SOURCE_REL, ENGINE_REL):
+            path = root / rel
+            _require(
+                path.is_dir() and not path.is_symlink(),
+                f"worktree directory drift: {path}",
+            )
+    else:
+        _require(not (root / FROZEN_SOURCE_REL).exists(), "frozen source remains")
+        _require(not (root / ENGINE_REL).exists(), "engine worktree remains")
 
     _require(not (root / RESULT_REL).exists(), "result unexpectedly present")
     _require(not (root / CLOSEOUT_REL).exists(), "closeout unexpectedly present")
