@@ -23,6 +23,9 @@ def test_contract_implements_parent_supervision_but_remains_inert():
     assert out["parent_decision_service_loop_implemented"] is True
     assert out["authority_check_before_load_implemented"] is True
     assert out["authority_check_before_each_inference_implemented"] is True
+    assert out["offload_safe_generate_adapter_reviewed"] is True
+    assert out["offload_safe_generate_bound_after_load_before_child_spawn"] is True
+    assert out["hard_coded_cuda_input_transfer_used_by_pair06_parent"] is False
     assert out["natural_exit_verification_implemented"] is True
     assert out["term_then_kill_retirement_implemented"] is True
     assert out["v8_reference_release_in_finally_implemented"] is True
