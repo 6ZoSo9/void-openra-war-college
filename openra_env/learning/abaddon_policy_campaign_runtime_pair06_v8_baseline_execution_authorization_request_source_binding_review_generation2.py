@@ -16,9 +16,9 @@ CONTRACT_SCHEMA = (
     "pair06-v8-baseline-execution-authorization-request-review-contract.v1"
 )
 
-REQUEST_GIT_BLOB = "7dff647cc9ffd7354b7fc9e16532ef51161d3d94"
+REQUEST_GIT_BLOB = "c68d79a9210259d6cc54373f2b3ba7eeffdb037d"
 REQUEST_SOURCE_SHA256 = (
-    "42496124e11e561bb4d0f34b3473a3f5948f3e1e9af33ecfb42afffa7e6b9e31"
+    "3aefebee23de9cf02ade3327d00b6b64021dc9b01f492efebe5b77534a421a31"
 )
 REQUEST_TEST_GIT_BLOB = "595382831314c8e4a920fe1db569b6e897ba8dee"
 REQUEST_TEST_SHA256 = (
