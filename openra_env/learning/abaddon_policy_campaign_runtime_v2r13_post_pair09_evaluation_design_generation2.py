@@ -182,7 +182,7 @@ def v2r13_post_pair09_evaluation_design_contract() -> dict[str, Any]:
         "authorized_pair_slots": EXPECTED_AUTHORIZED_PAIR_SLOTS,
         "held_out_pair_slots": EXPECTED_HELD_OUT_PAIR_SLOTS,
         "nonheldout_pair_slots": EXHAUSTED_NONHELDOUT_PAIR_SLOTS,
-        "completed_nondeci­sive_nonheldout_pair_slots": (
+        "completed_nondecisive_nonheldout_pair_slots": (
             EXHAUSTED_NONHELDOUT_PAIR_SLOTS
         ),
         "existing_nonheldout_capacity_exhausted": True,
