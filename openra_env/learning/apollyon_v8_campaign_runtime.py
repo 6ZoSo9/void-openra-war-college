@@ -506,6 +506,23 @@ class FrozenV8LocalToolRuntime:
         model.eval()
         return cls(model=model, tokenizer=tokenizer, torch_module=torch)
 
+    def _input_device(self) -> Any:
+        """Return the actual input-embedding device for this loaded runtime."""
+        get_input_embeddings = getattr(self.model, "get_input_embeddings", None)
+        _require(
+            callable(get_input_embeddings),
+            "V8 runtime model has no input-embedding accessor",
+        )
+        embeddings = get_input_embeddings()
+        weight = getattr(embeddings, "weight", None)
+        device = getattr(weight, "device", None)
+        device_type = getattr(device, "type", None)
+        _require(
+            device_type in {"cpu", "cuda"},
+            "V8 runtime input embedding device is unsupported",
+        )
+        return device
+
     def generate(self, *, messages: Sequence[Mapping[str, Any]], tools: Sequence[Mapping[str, Any]]) -> str:
         _require(len(messages) == 2, "V8 runtime requires exact two-message current input")
         _current_runtime_names(tools)
@@ -521,7 +538,8 @@ class FrozenV8LocalToolRuntime:
             return_tensors="pt",
             add_special_tokens=False,
         )
-        encoded = {key: value.to("cuda") for key, value in encoded.items()}
+        input_device = self._input_device()
+        encoded = {key: value.to(input_device) for key, value in encoded.items()}
         prompt_len = int(encoded["input_ids"].shape[1])
         with self._torch.inference_mode():
             output = self.model.generate(
@@ -989,6 +1007,9 @@ def v8_tool_runtime_contract() -> dict[str, Any]:
         "offline_only_model_load": True,
         "accepted_chat_template_generation_implemented": True,
         "campaign_decision_adapter_implemented": True,
+        "input_device_bound_to_embedding_weight": True,
+        "hard_coded_cuda_input_transfer": False,
+        "cpu_offload_input_supported": True,
         "advance_narrowed_to_shared_50_ticks": True,
         "production_output_maps_to_current_typed_identity": True,
         "placement_coordinates_must_be_zero_or_absent": True,
