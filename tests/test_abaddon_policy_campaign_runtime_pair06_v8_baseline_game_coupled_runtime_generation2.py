@@ -180,7 +180,7 @@ def test_revocation_before_inference_is_enforced(monkeypatch):
 
     def authority(pair_slot, arm):
         calls["count"] += 1
-        return calls["count"] <= 2
+        return calls["count"] == 1
 
     def game_runner(**kwargs):
         kwargs["apollyon_decider"](
