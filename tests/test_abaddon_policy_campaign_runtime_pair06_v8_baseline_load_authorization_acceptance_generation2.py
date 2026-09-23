@@ -107,7 +107,7 @@ def test_tampered_arm_is_rejected():
 
 def test_field_set_expansion_is_rejected():
     value = deepcopy(authorization.AUTHORIZATION_ATTESTATION)
-    value["game_execution_authorized"] = True
+    value["unexpected_authority_field"] = True
     with pytest.raises(
         authorization.Pair06V8BaselineLoadAuthorizationAcceptanceHold,
         match="authorization field-set drift",
