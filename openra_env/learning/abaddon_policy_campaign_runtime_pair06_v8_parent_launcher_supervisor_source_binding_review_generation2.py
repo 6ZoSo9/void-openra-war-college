@@ -28,13 +28,13 @@ ENTRYPOINT_TEST_GIT_BLOB = "45cdb661fdb777076c2fb383f9b9ea93c6c98768"
 ENTRYPOINT_TEST_SHA256 = (
     "2a593cef0b481bf0444a60f2fd767704ba8aaad05231aa28dc148be7f4322e32"
 )
-SUPERVISOR_GIT_BLOB = "e88f3ef7d22aba630c9235ed32d0d57847afa3a0"
+SUPERVISOR_GIT_BLOB = "e46bf2ed3553b32c15d150145b5b5aa6040984d3"
 SUPERVISOR_SOURCE_SHA256 = (
-    "f924cdf1be34d2d21a2c07f2cd057231a7ec72339e0a4219d2f5d62864e4101b"
+    "f559af541d922ee9ec8c8d3c4fdfe019fb6f7a8bc764a32a1525377b4602fbe6"
 )
-SUPERVISOR_TEST_GIT_BLOB = "7a0ef5837a2bba7e9e2abd29334f92eec693c78e"
+SUPERVISOR_TEST_GIT_BLOB = "352eb50a3c5fa03622b7310f69e08683a8898dba"
 SUPERVISOR_TEST_SHA256 = (
-    "2c1a4bef16cb0f5bbeb57254394168eb62d9e5207e7f5983bc7e51b7c3be8758"
+    "e1b4ffdfea2cd24d55787636ce5899e4585fc58ea94689ff94c04dc4453c9e8b"
 )
 
 NEXT_GATE = "PAIR06_V8_BASELINE_ATTEMPT_CLAIM_AND_INVOCATION_IMPLEMENTATION_REQUIRED"
@@ -87,6 +87,8 @@ def _validate_cached() -> dict[str, Any]:
         "parent_decision_service_loop_implemented",
         "authority_check_before_load_implemented",
         "authority_check_before_each_inference_implemented",
+        "offload_safe_generate_adapter_reviewed",
+        "offload_safe_generate_bound_after_load_before_child_spawn",
         "natural_exit_verification_implemented",
         "term_then_kill_retirement_implemented",
         "v8_reference_release_in_finally_implemented",
@@ -112,6 +114,10 @@ def _validate_cached() -> dict[str, Any]:
         "wallet_or_funds_action_authorized",
     ):
         _require(sup.get(field) is False, f"parent supervisor authority drift: {field}")
+    _require(
+        sup.get("hard_coded_cuda_input_transfer_used_by_pair06_parent") is False,
+        "pair06 parent still uses hard-coded CUDA input placement",
+    )
     _require(sup.get("automatic_retry") is False, "parent supervisor automatic retry enabled")
 
     _require(
@@ -145,6 +151,9 @@ def pair06_v8_parent_launcher_supervisor_review_contract() -> dict[str, Any]:
         "parent_decision_service_loop_implemented": True,
         "authority_check_before_load_implemented": True,
         "authority_check_before_each_inference_implemented": True,
+        "offload_safe_generate_adapter_reviewed": True,
+        "offload_safe_generate_bound_after_load_before_child_spawn": True,
+        "hard_coded_cuda_input_transfer_used_by_pair06_parent": False,
         "natural_exit_verification_implemented": True,
         "term_then_kill_retirement_implemented": True,
         "v8_reference_release_in_finally_implemented": True,
