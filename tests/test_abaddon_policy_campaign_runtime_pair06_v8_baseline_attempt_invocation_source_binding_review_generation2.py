@@ -18,9 +18,9 @@ def test_review_pins_exact_backend_and_invocation_sources():
     assert out["git_backend_test_sha256"] == (
         "c0444208d94936826ca1ea8ffa30216432053c4a127e23c51763c52e13d3031d"
     )
-    assert out["invocation_git_blob"] == "39dc83aca2d258303fecf57cf75a1bbaee2dbef2"
+    assert out["invocation_git_blob"] == "7d5ca142b9be1e97fa288eef2a91fe0ebc73da33"
     assert out["invocation_source_sha256"] == (
-        "2eeaf9606e6a1cf173e0453104f3d440da8ab7e169a0bfe163b89c54e8164bd9"
+        "58fa705393c4f0fe4b1c50c004d020b0682ada2a4f7d8cafe89d76c28e13fdb7"
     )
     assert out["invocation_test_git_blob"] == "cff9dcd3450103e2c139addd0c93dc82182c2c22"
     assert out["invocation_test_sha256"] == (
