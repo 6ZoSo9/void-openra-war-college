@@ -24,6 +24,7 @@ def test_contract_is_implemented_but_inert_and_unauthorized():
     assert out["same_process_load_and_game_implemented"] is True
     assert out["authority_check_before_load_implemented"] is True
     assert out["authority_check_before_each_inference_implemented"] is True
+    assert out["model_reference_release_in_finally_implemented"] is True
     assert out["game_runner_adapter_required"] is True
     assert out["game_runner_adapter_implemented_by_this_source"] is False
     assert out["game_coupled_load_authorized"] is False
@@ -102,13 +103,12 @@ def test_inert_execution_with_mocked_loader_and_runner(monkeypatch):
             "starter_infantry": 4,
             "staging_max_ticks": 800,
             "runtime_selection_key": "apollyon-v3-v8-accepted-model-control",
-            "runtime_load_performed": True,
-            "runtime_started": True,
+            "game_started": True,
             "model_inference_performed": True,
             "model_inference_count": 1,
             "game_execution_performed": True,
-            "runtime_cleanup_attempted": True,
-            "runtime_cleanup_completed": True,
+            "game_cleanup_attempted": True,
+            "game_cleanup_completed": True,
             "automatic_retry": False,
             "candidate_runtime_load_performed": False,
             "candidate_execution_performed": False,
@@ -132,7 +132,9 @@ def test_inert_execution_with_mocked_loader_and_runner(monkeypatch):
     assert out["model_inference_performed"] is True
     assert out["model_inference_count"] == 1
     assert out["game_execution_performed"] is True
-    assert out["runtime_cleanup_completed"] is True
+    assert out["game_cleanup_completed"] is True
+    assert out["model_reference_release_attempted"] is True
+    assert out["model_reference_release_completed"] is True
     assert out["automatic_retry"] is False
     assert len(out["execution_receipt_sha256"]) == 64
 
@@ -229,13 +231,12 @@ def test_receipt_scope_drift_fails_closed(monkeypatch):
             "starter_infantry": 4,
             "staging_max_ticks": 800,
             "runtime_selection_key": "apollyon-v3-v8-accepted-model-control",
-            "runtime_load_performed": True,
-            "runtime_started": True,
+            "game_started": True,
             "model_inference_performed": True,
             "model_inference_count": 1,
             "game_execution_performed": True,
-            "runtime_cleanup_attempted": True,
-            "runtime_cleanup_completed": True,
+            "game_cleanup_attempted": True,
+            "game_cleanup_completed": True,
             "automatic_retry": False,
             "candidate_runtime_load_performed": False,
             "candidate_execution_performed": False,
