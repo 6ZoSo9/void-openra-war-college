@@ -737,6 +737,7 @@ def pair06_v8_baseline_attempt_invocation_contract() -> dict[str, Any]:
         "reviewed_worktree_materializer_reused": True,
         "pair06_specific_git_backend_required": True,
         "preclaim_worktree_materialization_implemented": True,
+        "preclaim_materialization_cleanup_on_hold_implemented": True,
         "preclaim_empty_runs_root_required": True,
         "durable_create_only_attempt_marker_implemented": True,
         "marker_deletion_api_implemented": False,
