@@ -91,6 +91,6 @@ def test_request_bytes_are_fixed_and_tampering_fails():
 def test_execution_entrypoint_holds():
     with pytest.raises(
         request.Pair06V8NoOffloadReceiptBoundBaselineExecutionAuthorizationRequestHold,
-        match="NO_OFFLOAD_BASELINE_EXECUTION_AUTHORIZATION_REQUIRED",
+        match="PAIR06_V8_NO_OFFLOAD_RECEIPT_BOUND_BASELINE_EXECUTION_AUTHORIZATION_REQUIRED",
     ):
         request.authorize_or_execute()
