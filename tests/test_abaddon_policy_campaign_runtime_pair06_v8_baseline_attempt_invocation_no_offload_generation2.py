@@ -81,7 +81,7 @@ def test_supervisor_receipt_validation_rejects_scope_drift():
     receipt = {
         "schema": (
             "void.abaddon.generation2."
-            "pair06-v8-parent-launcher-supervisor-no-offload-receipt.v1"
+            "pair06-v8-parent-launcher-supervisor-receipt.v1"
         ),
         "pair_slot": 15,
         "arm": "baseline",
