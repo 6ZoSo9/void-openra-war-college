@@ -27,10 +27,6 @@ import sys
 from typing import Any, Mapping, Protocol
 
 from openra_env.learning import (
-    abaddon_policy_campaign_runtime_pair06_v8_capability_generation2
-    as capability,
-)
-from openra_env.learning import (
     abaddon_policy_campaign_runtime_pair06_v8_host_path_binding_source_binding_review_generation2
     as host_path_review,
 )
@@ -362,6 +358,20 @@ def execute_pair06_v8_parent_supervisor(
             authority_check=authority_check,
         )
         runtime = offload_adapter.bind_pair06_v8_offload_safe_generate(runtime)
+        placement = getattr(
+            runtime,
+            "_void_pair06_inference_safe_placement",
+            None,
+        )
+        _require(
+            isinstance(placement, Mapping)
+            and placement.get("all_parameters_cuda0") is True
+            and placement.get("input_embedding_cuda0") is True
+            and placement.get("cpu_parameter_count") == 0
+            and placement.get("meta_parameter_count") == 0
+            and placement.get("disk_offload_present") is False,
+            "PAIR06_V8_INFERENCE_SAFE_PLACEMENT_RECEIPT_HOLD",
+        )
         parent_sock, child_sock = socket.socketpair()
         parent_sock.settimeout(SOCKET_TIMEOUT_S)
         child_sock.settimeout(SOCKET_TIMEOUT_S)
@@ -472,6 +482,7 @@ def execute_pair06_v8_parent_supervisor(
             "v8_parent_python": str(V8_PYTHON),
             "proto_child_python": str(PROTO_PYTHON),
             "runtime_load_performed": True,
+            "inference_safe_placement": deepcopy(dict(placement)),
             "model_inference_performed": True,
             "model_inference_count": inference_count,
             "game_execution_performed": True,
@@ -549,6 +560,7 @@ def pair06_v8_parent_launcher_supervisor_contract() -> dict[str, Any]:
         "inference_safe_loader_bound_before_generate_adapter": True,
         "cpu_disk_meta_parameter_offload_forbidden": True,
         "all_parameters_cuda0_required_before_child_spawn": True,
+        "inference_safe_placement_receipt_implemented": True,
         "offload_safe_generate_adapter_reviewed": True,
         "offload_safe_generate_bound_after_load_before_child_spawn": True,
         "hard_coded_cuda_input_transfer_used_by_pair06_parent": False,
