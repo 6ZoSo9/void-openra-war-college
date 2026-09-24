@@ -4,6 +4,10 @@ The authorization was accepted but intentionally held pre-claim after a
 canonical receipt-schema mismatch was discovered before any attempt marker,
 model load, inference, child spawn, or game execution occurred.
 
+The receipt-schema repair is now canonical as an additive generation: the
+historical no-offload invocation remains byte-identical and a separate
+receipt-bound invocation carries the repaired schema/placement validation.
+
 This record grants no authority by itself and performs no host I/O.
 """
 
@@ -37,7 +41,25 @@ OBSERVED_INVOCATION_EXPECTED_SCHEMA = (
     "pair06-v8-parent-launcher-supervisor-receipt.v1"
 )
 
-NEXT_GATE = "PAIR06_V8_NO_OFFLOAD_RECEIPT_SCHEMA_BINDING_REPAIR_REQUIRED"
+REPAIR_CANONICAL_MAIN_HEAD = "9c0b5ecea847abe5b9d997b1cda4f86bbe3e9287"
+HISTORICAL_INVOCATION_GIT_BLOB = "b93255245f4d622dfb2cf0ddd6f97c3592f87cdc"
+HISTORICAL_INVOCATION_SOURCE_SHA256 = (
+    "4be25b850afc45cd34b977308add5cd288ce95411c683ca6545e0fb2fd6a0529"
+)
+RECEIPT_BOUND_INVOCATION_GIT_BLOB = "f22313cc3481b806a30dee5a7009b62c25293f17"
+RECEIPT_BOUND_INVOCATION_SOURCE_SHA256 = (
+    "cd363ebc606fe83f2d5675a8af43d1a098b7fe27184fa33fba4a27522f47652b"
+)
+RECEIPT_BOUND_INVOCATION_REVIEW_GIT_BLOB = (
+    "dbe0390492520ec3307e4c9238136f5637962bbb"
+)
+RECEIPT_BOUND_INVOCATION_REVIEW_SOURCE_SHA256 = (
+    "f5b7e9ceeddf07a98b74a8701802851fb46587a95aba7e6d3f866b1128c3b475"
+)
+
+NEXT_GATE = (
+    "PAIR06_V8_NO_OFFLOAD_RECEIPT_BOUND_BASELINE_EXECUTION_AUTHORIZATION_REQUEST_REQUIRED"
+)
 
 
 class Pair06V8NoOffloadAuthorizationAcceptanceHold(ValueError):
@@ -57,6 +79,22 @@ def pair06_v8_no_offload_execution_authorization_acceptance_contract() -> dict[s
         "preclaim_hold_reason": PRECLAIM_HOLD_REASON,
         "expected_parent_receipt_schema": EXPECTED_PARENT_RECEIPT_SCHEMA,
         "observed_invocation_expected_schema": OBSERVED_INVOCATION_EXPECTED_SCHEMA,
+        "receipt_schema_binding_repair_canonical": True,
+        "repair_canonical_main_head": REPAIR_CANONICAL_MAIN_HEAD,
+        "historical_no_offload_invocation_preserved": True,
+        "historical_invocation_git_blob": HISTORICAL_INVOCATION_GIT_BLOB,
+        "historical_invocation_source_sha256": HISTORICAL_INVOCATION_SOURCE_SHA256,
+        "receipt_bound_invocation_git_blob": RECEIPT_BOUND_INVOCATION_GIT_BLOB,
+        "receipt_bound_invocation_source_sha256": (
+            RECEIPT_BOUND_INVOCATION_SOURCE_SHA256
+        ),
+        "receipt_bound_invocation_review_git_blob": (
+            RECEIPT_BOUND_INVOCATION_REVIEW_GIT_BLOB
+        ),
+        "receipt_bound_invocation_review_source_sha256": (
+            RECEIPT_BOUND_INVOCATION_REVIEW_SOURCE_SHA256
+        ),
+        "held_authorization_superseded": True,
         "attempt_marker_created": False,
         "attempt_consumed": False,
         "runtime_load_performed": False,
