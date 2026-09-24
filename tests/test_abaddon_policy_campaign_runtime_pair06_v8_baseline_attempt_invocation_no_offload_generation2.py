@@ -30,6 +30,8 @@ def test_contract_closes_attempt_claim_and_invocation_implementation_only():
     assert out["resume_api_implemented"] is False
     assert out["attempt_marker_precedes_model_load_and_child_spawn"] is True
     assert out["marker_sha256_is_attempt_id"] is True
+    assert out["no_offload_parent_receipt_schema_required"] is True
+    assert out["inference_safe_placement_receipt_required"] is True
     assert out["durable_execution_result_before_cleanup_implemented"] is True
     assert out["success_only_worktree_cleanup_implemented"] is True
     assert out["durable_cleanup_closeout_implemented"] is True
@@ -77,12 +79,40 @@ def test_create_only_writer_is_durable_and_refuses_collision(tmp_path):
         invocation._write_create_only(path, first)
 
 
+def test_supervisor_receipt_validation_rejects_missing_cuda_placement():
+    receipt = {
+        "schema": (
+            "void.abaddon.generation2."
+            "pair06-v8-parent-launcher-supervisor-no-offload-receipt.v1"
+        ),
+        "pair_slot": 6,
+        "arm": "baseline",
+        "attempt_id": "a" * 64,
+        "attempt_claimed": True,
+    }
+    with pytest.raises(
+        invocation.Pair06V8BaselineAttemptInvocationNoOffloadHold,
+        match="INFERENCE_SAFE_PLACEMENT_HOLD",
+    ):
+        invocation._validate_supervisor_receipt(
+            receipt,
+            attempt_id="a" * 64,
+        )
+
+
 def test_supervisor_receipt_validation_rejects_scope_drift():
     receipt = {
         "schema": (
             "void.abaddon.generation2."
             "pair06-v8-parent-launcher-supervisor-no-offload-receipt.v1"
         ),
+        "inference_safe_placement": {
+            "all_parameters_cuda0": True,
+            "input_embedding_cuda0": True,
+            "cpu_parameter_count": 0,
+            "meta_parameter_count": 0,
+            "disk_offload_present": False,
+        },
         "pair_slot": 15,
         "arm": "baseline",
         "attempt_id": "a" * 64,
