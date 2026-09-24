@@ -10,16 +10,16 @@ from openra_env.learning import (
 
 def test_review_pins_exact_replacement_request_bytes():
     out = review.pair06_v8_no_offload_receipt_bound_request_review_contract()
-    assert out["request_git_blob"] == "d1f821cd2ec12c11045f1af16e521b6331c2b804"
+    assert out["request_git_blob"] == "d6bb79437e0dd7cbff669ec3b21aadbf2365bf70"
     assert out["request_source_sha256"] == (
-        "7b8f12e7cc904702abca02383fbe27482538c00da685c99711b79d985d45649c"
+        "78a93d011f2c7b14e370387e5d5d2479b5d6837ecd55da143460f257b167f278"
     )
     assert out["request_test_git_blob"] == "78714d94cd9428ba43f91bcd24f8076b2199efe4"
     assert out["request_test_sha256"] == (
         "55dd521cb2201df14890f748c3a806e923c58a34494e21ae576f05ff73a2657f"
     )
     assert out["request_bytes_sha256"] == (
-        "61caa61dfa4426b4acf53a05a816dd0dc1fbaa8b60843ff3c8248cd27d8367f7"
+        "dbfee1aa9d648f81ea58e6c7d2bd99356e1af61b0e1957334ac67137b2d563e3"
     )
     assert out["request_byte_length"] == 4828
     assert out["request_sha256"] == out["request_bytes_sha256"]
