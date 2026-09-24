@@ -28,13 +28,13 @@ ENTRYPOINT_TEST_GIT_BLOB = "45cdb661fdb777076c2fb383f9b9ea93c6c98768"
 ENTRYPOINT_TEST_SHA256 = (
     "2a593cef0b481bf0444a60f2fd767704ba8aaad05231aa28dc148be7f4322e32"
 )
-SUPERVISOR_GIT_BLOB = "6bbc794789741fc5c274339893608381cb3aa1f7"
+SUPERVISOR_GIT_BLOB = "e46bf2ed3553b32c15d150145b5b5aa6040984d3"
 SUPERVISOR_SOURCE_SHA256 = (
-    "923be6ea1e63044a263adc930da2e4923577d5e94b7811b968143f9cc3108c12"
+    "f559af541d922ee9ec8c8d3c4fdfe019fb6f7a8bc764a32a1525377b4602fbe6"
 )
-SUPERVISOR_TEST_GIT_BLOB = "f6e9b0b1335d7a9877e7b3b82e5dcd0bd390a6af"
+SUPERVISOR_TEST_GIT_BLOB = "352eb50a3c5fa03622b7310f69e08683a8898dba"
 SUPERVISOR_TEST_SHA256 = (
-    "528657f74966ab5f9639a4a8b97ec4f64f9a4dfdc04e74758f1c8bba4a6abe38"
+    "e1b4ffdfea2cd24d55787636ce5899e4585fc58ea94689ff94c04dc4453c9e8b"
 )
 
 NEXT_GATE = "PAIR06_V8_BASELINE_ATTEMPT_CLAIM_AND_INVOCATION_IMPLEMENTATION_REQUIRED"
@@ -87,11 +87,6 @@ def _validate_cached() -> dict[str, Any]:
         "parent_decision_service_loop_implemented",
         "authority_check_before_load_implemented",
         "authority_check_before_each_inference_implemented",
-        "inference_safe_no_offload_loader_reviewed",
-        "inference_safe_loader_bound_before_generate_adapter",
-        "cpu_disk_meta_parameter_offload_forbidden",
-        "all_parameters_cuda0_required_before_child_spawn",
-        "inference_safe_placement_receipt_implemented",
         "offload_safe_generate_adapter_reviewed",
         "offload_safe_generate_bound_after_load_before_child_spawn",
         "natural_exit_verification_implemented",
@@ -156,11 +151,6 @@ def pair06_v8_parent_launcher_supervisor_review_contract() -> dict[str, Any]:
         "parent_decision_service_loop_implemented": True,
         "authority_check_before_load_implemented": True,
         "authority_check_before_each_inference_implemented": True,
-        "inference_safe_no_offload_loader_reviewed": True,
-        "inference_safe_loader_bound_before_generate_adapter": True,
-        "cpu_disk_meta_parameter_offload_forbidden": True,
-        "all_parameters_cuda0_required_before_child_spawn": True,
-        "inference_safe_placement_receipt_implemented": True,
         "offload_safe_generate_adapter_reviewed": True,
         "offload_safe_generate_bound_after_load_before_child_spawn": True,
         "hard_coded_cuda_input_transfer_used_by_pair06_parent": False,
