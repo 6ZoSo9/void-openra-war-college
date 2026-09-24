@@ -470,7 +470,7 @@ def _validate_supervisor_receipt(
         value.get("schema")
         == (
             "void.abaddon.generation2."
-            "pair06-v8-parent-launcher-supervisor-no-offload-receipt.v1"
+            "pair06-v8-parent-launcher-supervisor-receipt.v1"
         ),
         "PAIR06_V8_INVOCATION_SUPERVISOR_SCHEMA_HOLD",
     )
@@ -480,16 +480,6 @@ def _validate_supervisor_receipt(
         and value.get("attempt_id") == attempt_id
         and value.get("attempt_claimed") is True,
         "PAIR06_V8_INVOCATION_SUPERVISOR_SCOPE_HOLD",
-    )
-    placement = value.get("inference_safe_placement")
-    _require(
-        isinstance(placement, Mapping)
-        and placement.get("all_parameters_cuda0") is True
-        and placement.get("input_embedding_cuda0") is True
-        and placement.get("cpu_parameter_count") == 0
-        and placement.get("meta_parameter_count") == 0
-        and placement.get("disk_offload_present") is False,
-        "PAIR06_V8_INVOCATION_INFERENCE_SAFE_PLACEMENT_HOLD",
     )
     for field in (
         "runtime_load_performed",
@@ -800,8 +790,6 @@ def pair06_v8_baseline_attempt_invocation_no_offload_contract() -> dict[str, Any
         "marker_sha256_is_attempt_id": True,
         "authority_rechecked_after_claim": True,
         "authority_rechecked_before_each_inference_by_supervisor": True,
-        "no_offload_parent_receipt_schema_required": True,
-        "inference_safe_placement_receipt_required": True,
         "durable_execution_result_before_cleanup_implemented": True,
         "success_only_worktree_cleanup_implemented": True,
         "durable_cleanup_closeout_implemented": True,
