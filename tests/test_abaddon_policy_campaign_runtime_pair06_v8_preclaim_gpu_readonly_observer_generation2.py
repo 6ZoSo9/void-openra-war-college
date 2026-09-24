@@ -56,7 +56,7 @@ def test_contract_binds_reviewed_admission_and_readonly_boundary():
         "00876b15ce0317d548b14e98dd5c3a480f11c84f"
     )
     assert out["admission_review_source_sha256"] == (
-        "8d879e9f1f361abdd0e03ca3be996857006be3306eb3a32376a76d386e68fb2a"
+        "3991a1bcb2ffe855495cb983c3a4540f947d2079d60c7bf8fd1283b8a6ca06ba"
     )
     assert out["pair_slot"] == 6
     assert out["gpu_index"] == 0
