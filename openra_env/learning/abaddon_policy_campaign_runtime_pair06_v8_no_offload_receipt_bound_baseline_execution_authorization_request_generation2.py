@@ -19,7 +19,7 @@ import json
 from typing import Any
 
 from openra_env.learning import (
-    abaddon_policy_campaign_runtime_pair06_v8_baseline_attempt_invocation_no_offload_source_binding_review_generation2
+    abaddon_policy_campaign_runtime_pair06_v8_baseline_attempt_invocation_receipt_bound_no_offload_source_binding_review_generation2
     as invocation_review,
 )
 from openra_env.learning import (
@@ -36,9 +36,9 @@ VALIDATION_SCHEMA = (
     "pair06-v8-no-offload-receipt-bound-baseline-execution-authorization-request-validation.v1"
 )
 
-INVOCATION_REVIEW_GIT_BLOB = "5b7752d7861d8b41af4bfeea3b238d464872506e"
+INVOCATION_REVIEW_GIT_BLOB = "dbe0390492520ec3307e4c9238136f5637962bbb"
 INVOCATION_REVIEW_SOURCE_SHA256 = (
-    "f1a74d3fb8d66adf610d4a8c7f6240ff1bdff1e97076f52934bec251e71b726e"
+    "f5b7e9ceeddf07a98b74a8701802851fb46587a95aba7e6d3f866b1128c3b475"
 )
 PRESERVATION_RESULT_REVIEW_GIT_BLOB = "16fe141898537776be87654d32f4e7b67c34e880"
 PRESERVATION_RESULT_REVIEW_SOURCE_SHA256 = (
@@ -125,7 +125,7 @@ def _require(condition: bool, message: str) -> None:
 def _dependencies() -> dict[str, Any]:
     invocation = (
         invocation_review
-        .pair06_v8_baseline_attempt_invocation_no_offload_review_contract()
+        .pair06_v8_baseline_attempt_invocation_receipt_bound_no_offload_review_contract()
     )
     preservation = (
         preservation_result_review
@@ -133,13 +133,13 @@ def _dependencies() -> dict[str, Any]:
     )
 
     _require(
-        invocation.get("pair06_v8_baseline_attempt_invocation_no_offload_reviewed")
+        invocation.get("pair06_v8_baseline_attempt_invocation_receipt_bound_no_offload_reviewed")
         is True,
         "no-offload pair06 invocation not reviewed",
     )
     _require(
         invocation.get("invocation_source_sha256")
-        == "d8d1598ea2c016a6b27fb2e109e1a6eb2fca3f0535687ab48db47e2fb742ea91",
+        == "cd363ebc606fe83f2d5675a8af43d1a098b7fe27184fa33fba4a27522f47652b",
         "no-offload pair06 invocation source drift",
     )
     _require(
@@ -249,7 +249,7 @@ def _request_record() -> dict[str, Any]:
             "invocation_review_git_blob": INVOCATION_REVIEW_GIT_BLOB,
             "invocation_review_source_sha256": INVOCATION_REVIEW_SOURCE_SHA256,
             "invocation_source_sha256": (
-                "d8d1598ea2c016a6b27fb2e109e1a6eb2fca3f0535687ab48db47e2fb742ea91"
+                "cd363ebc606fe83f2d5675a8af43d1a098b7fe27184fa33fba4a27522f47652b"
             ),
             "preservation_result_review_git_blob": (
                 PRESERVATION_RESULT_REVIEW_GIT_BLOB
