@@ -23,6 +23,11 @@ def test_contract_implements_parent_supervision_but_remains_inert():
     assert out["parent_decision_service_loop_implemented"] is True
     assert out["authority_check_before_load_implemented"] is True
     assert out["authority_check_before_each_inference_implemented"] is True
+    assert out["inference_safe_no_offload_loader_reviewed"] is True
+    assert out["inference_safe_loader_bound_before_generate_adapter"] is True
+    assert out["cpu_disk_meta_parameter_offload_forbidden"] is True
+    assert out["all_parameters_cuda0_required_before_child_spawn"] is True
+    assert out["inference_safe_placement_receipt_implemented"] is True
     assert out["offload_safe_generate_adapter_reviewed"] is True
     assert out["offload_safe_generate_bound_after_load_before_child_spawn"] is True
     assert out["hard_coded_cuda_input_transfer_used_by_pair06_parent"] is False
