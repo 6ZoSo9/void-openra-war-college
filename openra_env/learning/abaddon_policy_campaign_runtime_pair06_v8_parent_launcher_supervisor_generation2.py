@@ -35,6 +35,14 @@ from openra_env.learning import (
     as host_path_review,
 )
 from openra_env.learning import (
+    abaddon_policy_campaign_runtime_pair06_v8_inference_safe_loader_generation2
+    as inference_safe_loader,
+)
+from openra_env.learning import (
+    abaddon_policy_campaign_runtime_pair06_v8_inference_safe_loader_source_binding_review_generation2
+    as inference_safe_loader_review,
+)
+from openra_env.learning import (
     abaddon_policy_campaign_runtime_pair06_v8_offload_safe_generate_adapter_generation2
     as offload_adapter,
 )
@@ -71,6 +79,10 @@ CHILD_REVIEW_SOURCE_SHA256 = (
 OFFLOAD_ADAPTER_REVIEW_GIT_BLOB = "74dce709c20b147ca5fd42213ac7014c82a672f1"
 OFFLOAD_ADAPTER_REVIEW_SOURCE_SHA256 = (
     "bbb39b01e162a92aef5f8f0d09c3d4adee964cdb1c923d78bc61e92aaf40dc83"
+)
+INFERENCE_SAFE_LOADER_REVIEW_GIT_BLOB = "d9f910e6290187431ecb7003da1da6b127708084"
+INFERENCE_SAFE_LOADER_REVIEW_SOURCE_SHA256 = (
+    "99f362a33696eaf6aede3da72d21f1df91e89e3ea3b6f71c93e2119b706c9eac"
 )
 
 PAIR_SLOT = 6
@@ -144,10 +156,35 @@ def _dependencies() -> dict[str, Any]:
         == "PAIR06_V8_PARENT_SUPERVISOR_OFFLOAD_ADAPTER_BINDING_REQUIRED",
         "pair06 offload adapter frontier drift",
     )
+
+    safe_loader = inference_safe_loader_review.pair06_v8_inference_safe_loader_review_contract()
+    _require(
+        safe_loader.get("pair06_v8_inference_safe_loader_reviewed") is True,
+        "pair06 inference-safe loader not reviewed",
+    )
+    _require(safe_loader.get("pair_slot") == PAIR_SLOT, "pair06 inference-safe loader slot drift")
+    _require(safe_loader.get("arm") == ARM, "pair06 inference-safe loader arm drift")
+    _require(
+        safe_loader.get("device_map") == {"": 0}
+        and safe_loader.get("offload_embedding") is False,
+        "pair06 inference-safe loader placement policy drift",
+    )
+    _require(
+        safe_loader.get("cpu_parameter_offload_allowed") is False
+        and safe_loader.get("disk_parameter_offload_allowed") is False
+        and safe_loader.get("meta_parameter_allowed_after_load") is False,
+        "pair06 inference-safe loader offload boundary drift",
+    )
+    _require(
+        safe_loader.get("next_gate")
+        == "PAIR06_V8_PARENT_SUPERVISOR_INFERENCE_SAFE_LOADER_BINDING_REQUIRED",
+        "pair06 inference-safe loader frontier drift",
+    )
     return {
         "child_review": deepcopy(child_contract),
         "host_path_review": deepcopy(paths),
         "offload_adapter_review": deepcopy(offload),
+        "inference_safe_loader_review": deepcopy(safe_loader),
     }
 
 
@@ -318,9 +355,7 @@ def execute_pair06_v8_parent_supervisor(
     retirement_terminal = None
 
     try:
-        runtime = capability.load_pair06_v8_runtime(
-            pair_slot=PAIR_SLOT,
-            arm=ARM,
+        runtime = inference_safe_loader.load_pair06_v8_inference_safe_runtime(
             model_dir=paths["model_dir"],
             adapter_dir=paths["adapter_dir"],
             runtime_load_authorized=True,
@@ -495,6 +530,8 @@ def pair06_v8_parent_launcher_supervisor_contract() -> dict[str, Any]:
         "child_review_source_sha256": CHILD_REVIEW_SOURCE_SHA256,
         "offload_adapter_review_git_blob": OFFLOAD_ADAPTER_REVIEW_GIT_BLOB,
         "offload_adapter_review_source_sha256": OFFLOAD_ADAPTER_REVIEW_SOURCE_SHA256,
+        "inference_safe_loader_review_git_blob": INFERENCE_SAFE_LOADER_REVIEW_GIT_BLOB,
+        "inference_safe_loader_review_source_sha256": INFERENCE_SAFE_LOADER_REVIEW_SOURCE_SHA256,
         "pair06_v8_parent_launcher_supervisor_implemented": True,
         "pair06_v8_parent_launcher_supervisor_reviewed": False,
         "pair_slot": PAIR_SLOT,
@@ -508,6 +545,10 @@ def pair06_v8_parent_launcher_supervisor_contract() -> dict[str, Any]:
         "parent_decision_service_loop_implemented": True,
         "authority_check_before_load_implemented": True,
         "authority_check_before_each_inference_implemented": True,
+        "inference_safe_no_offload_loader_reviewed": True,
+        "inference_safe_loader_bound_before_generate_adapter": True,
+        "cpu_disk_meta_parameter_offload_forbidden": True,
+        "all_parameters_cuda0_required_before_child_spawn": True,
         "offload_safe_generate_adapter_reviewed": True,
         "offload_safe_generate_bound_after_load_before_child_spawn": True,
         "hard_coded_cuda_input_transfer_used_by_pair06_parent": False,
