@@ -31,7 +31,9 @@ def test_exact_marker_only_residual_tree_is_accepted():
         acceptance.EXPECTED_EVIDENCE
     )
     evidence = out["evidence"]
-    assert evidence["marker_inode_dev"] if False else True
+    assert evidence["attempt_marker_dev"] == 2050
+    assert evidence["attempt_marker_inode"] == 209756174
+    assert evidence["attempt_marker_bytes"] == 974
     assert evidence["baseline_top_level"] == (
         "claims-v1",
         "engine",
