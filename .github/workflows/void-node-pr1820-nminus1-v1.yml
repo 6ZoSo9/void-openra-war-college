@@ -1,0 +1,150 @@
+name: VOID node PR1820 external N-1 v1
+
+on:
+  push:
+    branches:
+      - 'verify/void-node-pr1820-nminus1-v1-20260925'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: void-node-pr1820-nminus1-v1
+  cancel-in-progress: true
+
+jobs:
+  first-node-remove-precision:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact VOID node PR1820 head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: 6ZoSo9/void-node
+          ref: bab349b8b3df15c582fe04ba0acc9d93ef37417c
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install Tor and iptables
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tor iptables
+
+      - name: Start isolated Tor SOCKS client
+        run: |
+          mkdir -p "$RUNNER_TEMP/void-tor-client-data"
+          printf '%s\n' \
+            "DataDirectory $RUNNER_TEMP/void-tor-client-data" \
+            "SocksPort 127.0.0.1:19051" \
+            "SafeSocks 1" \
+            "SafeLogging 1" \
+            "ClientOnly 1" \
+            "RunAsDaemon 0" \
+            "Log notice stdout" \
+            >"$RUNNER_TEMP/void-tor-client.conf"
+          tor --verify-config -f "$RUNNER_TEMP/void-tor-client.conf"
+          tor -f "$RUNNER_TEMP/void-tor-client.conf" >"$RUNNER_TEMP/tor.log" 2>&1 &
+          echo "$!" >"$RUNNER_TEMP/tor.pid"
+          for _ in $(seq 1 180); do
+            if grep -Fq 'Bootstrapped 100% (done): Done' "$RUNNER_TEMP/tor.log"; then
+              echo "tor_bootstrap_100=true"
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/tor.pid")" 2>/dev/null; then
+              cat "$RUNNER_TEMP/tor.log" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/tor.log" >&2
+          exit 1
+
+      - name: Authenticate both then remove Precision
+        run: npx --no-install tsx scripts/live_void_public_p2p_direct_tor_n_minus_one_v1.ts both-remove-precision
+
+  second-node-tor-unavailable:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact VOID node PR1820 head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: 6ZoSo9/void-node
+          ref: bab349b8b3df15c582fe04ba0acc9d93ef37417c
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Authenticate Precision with Tor unavailable
+        run: npx --no-install tsx scripts/live_void_public_p2p_direct_tor_n_minus_one_v1.ts tor-unavailable
+
+  extra-node-precision-unavailable:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact VOID node PR1820 head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: 6ZoSo9/void-node
+          ref: bab349b8b3df15c582fe04ba0acc9d93ef37417c
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install Tor and iptables
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tor iptables
+
+      - name: Start isolated Tor SOCKS client
+        run: |
+          mkdir -p "$RUNNER_TEMP/void-tor-client-data"
+          printf '%s\n' \
+            "DataDirectory $RUNNER_TEMP/void-tor-client-data" \
+            "SocksPort 127.0.0.1:19051" \
+            "SafeSocks 1" \
+            "SafeLogging 1" \
+            "ClientOnly 1" \
+            "RunAsDaemon 0" \
+            "Log notice stdout" \
+            >"$RUNNER_TEMP/void-tor-client.conf"
+          tor -f "$RUNNER_TEMP/void-tor-client.conf" >"$RUNNER_TEMP/tor.log" 2>&1 &
+          echo "$!" >"$RUNNER_TEMP/tor.pid"
+          for _ in $(seq 1 180); do
+            if grep -Fq 'Bootstrapped 100% (done): Done' "$RUNNER_TEMP/tor.log"; then
+              echo "tor_bootstrap_100=true"
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/tor.pid")" 2>/dev/null; then
+              cat "$RUNNER_TEMP/tor.log" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/tor.log" >&2
+          exit 1
+
+      - name: Authenticate Nimo with Precision unavailable
+        run: npx --no-install tsx scripts/live_void_public_p2p_direct_tor_n_minus_one_v1.ts precision-unavailable
