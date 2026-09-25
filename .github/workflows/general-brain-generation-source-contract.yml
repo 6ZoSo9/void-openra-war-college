@@ -2,19 +2,11 @@ name: general-brain-generation-source-contract
 
 on:
   pull_request:
-    paths:
-      - openra_env/learning/**
-      - fixtures/learning/**
-      - tests/test_general_brain_generation.py
-      - .github/workflows/general-brain-generation-source-contract.yml
+    branches:
+      - main
   push:
     branches:
       - main
-    paths:
-      - openra_env/learning/**
-      - fixtures/learning/**
-      - tests/test_general_brain_generation.py
-      - .github/workflows/general-brain-generation-source-contract.yml
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
