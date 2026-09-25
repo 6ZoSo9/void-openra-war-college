@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import lru_cache
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable
 
 from openra_env.learning import (
     abaddon_policy_campaign_runtime_pair06_v8_combat_action_availability_observation_acceptance_generation2
