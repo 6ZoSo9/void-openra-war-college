@@ -131,13 +131,13 @@ def test_visible_contact_mode_retains_combat_reinforcement_and_controls():
 
     assert out["mode"] == "VISIBLE_CONTACT"
     assert out["filtered_offered_tool_names"] == (
+        "train_unit_e1",
+        "move_units",
         "attack_move",
         "attack_target",
-        "guard_target",
-        "move_units",
         "set_stance",
         "stop_units",
-        "train_unit_e1",
+        "guard_target",
     )
     assert set(x["function"]["name"] for x in out["typed_tools"]) == {
         "train_unit_e1",
