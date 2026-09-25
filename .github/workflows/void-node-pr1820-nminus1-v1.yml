@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   first-node-remove-precision:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
       - name: Checkout exact VOID node PR1820 head
@@ -71,7 +71,7 @@ jobs:
         run: npx --no-install tsx scripts/live_void_public_p2p_direct_tor_n_minus_one_v1.ts both-remove-precision
 
   second-node-tor-unavailable:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
       - name: Checkout exact VOID node PR1820 head
@@ -94,7 +94,7 @@ jobs:
         run: npx --no-install tsx scripts/live_void_public_p2p_direct_tor_n_minus_one_v1.ts tor-unavailable
 
   extra-node-precision-unavailable:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
       - name: Checkout exact VOID node PR1820 head
