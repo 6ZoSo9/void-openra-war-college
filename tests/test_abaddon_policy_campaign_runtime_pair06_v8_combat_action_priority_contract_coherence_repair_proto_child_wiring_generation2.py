@@ -32,34 +32,11 @@ def test_contract_binds_reviewed_repair_and_historical_child_wiring():
     )
 
 
-def test_repaired_hook_subclass_replaces_only_decision_hook(monkeypatch):
-    monkeypatch.setattr(wiring, "_dependencies", lambda: {})
-
-    class Historical:
-        def __init__(self, legacy, sock, attempt_id):
-            self._ipc_decider = lambda **kwargs: {}
-            self._decision_hooks = type("Old", (), {"_installed": False})()
-
-    monkeypatch.setattr(
-        wiring,
-        "ORIGINAL_COMBAT_PRIORITY_PROTO_CHILD_HOOKS",
-        Historical,
-    )
-
-    class Rebound(
-        Historical
-    ):
-        pass
-
-    monkeypatch.setattr(
+def test_repaired_proto_child_hook_is_exact_historical_subclass():
+    assert issubclass(
         wiring.Pair06V8CombatPriorityCoherentProtoChildHooks,
-        "__bases__",
-        (Historical,),
-        raising=False,
+        wiring.ORIGINAL_COMBAT_PRIORITY_PROTO_CHILD_HOOKS,
     )
-
-    # Construction behavior itself is covered through the real inheritance
-    # contract below; keep this test focused on the exact repaired hook class.
     assert issubclass(
         repair.Pair06V8CombatPriorityContractCoherentDecisionHooks,
         object,
