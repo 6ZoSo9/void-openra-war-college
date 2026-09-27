@@ -21,9 +21,9 @@ REVIEW_SCHEMA = "void.abaddon.scout-post-run-backend-source-binding-review.v1"
 ACCEPTED_MAIN_HEAD = "0487be81964ef92459f17920418fe0abe8b2a3e5"
 
 BACKEND_PATH = "openra_env/learning/abaddon_scout_post_run_backend_v1.py"
-BACKEND_GIT_BLOB = "5feb2070c35ddd027fb3fb450ba72d0086a942a5"
+BACKEND_GIT_BLOB = "344a83b23e1c4d8ced97d3a82049e6f9e8fd7ebf"
 BACKEND_TEST_PATH = "tests/test_abaddon_scout_post_run_backend_v1.py"
-BACKEND_TEST_GIT_BLOB = "df734cae9a172dd42fcd1a3f5f9da87b5b38aafb"
+BACKEND_TEST_GIT_BLOB = "052058dbe96fe9b7d8f6607506396d0d770e6170"
 
 OBSERVER_CONTRACT_PATH = observer_review.OBSERVER_CONTRACT_PATH
 OBSERVER_CONTRACT_GIT_BLOB = observer_review.OBSERVER_CONTRACT_GIT_BLOB
@@ -133,6 +133,7 @@ def scout_post_run_backend_source_binding_review_contract() -> dict[str, Any]:
         "derived_canary_runner_binding_present": True,
         "all_five_post_run_probe_mechanics_implemented": True,
         "marker_byte_identity_probe_implemented": True,
+        "marker_directory_identity_binding_implemented": True,
         "service_inactive_probe_implemented": True,
         "container_absence_probe_implemented": True,
         "model_process_absence_probe_implemented": True,
