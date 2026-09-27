@@ -63,7 +63,7 @@ SOURCE_STATUS_COMMAND = (
     SOURCE_ROOT,
     "status",
     "--porcelain",
-    "--untracked-files=no",
+    "--untracked-files=all",
 )
 ENGINE_HEAD_COMMAND = (GIT, "-C", ENGINE_ROOT, "rev-parse", "HEAD")
 ENGINE_STATUS_COMMAND = (
@@ -72,7 +72,7 @@ ENGINE_STATUS_COMMAND = (
     ENGINE_ROOT,
     "status",
     "--porcelain",
-    "--untracked-files=no",
+    "--untracked-files=all",
 )
 SERVICE_INACTIVE_COMMAND = (SYSTEMCTL, "is-active", SERVICE_UNIT)
 MODEL_PROCESS_COMMAND = (PGREP, "-x", MODEL_PROCESS_NAME)
