@@ -43,11 +43,13 @@ def _inputs(tmp_path: Path):
     marker = directory / backend.attempt_guard.MARKER_NAME
     marker.write_bytes(raw)
     marker.chmod(0o600)
+    parent_stat = directory.stat()
     return (
         backend.ScoutPostRunBackendInputs(
             experiment_id=experiment_id,
             attempt_marker_path=str(marker),
             attempt_marker_sha256=hashlib.sha256(raw).hexdigest(),
+            attempt_directory_identity=(parent_stat.st_dev, parent_stat.st_ino),
             engine_container_name="void-scout-repair-canary-4242",
             accepted_war_college_commit="a" * 40,
         ),
@@ -220,6 +222,34 @@ def test_marker_symlink_fails_closed(tmp_path):
         )
 
 
+
+def test_copied_marker_in_different_private_directory_fails_identity_binding(tmp_path):
+    inputs, raw = _inputs(tmp_path)
+    copied_dir = tmp_path / "copied"
+    copied_dir.mkdir(mode=0o700)
+    copied = copied_dir / backend.attempt_guard.MARKER_NAME
+    copied.write_bytes(raw)
+    copied.chmod(0o600)
+    changed = backend.ScoutPostRunBackendInputs(
+        experiment_id=inputs.experiment_id,
+        attempt_marker_path=str(copied),
+        attempt_marker_sha256=inputs.attempt_marker_sha256,
+        attempt_directory_identity=inputs.attempt_directory_identity,
+        engine_container_name=inputs.engine_container_name,
+        accepted_war_college_commit=inputs.accepted_war_college_commit,
+    )
+    paths = FakePaths()
+    with pytest.raises(
+        backend.ScoutPostRunBackendHold,
+        match="SCOUT_MARKER_PARENT_IDENTITY_DRIFT",
+    ):
+        backend.probe_attempt_marker_present(
+            changed,
+            file_backend=backend.host_file_backend(),
+            lstat_path=paths.lstat,
+            resolve_path=paths.resolve,
+        )
+
 def test_service_inactive_requires_exact_systemd_inactive_semantics(tmp_path):
     inputs, _ = _inputs(tmp_path)
     runner = FakeRunner(inputs)
@@ -354,6 +384,7 @@ def test_invalid_or_unbound_container_identity_fails_before_commands(tmp_path):
         experiment_id=inputs.experiment_id,
         attempt_marker_path=inputs.attempt_marker_path,
         attempt_marker_sha256=inputs.attempt_marker_sha256,
+        attempt_directory_identity=inputs.attempt_directory_identity,
         engine_container_name="not-the-canary-container",
         accepted_war_college_commit=inputs.accepted_war_college_commit,
     )
