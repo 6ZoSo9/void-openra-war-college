@@ -125,17 +125,39 @@ def test_audit_source_has_no_host_io_process_network_or_execution_backend():
         {"os", "pathlib", "subprocess", "socket", "urllib", "requests"}
     )
     assert 'if __name__ ==' not in source
+
+    called_names = set()
+    called_attributes = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            called_names.add(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            called_attributes.add(node.func.attr)
+
+    assert not called_names.intersection(
+        {"open", "exec", "eval", "compile", "__import__"}
+    )
+    assert not called_attributes.intersection(
+        {
+            "Popen",
+            "run",
+            "system",
+            "unlink",
+            "remove",
+            "rename",
+            "replace",
+            "write_text",
+            "write_bytes",
+        }
+    )
     for forbidden in (
-        "open(",
-        "Popen(",
         "subprocess.",
         "systemctl",
         "docker ",
         "start_ollama",
         "execute_pair06",
         "consume_attempt",
-        "unlink(",
-        "write_text(",
-        "write_bytes(",
     ):
         assert forbidden not in source
