@@ -21,7 +21,7 @@ REVIEW_SCHEMA = "void.abaddon.scout-post-run-backend-source-binding-review.v1"
 ACCEPTED_MAIN_HEAD = "0487be81964ef92459f17920418fe0abe8b2a3e5"
 
 BACKEND_PATH = "openra_env/learning/abaddon_scout_post_run_backend_v1.py"
-BACKEND_GIT_BLOB = "344a83b23e1c4d8ced97d3a82049e6f9e8fd7ebf"
+BACKEND_GIT_BLOB = "ce214a9aa3a9902ec4d9c7b3ca977c28d0a5d1d8"
 BACKEND_TEST_PATH = "tests/test_abaddon_scout_post_run_backend_v1.py"
 BACKEND_TEST_GIT_BLOB = "052058dbe96fe9b7d8f6607506396d0d770e6170"
 
