@@ -206,31 +206,3 @@ data, promote a policy, deploy anything, or move funds.
 The next implementation step after source review is a separately reviewed,
 durable fresh-attempt guard and external invocation boundary. Actual experiment
 execution remains a separate explicit decision.
-
-## Post-run backend binding update
-
-The source stack now has a concrete dormant backend design for the five
-independent post-run observations required by the observer adapter:
-
-- exact attempt-marker presence and SHA-256 through a no-follow read-only file
-  descriptor;
-- exact inactive state for `ollama.service`;
-- absence of the caller-bound
-  `void-scout-repair-canary-<pid>` container from the reviewed rootless Docker
-  context;
-- absence of an `ollama` process independently of service state; and
-- exact War College/OpenRA tracked cleanliness and commit identity with
-  before/after directory-generation stability checks.
-
-The backend is not selected automatically. A future caller must explicitly
-supply observation authority, the fresh experiment/attempt identity, the exact
-canary container name, the accepted War College commit, and the reviewed host
-backends. The existing observer adapter still rechecks read authority before
-each of the five probes.
-
-The companion source-binding review pins the backend, its regression tests, the
-observer contract/adapter/review, and the derived canary runner to actual Git
-blob bytes. This closes the source-only backend-mechanism gap after acceptance
-on main. It does not perform a live host observation, accept a result, or
-authorize a scout run. Actual live observation and execution remain separate
-explicit decisions.
