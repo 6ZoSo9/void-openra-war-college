@@ -152,6 +152,7 @@ class ScoutPostRunBackendInputs:
     experiment_id: str
     attempt_marker_path: str
     attempt_marker_sha256: str
+    attempt_directory_identity: tuple[int, int]
     engine_container_name: str
     accepted_war_college_commit: str
 
@@ -216,6 +217,15 @@ def _validate_inputs(inputs: ScoutPostRunBackendInputs) -> ScoutPostRunBackendIn
     _require(
         _is_hex(inputs.attempt_marker_sha256, 64),
         "SCOUT_BACKEND_ATTEMPT_SHA256_INVALID",
+    )
+    _require(
+        type(inputs.attempt_directory_identity) is tuple
+        and len(inputs.attempt_directory_identity) == 2
+        and all(
+            type(value) is int and value >= 0
+            for value in inputs.attempt_directory_identity
+        ),
+        "SCOUT_BACKEND_ATTEMPT_DIRECTORY_IDENTITY_INVALID",
     )
     _require(
         _is_hex(inputs.accepted_war_college_commit, 40),
@@ -416,6 +426,11 @@ def probe_attempt_marker_present(
         label="SCOUT_MARKER_PARENT",
     )
     parent_stat = lstat_path(parent)
+    _require(
+        (int(parent_stat.st_dev), int(parent_stat.st_ino))
+        == inputs.attempt_directory_identity,
+        "SCOUT_MARKER_PARENT_IDENTITY_DRIFT",
+    )
     _require(
         stat.S_IMODE(parent_stat.st_mode) == 0o700,
         "SCOUT_MARKER_PARENT_MODE_DRIFT",
@@ -726,6 +741,7 @@ def scout_post_run_backend_contract() -> dict[str, Any]:
         "docker_context": DOCKER_CONTEXT,
         "required_observations": list(observer.REQUIRED_OBSERVATIONS),
         "attempt_marker_exact_sha_required": True,
+        "attempt_marker_directory_identity_required": True,
         "attempt_marker_no_follow_required": True,
         "attempt_marker_private_mode_required": True,
         "service_inactive_query_implemented": True,
