@@ -97,6 +97,36 @@ def validate_artifact_rehash_manifest(record: Mapping[str, Any]) -> dict[str, An
     _require(isinstance(record, Mapping), "MANIFEST_OBJECT_REQUIRED")
     value = dict(record)
 
+    _require(
+        set(value)
+        == {
+            "arm",
+            "artifact_bytes_verified",
+            "artifact_count",
+            "artifact_cross_file_semantics_verified",
+            "artifacts",
+            "attempt_reusable",
+            "authorization_reusable",
+            "authorized_execution_main",
+            "automatic_retry",
+            "deployment_performed_by_observer",
+            "execution_lineage_closed",
+            "game_execution_performed_by_observer",
+            "host_mutation_performed",
+            "host_observation_performed",
+            "model_inference_performed_by_observer",
+            "new_execution_request_opened",
+            "pair_slot",
+            "repo_side_local_artifact_rehash_performed",
+            "run_id",
+            "schema",
+            "source_basis_main",
+            "training_performed_by_observer",
+            "void_chain_mutation_performed_by_observer",
+            "wallet_or_funds_action_performed_by_observer",
+        },
+        "MANIFEST_FIELD_SET_DRIFT",
+    )
     _require(value.get("schema") == MANIFEST_SCHEMA, "MANIFEST_SCHEMA_DRIFT")
     _require(
         value.get("run_id") == RUN_ID
