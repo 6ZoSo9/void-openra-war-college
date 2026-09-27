@@ -140,3 +140,19 @@ new game/model execution, baseline retry, training, promotion, funds action,
 scheduler change or #153 change occurred. Both completed runs and the consumed
 pair-03 marker/result stay unchanged. Live experiment approval and independent
 post-run checks remain separate from offline schema validation.
+
+## Current publication status
+
+The publication and hosted-CI limitations in this report describe the moment
+this protocol-validation stage was produced. They remain part of the historical
+test record and are not rewritten.
+
+Publication later advanced through PR #181 and the consolidated scout
+launcher/result/evidence source stack in PR #200. The current backend-binding
+follow-up adds the concrete read-only mechanics for the five independent
+post-run observations while preserving explicit authority checks and
+fail-closed evidence acceptance.
+
+This status update adds no new protocol/runtime test claim to the historical
+section above and grants no game/model execution, retry, training, promotion,
+deployment, chain, wallet, or funds authority.
