@@ -35,8 +35,20 @@ REHASH_SOURCE_GIT_BLOB = "65134520a1bf0d621b6e63fdceb003dc1f964f59"
 REHASH_TEST_PATH = "tests/test_void_pair06_v8_coherent_v2_success_artifact_rehash_precision_v1.py"
 REHASH_TEST_GIT_BLOB = "6382f6dc345c91657ac1252db9b7195fdebe3a85"
 
+AUDIT_SOURCE_PATH = (
+    "openra_env/learning/"
+    "abaddon_policy_campaign_runtime_pair06_v8_"
+    "combat_action_priority_contract_coherence_repair_v2_"
+    "execution_success_artifact_evidence_audit_generation2.py"
+)
 AUDIT_SOURCE_GIT_BLOB = "99391cdc0493cca4887105fefda5d2569b1401bc"
-AUDIT_TEST_GIT_BLOB = "aeaa82d9f59b70ebb9d90743f2ed462b2c39743d"
+AUDIT_TEST_PATH = (
+    "tests/"
+    "test_abaddon_policy_campaign_runtime_pair06_v8_"
+    "combat_action_priority_contract_coherence_repair_v2_"
+    "execution_success_artifact_evidence_audit_generation2.py"
+)
+AUDIT_TEST_GIT_BLOB = "4ec4bcf7d39c743c2004030f7fc37a3ed40cc887"
 
 RUN_ID = "warmstart-apollyon-vs-abaddon-20260927T183337Z-feinter-s208354846"
 AUTHORIZED_EXECUTION_MAIN = "d8b16f1c23a74803ac4ace94045fed147c3c69fe"
@@ -223,7 +235,9 @@ def pair06_v8_coherent_v2_artifact_manifest_review_contract(
         "rehash_source_git_blob": REHASH_SOURCE_GIT_BLOB,
         "rehash_test_path": REHASH_TEST_PATH,
         "rehash_test_git_blob": REHASH_TEST_GIT_BLOB,
+        "audit_source_path": AUDIT_SOURCE_PATH,
         "audit_source_git_blob": AUDIT_SOURCE_GIT_BLOB,
+        "audit_test_path": AUDIT_TEST_PATH,
         "audit_test_git_blob": AUDIT_TEST_GIT_BLOB,
         "run_id": RUN_ID,
         "artifact_count": 6,
