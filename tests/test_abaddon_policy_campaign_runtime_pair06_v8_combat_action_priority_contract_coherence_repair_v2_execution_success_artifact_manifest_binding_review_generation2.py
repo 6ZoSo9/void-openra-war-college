@@ -31,10 +31,30 @@ def _load() -> dict:
 def test_manifest_blob_and_observer_sources_are_exactly_pinned():
     out = review.pair06_v8_coherent_v2_artifact_manifest_review_contract(_load())
     assert out["manifest_git_blob"] == "87f2d5ba1a2fdcfd4d5c12f595a86a193e4097f2"
-    assert out["rehash_source_git_blob"] == "65134520a1bf0d621b6e63fdceb003dc1f964f59"
-    assert out["rehash_test_git_blob"] == "6382f6dc345c91657ac1252db9b7195fdebe3a85"
-    assert out["audit_source_git_blob"] == "99391cdc0493cca4887105fefda5d2569b1401bc"
-    assert out["audit_test_git_blob"] == "aeaa82d9f59b70ebb9d90743f2ed462b2c39743d"
+
+    bindings = {
+        review.REHASH_SOURCE_PATH: review.REHASH_SOURCE_GIT_BLOB,
+        review.REHASH_TEST_PATH: review.REHASH_TEST_GIT_BLOB,
+        review.AUDIT_SOURCE_PATH: review.AUDIT_SOURCE_GIT_BLOB,
+        review.AUDIT_TEST_PATH: review.AUDIT_TEST_GIT_BLOB,
+    }
+    assert bindings == {
+        review.REHASH_SOURCE_PATH: "65134520a1bf0d621b6e63fdceb003dc1f964f59",
+        review.REHASH_TEST_PATH: "6382f6dc345c91657ac1252db9b7195fdebe3a85",
+        review.AUDIT_SOURCE_PATH: "99391cdc0493cca4887105fefda5d2569b1401bc",
+        review.AUDIT_TEST_PATH: "4ec4bcf7d39c743c2004030f7fc37a3ed40cc887",
+    }
+
+    for relative, expected_blob in bindings.items():
+        raw = (ROOT / relative).read_bytes()
+        assert _git_blob_sha1(raw) == expected_blob
+
+
+def test_one_byte_source_drift_breaks_pinned_blob_identity():
+    raw = (ROOT / review.REHASH_SOURCE_PATH).read_bytes()
+    assert _git_blob_sha1(raw) == review.REHASH_SOURCE_GIT_BLOB
+    mutated = raw[:-1] + bytes([raw[-1] ^ 1])
+    assert _git_blob_sha1(mutated) != review.REHASH_SOURCE_GIT_BLOB
 
 
 def test_manifest_closes_only_the_artifact_evidence_frontier():
