@@ -5,8 +5,8 @@ preclaim-GPU invocation helpers with the reviewed V2 legality-coherent
 combat-priority parent supervisor wiring.
 
 It uses a third fresh create-only marker/result/closeout namespace and runs
-root. The consumed combat-priority marker from the failed contract-coherence
-attempt is verified and remains immutable and non-reusable.
+root. The consumed V1 coherent marker from the failed legality-coherence
+precursor attempt is verified and remains immutable and non-reusable.
 
 Execution remains impossible without all of:
 * exact current main;
@@ -669,6 +669,7 @@ def pair06_v8_combat_priority_coherent_v2_baseline_attempt_invocation_contract()
         "consumed_coherent_v1_attempt_reusable": False,
         "failed_coherent_v1_run_id": FAILED_COHERENT_V1_RUN_ID,
         "failed_coherent_v1_run_reusable_as_authority": False,
+        "failed_coherent_v1_run_preserved": True,
         "prior_authorization_reusable": False,
         "fresh_evidence_namespace_required": True,
         "fresh_execution_authorization_required": True,
