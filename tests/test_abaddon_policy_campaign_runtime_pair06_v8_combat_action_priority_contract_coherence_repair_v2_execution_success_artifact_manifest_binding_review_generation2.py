@@ -93,6 +93,16 @@ def test_manifest_verification_or_authority_drift_fails_closed(field, value):
         review.validate_artifact_rehash_manifest(manifest)
 
 
+
+def test_unknown_manifest_field_fails_closed():
+    manifest = _load()
+    manifest["unexpected"] = "drift"
+    with pytest.raises(
+        review.Pair06V8CoherentV2ArtifactManifestReviewHold,
+        match="MANIFEST_FIELD_SET_DRIFT",
+    ):
+        review.validate_artifact_rehash_manifest(manifest)
+
 def test_manifest_receipt_is_defensively_copied():
     manifest = _load()
     out = review.pair06_v8_coherent_v2_artifact_manifest_review_contract(manifest)
