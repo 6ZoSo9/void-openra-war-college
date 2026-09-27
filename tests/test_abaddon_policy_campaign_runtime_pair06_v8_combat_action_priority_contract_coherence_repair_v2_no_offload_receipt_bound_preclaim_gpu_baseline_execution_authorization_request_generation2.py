@@ -155,6 +155,11 @@ def test_exact_request_roundtrip_and_next_gate():
         request
         .build_pair06_v8_combat_priority_coherent_v2_execution_authorization_request()
     )
+    assert len(payload) == 5670
+    import hashlib
+    assert hashlib.sha256(payload).hexdigest() == (
+        "de3d60e2395192a976f14fe055d27981a9c7dd31560e67eda0fbe08f6b8f917c"
+    )
     validated = (
         request
         .validate_pair06_v8_combat_priority_coherent_v2_execution_authorization_request(
