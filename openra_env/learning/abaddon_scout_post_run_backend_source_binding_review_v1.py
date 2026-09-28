@@ -21,9 +21,9 @@ REVIEW_SCHEMA = "void.abaddon.scout-post-run-backend-source-binding-review.v1"
 ACCEPTED_MAIN_HEAD = "0487be81964ef92459f17920418fe0abe8b2a3e5"
 
 BACKEND_PATH = "openra_env/learning/abaddon_scout_post_run_backend_v1.py"
-BACKEND_GIT_BLOB = "ce214a9aa3a9902ec4d9c7b3ca977c28d0a5d1d8"
+BACKEND_GIT_BLOB = "40eb707a7215324fd9b794da9430427f059fea3a"
 BACKEND_TEST_PATH = "tests/test_abaddon_scout_post_run_backend_v1.py"
-BACKEND_TEST_GIT_BLOB = "052058dbe96fe9b7d8f6607506396d0d770e6170"
+BACKEND_TEST_GIT_BLOB = "124a0bd061ce45bebecf86ce7f9db39d657f6f59"
 
 OBSERVER_CONTRACT_PATH = observer_review.OBSERVER_CONTRACT_PATH
 OBSERVER_CONTRACT_GIT_BLOB = observer_review.OBSERVER_CONTRACT_GIT_BLOB
@@ -100,6 +100,10 @@ def scout_post_run_backend_source_binding_review_contract() -> dict[str, Any]:
         and candidate.get("observation_requires_explicit_authority") is True,
         "SCOUT_BACKEND_AUTHORITY_GATE_DRIFT",
     )
+    _require(
+        candidate.get("git_optional_locks_disabled") is True,
+        "SCOUT_BACKEND_GIT_OPTIONAL_LOCKS_DRIFT",
+    )
     for field in (
         "host_observation_performed",
         "post_run_state_verified",
@@ -138,6 +142,7 @@ def scout_post_run_backend_source_binding_review_contract() -> dict[str, Any]:
         "container_absence_probe_implemented": True,
         "model_process_absence_probe_implemented": True,
         "source_and_engine_cleanliness_probe_implemented": True,
+        "git_optional_locks_disabled": True,
         "revocation_recheck_delegated_to_observer_adapter": True,
         "automatic_backend_selection": False,
         "actual_host_observation_required_for_future_result_acceptance": True,
