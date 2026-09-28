@@ -109,6 +109,36 @@ class FakeRunner:
                 "stdout": "",
                 "stderr": "",
             },
+            backend.DOCKER_CONTEXT_INSPECT_COMMAND: {
+                "returncode": 0,
+                "stdout": json.dumps(
+                    [
+                        {
+                            "Name": backend.DOCKER_CONTEXT,
+                            "Endpoints": {
+                                "docker": {
+                                    "Host": backend.EXPECTED_DOCKER_CONTEXT_HOST,
+                                    "SkipTLSVerify": False,
+                                }
+                            },
+                        }
+                    ],
+                    sort_keys=True,
+                ),
+                "stderr": "",
+            },
+            backend.DOCKER_INFO_COMMAND: {
+                "returncode": 0,
+                "stdout": json.dumps(
+                    {
+                        "SecurityOptions": ["name=rootless"],
+                        "DockerRootDir": backend.EXPECTED_DOCKER_ROOT_DIR,
+                        "OSType": "linux",
+                    },
+                    sort_keys=True,
+                ),
+                "stderr": "",
+            },
             backend.SOURCE_HEAD_COMMAND: {
                 "returncode": 0,
                 "stdout": inputs.accepted_war_college_commit + "\n",
@@ -297,6 +327,34 @@ def test_container_absence_requires_successful_exact_empty_rootless_listing(tmp_
         backend.probe_engine_container_absent(inputs, run_command=runner)
 
 
+
+def test_container_absence_rejects_wrong_rootless_context_host(tmp_path):
+    inputs, _ = _inputs(tmp_path)
+    runner = FakeRunner(inputs)
+    payload = json.loads(runner.rows[backend.DOCKER_CONTEXT_INSPECT_COMMAND]["stdout"])
+    payload[0]["Endpoints"]["docker"]["Host"] = "unix:///var/run/docker.sock"
+    runner.rows[backend.DOCKER_CONTEXT_INSPECT_COMMAND]["stdout"] = json.dumps(payload)
+    with pytest.raises(
+        backend.ScoutPostRunBackendHold,
+        match="SCOUT_DOCKER_CONTEXT_HOST_DRIFT",
+    ):
+        backend.probe_engine_container_absent(inputs, run_command=runner)
+    assert backend._container_absence_command(inputs.engine_container_name) not in runner.calls
+
+
+def test_container_absence_rejects_nonrootless_daemon(tmp_path):
+    inputs, _ = _inputs(tmp_path)
+    runner = FakeRunner(inputs)
+    payload = json.loads(runner.rows[backend.DOCKER_INFO_COMMAND]["stdout"])
+    payload["SecurityOptions"] = []
+    runner.rows[backend.DOCKER_INFO_COMMAND]["stdout"] = json.dumps(payload)
+    with pytest.raises(
+        backend.ScoutPostRunBackendHold,
+        match="SCOUT_DOCKER_NOT_ROOTLESS",
+    ):
+        backend.probe_engine_container_absent(inputs, run_command=runner)
+    assert backend._container_absence_command(inputs.engine_container_name) not in runner.calls
+
 def test_source_probe_binds_exact_heads_cleanliness_and_directory_generation(tmp_path):
     inputs, _ = _inputs(tmp_path)
     runner = FakeRunner(inputs)
@@ -319,6 +377,42 @@ def test_source_probe_binds_exact_heads_cleanliness_and_directory_generation(tmp
             resolve_path=paths.resolve,
         )
 
+
+
+def test_source_probe_rejects_state_change_between_first_and_second_pass(tmp_path):
+    inputs, _ = _inputs(tmp_path)
+    paths = FakePaths()
+
+    class DriftingRunner(FakeRunner):
+        def __init__(self, inputs):
+            super().__init__(inputs)
+            self.source_status_calls = 0
+
+        def __call__(self, args):
+            command = tuple(args)
+            if command == backend.SOURCE_STATUS_COMMAND:
+                self.source_status_calls += 1
+                self.calls.append(command)
+                if self.source_status_calls == 2:
+                    return {
+                        "returncode": 0,
+                        "stdout": "?? late-file\n",
+                        "stderr": "",
+                    }
+                return deepcopy(self.rows[command])
+            return super().__call__(args)
+
+    runner = DriftingRunner(inputs)
+    with pytest.raises(
+        backend.ScoutPostRunBackendHold,
+        match="SCOUT_GIT_STATE_CHANGED_DURING_OBSERVATION",
+    ):
+        backend.probe_source_checkout_clean(
+            inputs,
+            run_command=runner,
+            lstat_path=paths.lstat,
+            resolve_path=paths.resolve,
+        )
 
 def test_bound_collection_composes_five_independent_probes_in_adapter_order(tmp_path):
     inputs, _ = _inputs(tmp_path)
@@ -346,8 +440,14 @@ def test_bound_collection_composes_five_independent_probes_in_adapter_order(tmp_
     assert authority_calls == [1, 2, 3, 4, 5]
     assert runner.calls == [
         backend.SERVICE_INACTIVE_COMMAND,
+        backend.DOCKER_CONTEXT_INSPECT_COMMAND,
+        backend.DOCKER_INFO_COMMAND,
         backend._container_absence_command(inputs.engine_container_name),
         backend.MODEL_PROCESS_COMMAND,
+        backend.SOURCE_HEAD_COMMAND,
+        backend.SOURCE_STATUS_COMMAND,
+        backend.ENGINE_HEAD_COMMAND,
+        backend.ENGINE_STATUS_COMMAND,
         backend.SOURCE_HEAD_COMMAND,
         backend.SOURCE_STATUS_COMMAND,
         backend.ENGINE_HEAD_COMMAND,
