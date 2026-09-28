@@ -86,8 +86,8 @@ DOCKER_CONTEXT_INSPECT_COMMAND = (
 )
 DOCKER_INFO_COMMAND = (
     DOCKER,
-    "--context",
-    DOCKER_CONTEXT,
+    "--host",
+    EXPECTED_DOCKER_CONTEXT_HOST,
     "info",
     "--format",
     "{{json .}}",
@@ -212,8 +212,8 @@ def _container_absence_command(container_name: str) -> tuple[str, ...]:
     _require(_valid_container_name(container_name), "SCOUT_BACKEND_CONTAINER_NAME_INVALID")
     return (
         DOCKER,
-        "--context",
-        DOCKER_CONTEXT,
+        "--host",
+        EXPECTED_DOCKER_CONTEXT_HOST,
         "ps",
         "-a",
         "--filter",
@@ -276,8 +276,8 @@ def _validate_command(args: Sequence[str]) -> tuple[str, ...]:
         and command[0:6]
         == (
             DOCKER,
-            "--context",
-            DOCKER_CONTEXT,
+            "--host",
+            EXPECTED_DOCKER_CONTEXT_HOST,
             "ps",
             "-a",
             "--filter",
@@ -564,7 +564,7 @@ def probe_runtime_service_inactive(
     return True
 
 
-def _validate_rootless_docker_identity(
+def _validate_rootless_context_mapping(
     *,
     run_command: CommandRunner,
 ) -> None:
@@ -604,6 +604,11 @@ def _validate_rootless_docker_identity(
         "SCOUT_DOCKER_CONTEXT_TLS_DRIFT",
     )
 
+
+def _observe_rootless_docker_daemon_identity(
+    *,
+    run_command: CommandRunner,
+) -> tuple[str, str, str]:
     info_result = _command_result(
         run_command,
         DOCKER_INFO_COMMAND,
@@ -623,6 +628,17 @@ def _validate_rootless_docker_identity(
         "SCOUT_DOCKER_ROOT_DIR_DRIFT",
     )
     _require(info.get("OSType") == "linux", "SCOUT_DOCKER_OS_TYPE_DRIFT")
+    daemon_id = info.get("ID")
+    daemon_name = info.get("Name")
+    _require(
+        type(daemon_id) is str and 1 <= len(daemon_id) <= 256,
+        "SCOUT_DOCKER_DAEMON_ID_MISSING",
+    )
+    _require(
+        type(daemon_name) is str and 1 <= len(daemon_name) <= 256,
+        "SCOUT_DOCKER_DAEMON_NAME_MISSING",
+    )
+    return daemon_id, daemon_name, EXPECTED_DOCKER_ROOT_DIR
 
 
 def probe_engine_container_absent(
@@ -631,19 +647,28 @@ def probe_engine_container_absent(
     run_command: CommandRunner,
 ) -> bool:
     _validate_inputs(inputs)
-    _validate_rootless_docker_identity(run_command=run_command)
+    _validate_rootless_context_mapping(run_command=run_command)
+    before_daemon = _observe_rootless_docker_daemon_identity(
+        run_command=run_command
+    )
     result = _command_result(
         run_command,
         _container_absence_command(inputs.engine_container_name),
         label="SCOUT_ENGINE_CONTAINER_ABSENT",
         allowed_returncodes=frozenset((0,)),
     )
+    after_daemon = _observe_rootless_docker_daemon_identity(
+        run_command=run_command
+    )
+    _require(
+        before_daemon == after_daemon,
+        "SCOUT_DOCKER_DAEMON_IDENTITY_CHANGED",
+    )
     _require(
         result["stdout"].strip() == "",
         "SCOUT_ENGINE_CONTAINER_STILL_PRESENT",
     )
     return True
-
 
 def probe_model_process_absent(
     *,
@@ -727,6 +752,29 @@ def probe_source_checkout_clean(
         and second[2] == EXPECTED_ENGINE_COMMIT
         and second[3].strip() == "",
         "SCOUT_GIT_FINAL_STATE_INVALID",
+    )
+
+    # The composite pass observes source before engine. Re-observe source after
+    # the final engine commands so source changes during those commands cannot
+    # be accepted as a clean post-run state.
+    final_source_head = _command_result(
+        run_command,
+        SOURCE_HEAD_COMMAND,
+        label="SCOUT_SOURCE_FINAL_HEAD",
+        allowed_returncodes=frozenset((0,)),
+    )["stdout"].strip()
+    final_source_status = _command_result(
+        run_command,
+        SOURCE_STATUS_COMMAND,
+        label="SCOUT_SOURCE_FINAL_STATUS",
+        allowed_returncodes=frozenset((0,)),
+    )["stdout"]
+    _require(
+        final_source_head == second[0]
+        and final_source_status == second[1]
+        and final_source_head == inputs.accepted_war_college_commit
+        and final_source_status.strip() == "",
+        "SCOUT_SOURCE_FINAL_RECHECK_DRIFT",
     )
 
     source_after = _observe_directory(
@@ -843,12 +891,15 @@ def scout_post_run_backend_contract() -> dict[str, Any]:
         "service_inactive_query_implemented": True,
         "container_absence_query_implemented": True,
         "rootless_docker_identity_verified_before_container_absence": True,
+        "container_absence_uses_verified_socket_directly": True,
+        "docker_daemon_identity_rechecked_after_container_absence": True,
         "model_process_absence_query_implemented": True,
         "source_and_engine_git_observation_implemented": True,
         "git_optional_locks_disabled": True,
         "source_directory_generation_stability_required": True,
         "engine_directory_generation_stability_required": True,
         "git_state_double_observation_required": True,
+        "source_final_recheck_after_engine_required": True,
         "host_command_runner_present": True,
         "host_file_backend_factory_present": True,
         "host_path_helpers_present": True,
