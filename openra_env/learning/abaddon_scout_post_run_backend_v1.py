@@ -301,6 +301,7 @@ def host_readonly_command_runner(args: Sequence[str]) -> dict[str, Any]:
                 "LANG": "C",
                 "LC_ALL": "C",
                 "PATH": "/usr/bin:/bin",
+                "GIT_OPTIONAL_LOCKS": "0",
             },
         )
     except subprocess.TimeoutExpired:
@@ -748,6 +749,7 @@ def scout_post_run_backend_contract() -> dict[str, Any]:
         "container_absence_query_implemented": True,
         "model_process_absence_query_implemented": True,
         "source_and_engine_git_observation_implemented": True,
+        "git_optional_locks_disabled": True,
         "source_directory_generation_stability_required": True,
         "engine_directory_generation_stability_required": True,
         "host_command_runner_present": True,
