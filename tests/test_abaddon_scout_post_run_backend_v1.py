@@ -157,6 +157,7 @@ def test_contract_binds_real_canary_runtime_identities_without_authority():
         "1607a7a6501d42a47638393ecef8b22831064932"
     )
     assert out["automatic_host_backend_selection"] is False
+    assert out["git_optional_locks_disabled"] is True
     assert out["backend_source_binding_present"] is False
     assert out["host_observation_performed"] is False
     assert out["scout_execution_authorized"] is False
@@ -398,6 +399,28 @@ def test_invalid_or_unbound_container_identity_fails_before_commands(tmp_path):
             resolve_path=FakePaths().resolve,
         )
     assert runner.calls == []
+
+
+
+def test_host_runner_disables_git_optional_locks(monkeypatch):
+    observed = {}
+
+    class Completed:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        observed["args"] = tuple(args)
+        observed["env"] = dict(kwargs["env"])
+        return Completed()
+
+    monkeypatch.setattr(backend.subprocess, "run", fake_run)
+    out = backend.host_readonly_command_runner(backend.SOURCE_STATUS_COMMAND)
+    assert out["returncode"] == 0
+    assert observed["args"] == backend.SOURCE_STATUS_COMMAND
+    assert observed["env"]["GIT_OPTIONAL_LOCKS"] == "0"
+
 
 
 def test_host_runner_rejects_mutating_or_unreviewed_commands_before_subprocess(monkeypatch):
