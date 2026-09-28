@@ -165,3 +165,20 @@ real readiness/post-run verification or authorization of a new live experiment.
 No Precision command is supplied. Both completed runs and the used marker/result
 remain unchanged; no new game, model inference, training, policy promotion,
 scheduler change or funds action occurred.
+
+## Current publication status
+
+The V4 statements that publication was unresolved, that no branch/PR existed,
+and that hosted CI was unrun are retained above as the historical V4 snapshot.
+They are not assertions about the current repository.
+
+The scout lifecycle was subsequently published and merged through PR #181, and
+the launcher/result/evidence source chain was later consolidated through PR
+#200. The current follow-up supplies the previously missing concrete dormant
+post-run read-only backend plus its source-binding review.
+
+Nothing in those later source publications turns V4's inert full-main fixture
+into live execution evidence. Callback return and historical cleanup prints
+still do not count as shutdown proof. A future live scout attempt would still
+require separate explicit execution authority and fresh independent post-run
+observation.

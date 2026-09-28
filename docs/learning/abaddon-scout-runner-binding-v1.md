@@ -151,3 +151,23 @@ composition tests, full-repository validation and a separately authorized new
 experiment are still required before any Precision use. No improvement in real
 scouting, combat or win rate is claimed. Both historical runs and the consumed
 pair-03 attempt must remain untouched.
+
+## Current publication status
+
+The V3 publication statements above are preserved as historical facts about the
+state when V3 was written. They are no longer the current repository state.
+
+Since that report:
+
+- the bounded scout lifecycle was published and merged through PR #181;
+- the later external launcher/attempt/result/evidence source stack was
+  consolidated onto main through PR #200;
+- the bounded post-run observer adapter is published and source-reviewed; and
+- the current follow-up adds a concrete dormant read-only backend for the five
+  required independent post-run observations and a separate byte-bound source
+  review.
+
+These later publication events do not retroactively change V3's local test
+counts or limitations. Actual scout execution, live post-run observation,
+training admission, policy promotion, deployment, VOID-chain mutation, and
+wallet/funds action remain separately unauthorized.
