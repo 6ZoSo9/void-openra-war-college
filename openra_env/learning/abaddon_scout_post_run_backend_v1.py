@@ -46,6 +46,8 @@ SERVICE_UNIT = "ollama.service"
 MODEL_PROCESS_NAME = "ollama"
 CONTAINER_PREFIX = "void-scout-repair-canary-"
 DOCKER_CONTEXT = "rootless"
+EXPECTED_DOCKER_CONTEXT_HOST = "unix:///run/user/1000/docker.sock"
+EXPECTED_DOCKER_ROOT_DIR = "/home/zoso/.local/share/docker"
 
 GIT = "/usr/bin/git"
 SYSTEMCTL = "/usr/bin/systemctl"
@@ -76,6 +78,20 @@ ENGINE_STATUS_COMMAND = (
 )
 SERVICE_INACTIVE_COMMAND = (SYSTEMCTL, "is-active", SERVICE_UNIT)
 MODEL_PROCESS_COMMAND = (PGREP, "-x", MODEL_PROCESS_NAME)
+DOCKER_CONTEXT_INSPECT_COMMAND = (
+    DOCKER,
+    "context",
+    "inspect",
+    DOCKER_CONTEXT,
+)
+DOCKER_INFO_COMMAND = (
+    DOCKER,
+    "--context",
+    DOCKER_CONTEXT,
+    "info",
+    "--format",
+    "{{json .}}",
+)
 
 STATIC_ALLOWED_COMMANDS = frozenset(
     (
@@ -85,6 +101,8 @@ STATIC_ALLOWED_COMMANDS = frozenset(
         ENGINE_STATUS_COMMAND,
         SERVICE_INACTIVE_COMMAND,
         MODEL_PROCESS_COMMAND,
+        DOCKER_CONTEXT_INSPECT_COMMAND,
+        DOCKER_INFO_COMMAND,
     )
 )
 
@@ -546,12 +564,74 @@ def probe_runtime_service_inactive(
     return True
 
 
+def _validate_rootless_docker_identity(
+    *,
+    run_command: CommandRunner,
+) -> None:
+    context_result = _command_result(
+        run_command,
+        DOCKER_CONTEXT_INSPECT_COMMAND,
+        label="SCOUT_DOCKER_CONTEXT",
+        allowed_returncodes=frozenset((0,)),
+    )
+    try:
+        context_rows = json.loads(context_result["stdout"])
+    except json.JSONDecodeError:
+        raise ScoutPostRunBackendHold("SCOUT_DOCKER_CONTEXT_JSON_INVALID") from None
+    _require(
+        isinstance(context_rows, list) and len(context_rows) == 1,
+        "SCOUT_DOCKER_CONTEXT_COUNT_DRIFT",
+    )
+    context = context_rows[0]
+    _require(isinstance(context, Mapping), "SCOUT_DOCKER_CONTEXT_ROW_INVALID")
+    _require(
+        context.get("Name") == DOCKER_CONTEXT,
+        "SCOUT_DOCKER_CONTEXT_NAME_DRIFT",
+    )
+    endpoints = context.get("Endpoints")
+    _require(isinstance(endpoints, Mapping), "SCOUT_DOCKER_ENDPOINTS_MISSING")
+    docker_endpoint = endpoints.get("docker")
+    _require(
+        isinstance(docker_endpoint, Mapping),
+        "SCOUT_DOCKER_ENDPOINT_MISSING",
+    )
+    _require(
+        docker_endpoint.get("Host") == EXPECTED_DOCKER_CONTEXT_HOST,
+        "SCOUT_DOCKER_CONTEXT_HOST_DRIFT",
+    )
+    _require(
+        docker_endpoint.get("SkipTLSVerify") is False,
+        "SCOUT_DOCKER_CONTEXT_TLS_DRIFT",
+    )
+
+    info_result = _command_result(
+        run_command,
+        DOCKER_INFO_COMMAND,
+        label="SCOUT_DOCKER_INFO",
+        allowed_returncodes=frozenset((0,)),
+    )
+    try:
+        info = json.loads(info_result["stdout"])
+    except json.JSONDecodeError:
+        raise ScoutPostRunBackendHold("SCOUT_DOCKER_INFO_JSON_INVALID") from None
+    _require(isinstance(info, Mapping), "SCOUT_DOCKER_INFO_OBJECT_REQUIRED")
+    security = info.get("SecurityOptions")
+    _require(isinstance(security, list), "SCOUT_DOCKER_SECURITY_OPTIONS_MISSING")
+    _require("name=rootless" in security, "SCOUT_DOCKER_NOT_ROOTLESS")
+    _require(
+        info.get("DockerRootDir") == EXPECTED_DOCKER_ROOT_DIR,
+        "SCOUT_DOCKER_ROOT_DIR_DRIFT",
+    )
+    _require(info.get("OSType") == "linux", "SCOUT_DOCKER_OS_TYPE_DRIFT")
+
+
 def probe_engine_container_absent(
     inputs: ScoutPostRunBackendInputs,
     *,
     run_command: CommandRunner,
 ) -> bool:
     _validate_inputs(inputs)
+    _validate_rootless_docker_identity(run_command=run_command)
     result = _command_result(
         run_command,
         _container_absence_command(inputs.engine_container_name),
@@ -603,38 +683,51 @@ def probe_source_checkout_clean(
         label="SCOUT_ENGINE_ROOT",
     )
 
-    source_head = _command_result(
-        run_command,
-        SOURCE_HEAD_COMMAND,
-        label="SCOUT_SOURCE_HEAD",
-        allowed_returncodes=frozenset((0,)),
-    )["stdout"].strip()
-    source_status = _command_result(
-        run_command,
-        SOURCE_STATUS_COMMAND,
-        label="SCOUT_SOURCE_STATUS",
-        allowed_returncodes=frozenset((0,)),
-    )["stdout"]
-    engine_head = _command_result(
-        run_command,
-        ENGINE_HEAD_COMMAND,
-        label="SCOUT_ENGINE_HEAD",
-        allowed_returncodes=frozenset((0,)),
-    )["stdout"].strip()
-    engine_status = _command_result(
-        run_command,
-        ENGINE_STATUS_COMMAND,
-        label="SCOUT_ENGINE_STATUS",
-        allowed_returncodes=frozenset((0,)),
-    )["stdout"]
+    def observe_git_state() -> tuple[str, str, str, str]:
+        source_head = _command_result(
+            run_command,
+            SOURCE_HEAD_COMMAND,
+            label="SCOUT_SOURCE_HEAD",
+            allowed_returncodes=frozenset((0,)),
+        )["stdout"].strip()
+        source_status = _command_result(
+            run_command,
+            SOURCE_STATUS_COMMAND,
+            label="SCOUT_SOURCE_STATUS",
+            allowed_returncodes=frozenset((0,)),
+        )["stdout"]
+        engine_head = _command_result(
+            run_command,
+            ENGINE_HEAD_COMMAND,
+            label="SCOUT_ENGINE_HEAD",
+            allowed_returncodes=frozenset((0,)),
+        )["stdout"].strip()
+        engine_status = _command_result(
+            run_command,
+            ENGINE_STATUS_COMMAND,
+            label="SCOUT_ENGINE_STATUS",
+            allowed_returncodes=frozenset((0,)),
+        )["stdout"]
+        return source_head, source_status, engine_head, engine_status
 
+    first = observe_git_state()
     _require(
-        source_head == inputs.accepted_war_college_commit,
+        first[0] == inputs.accepted_war_college_commit,
         "SCOUT_SOURCE_HEAD_DRIFT",
     )
-    _require(source_status.strip() == "", "SCOUT_SOURCE_TRACKED_DIRTY")
-    _require(engine_head == EXPECTED_ENGINE_COMMIT, "SCOUT_ENGINE_HEAD_DRIFT")
-    _require(engine_status.strip() == "", "SCOUT_ENGINE_TRACKED_DIRTY")
+    _require(first[1].strip() == "", "SCOUT_SOURCE_TRACKED_DIRTY")
+    _require(first[2] == EXPECTED_ENGINE_COMMIT, "SCOUT_ENGINE_HEAD_DRIFT")
+    _require(first[3].strip() == "", "SCOUT_ENGINE_TRACKED_DIRTY")
+
+    second = observe_git_state()
+    _require(first == second, "SCOUT_GIT_STATE_CHANGED_DURING_OBSERVATION")
+    _require(
+        second[0] == inputs.accepted_war_college_commit
+        and second[1].strip() == ""
+        and second[2] == EXPECTED_ENGINE_COMMIT
+        and second[3].strip() == "",
+        "SCOUT_GIT_FINAL_STATE_INVALID",
+    )
 
     source_after = _observe_directory(
         SOURCE_ROOT,
@@ -740,6 +833,8 @@ def scout_post_run_backend_contract() -> dict[str, Any]:
         "model_process_name": MODEL_PROCESS_NAME,
         "engine_container_prefix": CONTAINER_PREFIX,
         "docker_context": DOCKER_CONTEXT,
+        "expected_docker_context_host": EXPECTED_DOCKER_CONTEXT_HOST,
+        "expected_docker_root_dir": EXPECTED_DOCKER_ROOT_DIR,
         "required_observations": list(observer.REQUIRED_OBSERVATIONS),
         "attempt_marker_exact_sha_required": True,
         "attempt_marker_directory_identity_required": True,
@@ -747,11 +842,13 @@ def scout_post_run_backend_contract() -> dict[str, Any]:
         "attempt_marker_private_mode_required": True,
         "service_inactive_query_implemented": True,
         "container_absence_query_implemented": True,
+        "rootless_docker_identity_verified_before_container_absence": True,
         "model_process_absence_query_implemented": True,
         "source_and_engine_git_observation_implemented": True,
         "git_optional_locks_disabled": True,
         "source_directory_generation_stability_required": True,
         "engine_directory_generation_stability_required": True,
+        "git_state_double_observation_required": True,
         "host_command_runner_present": True,
         "host_file_backend_factory_present": True,
         "host_path_helpers_present": True,
