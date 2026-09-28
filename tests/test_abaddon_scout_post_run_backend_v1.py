@@ -131,6 +131,8 @@ class FakeRunner:
                 "returncode": 0,
                 "stdout": json.dumps(
                     {
+                        "ID": "scout-test-daemon-id",
+                        "Name": "zoso-Precision-Tower-7810",
                         "SecurityOptions": ["name=rootless"],
                         "DockerRootDir": backend.EXPECTED_DOCKER_ROOT_DIR,
                         "OSType": "linux",
@@ -183,6 +185,9 @@ def test_contract_binds_real_canary_runtime_identities_without_authority():
     assert out["model_process_name"] == "ollama"
     assert out["engine_container_prefix"] == "void-scout-repair-canary-"
     assert out["docker_context"] == "rootless"
+    assert out["container_absence_uses_verified_socket_directly"] is True
+    assert out["docker_daemon_identity_rechecked_after_container_absence"] is True
+    assert out["source_final_recheck_after_engine_required"] is True
     assert out["expected_engine_commit"] == (
         "1607a7a6501d42a47638393ecef8b22831064932"
     )
@@ -355,6 +360,37 @@ def test_container_absence_rejects_nonrootless_daemon(tmp_path):
         backend.probe_engine_container_absent(inputs, run_command=runner)
     assert backend._container_absence_command(inputs.engine_container_name) not in runner.calls
 
+
+def test_container_absence_rejects_daemon_identity_change_across_query(tmp_path):
+    inputs, _ = _inputs(tmp_path)
+
+    class DaemonDriftRunner(FakeRunner):
+        def __init__(self, inputs):
+            super().__init__(inputs)
+            self.info_calls = 0
+
+        def __call__(self, args):
+            command = tuple(args)
+            if command == backend.DOCKER_INFO_COMMAND:
+                self.info_calls += 1
+                self.calls.append(command)
+                row = json.loads(self.rows[command]["stdout"])
+                if self.info_calls == 2:
+                    row["ID"] = "different-daemon-id"
+                return {
+                    "returncode": 0,
+                    "stdout": json.dumps(row, sort_keys=True),
+                    "stderr": "",
+                }
+            return super().__call__(args)
+
+    runner = DaemonDriftRunner(inputs)
+    with pytest.raises(
+        backend.ScoutPostRunBackendHold,
+        match="SCOUT_DOCKER_DAEMON_IDENTITY_CHANGED",
+    ):
+        backend.probe_engine_container_absent(inputs, run_command=runner)
+
 def test_source_probe_binds_exact_heads_cleanliness_and_directory_generation(tmp_path):
     inputs, _ = _inputs(tmp_path)
     runner = FakeRunner(inputs)
@@ -414,6 +450,42 @@ def test_source_probe_rejects_state_change_between_first_and_second_pass(tmp_pat
             resolve_path=paths.resolve,
         )
 
+
+def test_source_probe_rechecks_source_after_final_engine_commands(tmp_path):
+    inputs, _ = _inputs(tmp_path)
+    paths = FakePaths()
+
+    class LateSourceDriftRunner(FakeRunner):
+        def __init__(self, inputs):
+            super().__init__(inputs)
+            self.source_status_calls = 0
+
+        def __call__(self, args):
+            command = tuple(args)
+            if command == backend.SOURCE_STATUS_COMMAND:
+                self.source_status_calls += 1
+                self.calls.append(command)
+                if self.source_status_calls == 3:
+                    return {
+                        "returncode": 0,
+                        "stdout": " M late-source.py\n",
+                        "stderr": "",
+                    }
+                return deepcopy(self.rows[command])
+            return super().__call__(args)
+
+    runner = LateSourceDriftRunner(inputs)
+    with pytest.raises(
+        backend.ScoutPostRunBackendHold,
+        match="SCOUT_SOURCE_FINAL_RECHECK_DRIFT",
+    ):
+        backend.probe_source_checkout_clean(
+            inputs,
+            run_command=runner,
+            lstat_path=paths.lstat,
+            resolve_path=paths.resolve,
+        )
+
 def test_bound_collection_composes_five_independent_probes_in_adapter_order(tmp_path):
     inputs, _ = _inputs(tmp_path)
     runner = FakeRunner(inputs)
@@ -443,6 +515,7 @@ def test_bound_collection_composes_five_independent_probes_in_adapter_order(tmp_
         backend.DOCKER_CONTEXT_INSPECT_COMMAND,
         backend.DOCKER_INFO_COMMAND,
         backend._container_absence_command(inputs.engine_container_name),
+        backend.DOCKER_INFO_COMMAND,
         backend.MODEL_PROCESS_COMMAND,
         backend.SOURCE_HEAD_COMMAND,
         backend.SOURCE_STATUS_COMMAND,
@@ -452,6 +525,8 @@ def test_bound_collection_composes_five_independent_probes_in_adapter_order(tmp_
         backend.SOURCE_STATUS_COMMAND,
         backend.ENGINE_HEAD_COMMAND,
         backend.ENGINE_STATUS_COMMAND,
+        backend.SOURCE_HEAD_COMMAND,
+        backend.SOURCE_STATUS_COMMAND,
     ]
     assert all(record["claims"][name] is False for name in record["claims"])
 
