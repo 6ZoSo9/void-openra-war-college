@@ -80,10 +80,22 @@ The companion regression tests cover:
 - malformed marker context rejection; and
 - permanent refusal of execution authority.
 
+## Exact-blob source review
+
+The companion
+`abaddon_scout_post_run_provenance_bundle_source_binding_review_v1.py`
+pins the provenance module and its regression test to their exact Git blob
+identities. Its regression suite recomputes Git blob SHA-1 from checkout bytes
+and includes a one-byte drift negative control.
+
+The review also requires the prior backend source review to remain closed,
+requires every provenance authority field to remain false, preserves the
+historical v1 evidence schema, and performs no host observation.
+
 ## Next gate
 
-`SCOUT_POST_RUN_PROVENANCE_BINDING_SOURCE_REVIEW_REQUIRED`
+`SCOUT_POST_RUN_PROVENANCE_AWARE_LIVE_OBSERVATION_REQUIRES_SEPARATE_AUTHORIZATION`
 
-The next source-only step is to pin the provenance module and its regression
-tests by exact Git blob before any future live-observation launcher or result
-acceptance path consumes this binding.
+Any live observation must be a separate explicit step using the reviewed
+read-only backend and provenance-aware bundle. This source review does not
+authorize that observation, a new scout attempt, or final result acceptance.
