@@ -47,17 +47,24 @@ def test_one_byte_implementation_drift_breaks_blob_identity():
     assert _git_blob_sha1(mutated) != review.IMPLEMENTATION_GIT_BLOB
 
 
-def test_review_closes_only_pure_implementation_frontier():
+def test_review_closes_coherent_pure_implementation_frontier():
     out = review.pair06_v9_strict_visible_contact_policy_review_contract()
 
     assert out["pair06_v9_strict_visible_contact_policy_reviewed"] is True
     assert out["implementation_layer"] == (
-        "pure_pre_inference_tool_surface_transform"
+        "pure_pre_inference_coherent_tool_surface_transform"
     )
     assert out["recovery_mode_shape_preserved"] is True
     assert out["normal_mode_identity_preserved"] is True
     assert out["strict_visible_contact_reinforcement_suppressed"] is True
     assert out["strict_visible_contact_engagement_and_controls_only"] is True
+    assert out["production_functions_filtered_to_offered_surface"] is True
+    assert out["legal_buildings_reconstructed_from_remaining_production"] is True
+    assert out["legal_units_reconstructed_from_remaining_production"] is True
+    assert out["translator_legal_building_mapping_invariant_required"] is True
+    assert out["translator_legal_unit_mapping_invariant_required"] is True
+    assert out["normal_mode_contract_identity_required"] is True
+    assert out["v8_v1_v2_coherence_invariants_incorporated"] is True
     assert out["host_validation_unchanged"] is True
     assert out["runtime_integration_implemented"] is False
     assert out["new_execution_request_opened"] is False
