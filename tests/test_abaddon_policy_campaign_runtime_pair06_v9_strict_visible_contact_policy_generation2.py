@@ -168,8 +168,8 @@ def test_strict_contact_removes_all_production_and_legality():
         "train_unit_e1",
     )
     assert out["suppressed_production_function_names"] == (
-        "build_structure_powr",
         "train_unit_e1",
+        "build_structure_powr",
     )
     assert out["mapped_legal_units"] == ()
     assert out["mapped_legal_buildings"] == ()
