@@ -44,17 +44,21 @@ def _contract(names: list[str]) -> dict:
         "legal_units": ["e1", "e3"],
         "legal_buildings": ["powr"],
         "production_functions": {
-            "train_unit_e1": {"kind": "build_unit", "unit_type": "e1"},
-            "train_unit_e3": {"kind": "build_unit", "unit_type": "e3"},
-            "build_structure_powr": {
-                "kind": "build_and_place",
-                "building_type": "powr",
-            },
+            name: action
+            for name, action in {
+                "train_unit_e1": {"kind": "build_unit", "unit_type": "e1"},
+                "train_unit_e3": {"kind": "build_unit", "unit_type": "e3"},
+                "build_structure_powr": {
+                    "kind": "build_and_place",
+                    "building_type": "powr",
+                },
+            }.items()
+            if name in names
         },
     }
 
 
-def test_contract_is_pure_source_only_implementation():
+def test_contract_is_coherent_source_only_implementation():
     out = policy.pair06_v9_strict_visible_contact_policy_contract()
 
     assert out["proposal_review_git_blob"] == (
@@ -67,8 +71,14 @@ def test_contract_is_pure_source_only_implementation():
     assert out["pair06_v9_strict_visible_contact_policy_implemented"] is True
     assert out["pair06_v9_strict_visible_contact_policy_reviewed"] is False
     assert out["implementation_layer"] == (
-        "pure_pre_inference_tool_surface_transform"
+        "pure_pre_inference_coherent_tool_surface_transform"
     )
+    assert out["production_functions_filtered_to_offered_surface"] is True
+    assert out["legal_buildings_reconstructed_from_remaining_production"] is True
+    assert out["legal_units_reconstructed_from_remaining_production"] is True
+    assert out["translator_legal_building_mapping_invariant_required"] is True
+    assert out["translator_legal_unit_mapping_invariant_required"] is True
+    assert out["v8_v1_v2_coherence_invariants_incorporated"] is True
     assert out["runtime_integration_implemented"] is False
     assert out["model_call_implemented"] is False
     assert out["host_command_implemented"] is False
@@ -76,7 +86,7 @@ def test_contract_is_pure_source_only_implementation():
     assert out["new_execution_request_opened"] is False
 
 
-def test_recovery_mode_keeps_only_current_recovery_tools():
+def test_recovery_mode_prunes_production_and_rebuilds_legality():
     names = [
         "advance",
         "build_structure_powr",
@@ -99,10 +109,24 @@ def test_recovery_mode_keeps_only_current_recovery_tools():
         "train_unit_e1",
         "train_unit_e3",
     ]
-    assert out["reinforcement_tools_suppressed"] == ()
+    assert out["tool_contract"]["production_functions"] == {
+        "train_unit_e1": {"kind": "build_unit", "unit_type": "e1"},
+        "train_unit_e3": {"kind": "build_unit", "unit_type": "e3"},
+    }
+    assert out["tool_contract"]["legal_units"] == ["e1", "e3"]
+    assert out["tool_contract"]["legal_buildings"] == []
+    assert out["filtered_production_function_names"] == (
+        "train_unit_e1",
+        "train_unit_e3",
+    )
+    assert out["suppressed_production_function_names"] == (
+        "build_structure_powr",
+    )
+    assert out["translator_legal_unit_mapping_coherent"] is True
+    assert out["translator_legal_building_mapping_coherent"] is True
 
 
-def test_strict_contact_keeps_only_engagement_and_tactical_controls():
+def test_strict_contact_removes_all_production_and_legality():
     names = [
         "advance",
         "build_structure_powr",
@@ -134,25 +158,35 @@ def test_strict_contact_keeps_only_engagement_and_tactical_controls():
         tool["function"]["name"] for tool in out["typed_tools"]
     ) == expected
     assert out["tool_contract"]["offered_tool_names"] == list(expected)
+    assert out["tool_contract"]["production_functions"] == {}
+    assert out["tool_contract"]["legal_units"] == []
+    assert out["tool_contract"]["legal_buildings"] == []
     assert out["reinforcement_tools_suppressed"] == ("train_unit_e1",)
     assert out["suppressed_tool_names"] == (
         "advance",
         "build_structure_powr",
         "train_unit_e1",
     )
+    assert out["suppressed_production_function_names"] == (
+        "build_structure_powr",
+        "train_unit_e1",
+    )
+    assert out["mapped_legal_units"] == ()
+    assert out["mapped_legal_buildings"] == ()
 
 
-def test_normal_mode_preserves_exact_tool_order_and_membership():
+def test_normal_mode_preserves_exact_tool_contract_identity():
     names = [
         "advance",
         "train_unit_e1",
         "move_units",
         "attack_move",
     ]
+    contract = _contract(names)
     out = policy.apply_pair06_v9_strict_visible_contact_policy(
         state=_state(3, 0),
         typed_tools=[_tool(name) for name in names],
-        tool_contract=_contract(names),
+        tool_contract=contract,
     )
 
     assert out["mode"] == "NORMAL"
@@ -161,6 +195,10 @@ def test_normal_mode_preserves_exact_tool_order_and_membership():
         tool["function"]["name"] for tool in out["typed_tools"]
     ) == tuple(names)
     assert out["suppressed_tool_names"] == ()
+    assert out["tool_contract"] == contract
+    assert out["normal_mode_contract_identity_preserved"] is True
+    assert out["legal_units_reconstructed_from_remaining_production"] is False
+    assert out["legal_buildings_reconstructed_from_remaining_production"] is False
 
 
 def test_input_state_tools_and_contract_are_not_mutated():
@@ -191,25 +229,39 @@ def test_input_state_tools_and_contract_are_not_mutated():
     assert out["typed_tools"] is not tools
 
 
-def test_typed_legality_and_production_mappings_are_preserved_verbatim():
-    names = [
-        "build_structure_powr",
-        "train_unit_e1",
-        "attack_target",
-        "set_stance",
-    ]
+def test_production_function_outside_offered_surface_fails_closed():
+    names = ["attack_target", "train_unit_e1"]
     contract = _contract(names)
-    out = policy.apply_pair06_v9_strict_visible_contact_policy(
-        state=_state(1, 1),
-        typed_tools=[_tool(name) for name in names],
-        tool_contract=contract,
-    )
+    contract["production_functions"]["train_unit_e3"] = {
+        "kind": "build_unit",
+        "unit_type": "e3",
+    }
 
-    assert out["tool_contract"]["production_functions"] == (
-        contract["production_functions"]
-    )
-    assert out["tool_contract"]["legal_units"] == contract["legal_units"]
-    assert out["tool_contract"]["legal_buildings"] == contract["legal_buildings"]
+    with pytest.raises(
+        policy.Pair06V9StrictVisibleContactPolicyHold,
+        match="production function escaped offered surface",
+    ):
+        policy.apply_pair06_v9_strict_visible_contact_policy(
+            state=_state(1, 1),
+            typed_tools=[_tool(name) for name in names],
+            tool_contract=contract,
+        )
+
+
+def test_production_mapping_must_fit_reviewed_legality_lists():
+    names = ["attack_target", "train_unit_e1"]
+    contract = _contract(names)
+    contract["legal_units"] = []
+
+    with pytest.raises(
+        policy.Pair06V9StrictVisibleContactPolicyHold,
+        match="production unit escaped legal_units",
+    ):
+        policy.apply_pair06_v9_strict_visible_contact_policy(
+            state=_state(1, 1),
+            typed_tools=[_tool(name) for name in names],
+            tool_contract=contract,
+        )
 
 
 def test_order_or_membership_mismatch_fails_closed():
@@ -235,11 +287,16 @@ def test_duplicate_tool_name_fails_closed():
         policy.apply_pair06_v9_strict_visible_contact_policy(
             state=_state(1, 1),
             typed_tools=[_tool("attack_target"), _tool("attack_target")],
-            tool_contract=_contract(["attack_target"]),
+            tool_contract={
+                "offered_tool_names": ["attack_target"],
+                "legal_units": [],
+                "legal_buildings": [],
+                "production_functions": {},
+            },
         )
 
 
-def test_missing_or_invalid_compact_state_fails_closed():
+def test_missing_compact_state_fails_closed():
     names = ["attack_target"]
     with pytest.raises(
         policy.Pair06V9StrictVisibleContactPolicyHold,
