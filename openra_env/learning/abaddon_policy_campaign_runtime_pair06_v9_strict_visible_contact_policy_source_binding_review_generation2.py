@@ -1,9 +1,11 @@
-"""Exact-blob source review for the pair-06 V9 strict-contact implementation.
+"""Exact-blob source review for the coherent pair-06 V9 implementation.
 
 This review pins the pure implementation and its regression tests to repository
-bytes and verifies that the implementation preserves the reviewed V9 proposal
-boundary. It grants no runtime activation, execution, replay, training,
-promotion, deployment, chain, wallet, transaction, or funds authority.
+bytes and verifies that the V8 V1/V2 translator-coherence invariants are built
+into V9 before runtime integration.
+
+It grants no runtime activation, execution, replay, training, promotion,
+deployment, chain, wallet, transaction, or funds authority.
 """
 
 from __future__ import annotations
@@ -28,13 +30,13 @@ IMPLEMENTATION_PATH = (
     "abaddon_policy_campaign_runtime_pair06_v9_"
     "strict_visible_contact_policy_generation2.py"
 )
-IMPLEMENTATION_GIT_BLOB = "a3ab21dad67471dd2ff69281b549a1f64035af1e"
+IMPLEMENTATION_GIT_BLOB = "e3930101947430deecc03013088ad9ccfd1d901e"
 IMPLEMENTATION_TEST_PATH = (
     "tests/"
     "test_abaddon_policy_campaign_runtime_pair06_v9_"
     "strict_visible_contact_policy_generation2.py"
 )
-IMPLEMENTATION_TEST_GIT_BLOB = "c94e389216ba2121f9447ec94cd5e7f0dfa0fccb"
+IMPLEMENTATION_TEST_GIT_BLOB = "21cadc73238d4ccbb67cd61af0f5be455052eed5"
 
 NEXT_GATE = "PAIR06_V9_STRICT_VISIBLE_CONTACT_POLICY_RUNTIME_INTEGRATION_REQUIRED"
 NEXT_CHANGE_CLASS = (
@@ -76,7 +78,7 @@ def pair06_v9_strict_visible_contact_policy_review_contract() -> dict[str, Any]:
     )
     _require(
         candidate.get("implementation_layer")
-        == "pure_pre_inference_tool_surface_transform",
+        == "pure_pre_inference_coherent_tool_surface_transform",
         "V9 implementation layer drift",
     )
 
@@ -90,9 +92,13 @@ def pair06_v9_strict_visible_contact_policy_review_contract() -> dict[str, Any]:
         "input_tool_contract_is_deep_copied",
         "tool_definitions_are_filtered_not_rewritten",
         "offered_tool_names_order_and_membership_match_filtered_tools",
-        "production_function_mapping_preserved",
-        "legal_units_preserved",
-        "legal_buildings_preserved",
+        "production_functions_filtered_to_offered_surface",
+        "legal_buildings_reconstructed_from_remaining_production",
+        "legal_units_reconstructed_from_remaining_production",
+        "translator_legal_building_mapping_invariant_required",
+        "translator_legal_unit_mapping_invariant_required",
+        "normal_mode_contract_identity_required",
+        "v8_v1_v2_coherence_invariants_incorporated",
         "host_validation_unchanged",
     ):
         _require(
@@ -145,6 +151,13 @@ def pair06_v9_strict_visible_contact_policy_review_contract() -> dict[str, Any]:
         "normal_mode_identity_preserved": True,
         "strict_visible_contact_reinforcement_suppressed": True,
         "strict_visible_contact_engagement_and_controls_only": True,
+        "production_functions_filtered_to_offered_surface": True,
+        "legal_buildings_reconstructed_from_remaining_production": True,
+        "legal_units_reconstructed_from_remaining_production": True,
+        "translator_legal_building_mapping_invariant_required": True,
+        "translator_legal_unit_mapping_invariant_required": True,
+        "normal_mode_contract_identity_required": True,
+        "v8_v1_v2_coherence_invariants_incorporated": True,
         "host_validation_unchanged": True,
         "runtime_integration_implemented": False,
         "new_execution_request_opened": False,
