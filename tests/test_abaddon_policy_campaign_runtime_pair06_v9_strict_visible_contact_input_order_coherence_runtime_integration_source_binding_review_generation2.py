@@ -58,11 +58,29 @@ def test_review_preserves_narrow_order_repair_runtime_boundary():
     ] is True
     assert out["historical_v9_policy_source_modified"] is False
     assert out["historical_v9_runtime_integration_source_modified"] is False
-    assert out["scoped_policy_function_substitution_reviewed"] is True
-    assert out["policy_function_restored_in_finally_reviewed"] is True
+    assert out["historical_adapted_decision_code_reused_reviewed"] is True
+    assert out["call_scoped_policy_binding_reviewed"] is True
+    assert out["process_global_policy_function_mutated"] is False
+    assert out["concurrency_scope_leak_closed_reviewed"] is True
     assert out["typed_tool_membership_exact_match_required"] is True
     assert out["typed_tool_order_canonicalized_to_offered_order"] is True
     assert out["membership_drift_still_fail_closed"] is True
+
+
+def test_review_contract_returns_fresh_validated_snapshot():
+    first = (
+        review
+        .pair06_v9_input_order_coherence_runtime_integration_review_contract()
+    )
+    first["validated_integration"]["policy_id"] = "mutated"
+
+    second = (
+        review
+        .pair06_v9_input_order_coherence_runtime_integration_review_contract()
+    )
+    assert second["validated_integration"]["policy_id"] == (
+        "pair06-v9-strict-visible-contact-envelope-v1"
+    )
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import threading
 
 import pytest
 
@@ -205,29 +206,33 @@ def test_membership_drift_still_fails_closed_before_decider():
     assert legacy.validation_calls == []
 
 
-def test_scoped_policy_substitution_restores_after_success():
+def test_call_scoped_binding_keeps_historical_global_original_during_success():
     original = integration.ORIGINAL_V9_POLICY_APPLY
     typed_order = ["move_units", "attack_target", "set_stance"]
     legacy = _Legacy(typed_order, sorted(typed_order))
+    observed = []
 
-    hooks = integration.Pair06V9InputOrderCoherentDecisionHooks(
-        legacy,
-        lambda **kwargs: _result("attack_target"),
-    )
+    def decider(**kwargs):
+        observed.append(
+            (
+                integration.historical_integration.strict_policy
+                .apply_pair06_v9_strict_visible_contact_policy
+            )
+            is original
+        )
+        return _result("attack_target")
+
+    hooks = integration.Pair06V9InputOrderCoherentDecisionHooks(legacy, decider)
     hooks.install()
     try:
-        legacy.apollyon_decision_typed(
-            _Base(),
-            object(),
-            _state(2, 1),
-            {},
-            object(),
-            "FEINTER",
-            1,
+        result = legacy.apollyon_decision_typed(
+            _Base(), object(), _state(2, 1), {}, object(), "FEINTER", 1
         )
     finally:
         hooks.restore()
 
+    assert result[0] == "attack_target"
+    assert observed == [True]
     assert (
         integration.historical_integration.strict_policy
         .apply_pair06_v9_strict_visible_contact_policy
@@ -235,12 +240,9 @@ def test_scoped_policy_substitution_restores_after_success():
     )
 
 
-def test_scoped_policy_substitution_restores_after_failure():
+def test_call_scoped_binding_keeps_historical_global_original_after_failure():
     original = integration.ORIGINAL_V9_POLICY_APPLY
-    legacy = _Legacy(
-        ["attack_target"],
-        ["attack_target", "train_unit_e1"],
-    )
+    legacy = _Legacy(["attack_target"], ["attack_target", "train_unit_e1"])
 
     hooks = integration.Pair06V9InputOrderCoherentDecisionHooks(
         legacy,
@@ -248,17 +250,9 @@ def test_scoped_policy_substitution_restores_after_failure():
     )
     hooks.install()
     try:
-        with pytest.raises(
-            integration.repair.Pair06V9InputOrderCoherenceRepairHold,
-        ):
+        with pytest.raises(integration.repair.Pair06V9InputOrderCoherenceRepairHold):
             legacy.apollyon_decision_typed(
-                _Base(),
-                object(),
-                _state(2, 1),
-                {},
-                object(),
-                "FEINTER",
-                1,
+                _Base(), object(), _state(2, 1), {}, object(), "FEINTER", 1
             )
     finally:
         hooks.restore()
@@ -270,13 +264,160 @@ def test_scoped_policy_substitution_restores_after_failure():
     )
 
 
+def test_call_scoped_binding_isolates_concurrent_historical_caller(monkeypatch):
+    original_policy = integration.ORIGINAL_V9_POLICY_APPLY
+    original_repair = integration.repair.apply_pair06_v9_input_order_coherence_repair
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_repair(**kwargs):
+        entered.set()
+        assert release.wait(timeout=5)
+        return original_repair(**kwargs)
+
+    monkeypatch.setattr(
+        integration.repair,
+        "apply_pair06_v9_input_order_coherence_repair",
+        blocking_repair,
+    )
+
+    order = ["move_units", "attack_target", "set_stance"]
+    offered = sorted(order)
+
+    repaired_legacy = _Legacy(order, offered)
+    repaired_hooks = integration.Pair06V9InputOrderCoherentDecisionHooks(
+        repaired_legacy,
+        lambda **kwargs: _result("attack_target"),
+    )
+
+    historical_legacy = _Legacy(order, offered)
+    historical_hooks = (
+        integration.historical_integration
+        .Pair06V9StrictVisibleContactDecisionHooks(
+            historical_legacy,
+            lambda **kwargs: _result("attack_target"),
+        )
+    )
+
+    result_box = {}
+    errors = []
+
+    def run_repaired():
+        try:
+            result_box["value"] = repaired_legacy.apollyon_decision_typed(
+                _Base(), object(), _state(2, 1), {}, object(), "FEINTER", 1
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    repaired_hooks.install()
+    historical_hooks.install()
+    thread = threading.Thread(target=run_repaired)
+    try:
+        thread.start()
+        assert entered.wait(timeout=5)
+
+        with pytest.raises(
+            integration.historical_integration.strict_policy
+            .Pair06V9StrictVisibleContactPolicyHold,
+            match="order or membership disagree",
+        ):
+            historical_legacy.apollyon_decision_typed(
+                _Base(), object(), _state(2, 1), {}, object(), "FEINTER", 1
+            )
+
+        assert (
+            integration.historical_integration.strict_policy
+            .apply_pair06_v9_strict_visible_contact_policy
+            is original_policy
+        )
+        release.set()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert errors == []
+        assert result_box["value"][0] == "attack_target"
+    finally:
+        release.set()
+        thread.join(timeout=5)
+        historical_hooks.restore()
+        repaired_hooks.restore()
+
+
+def test_call_scoped_binding_isolates_same_thread_reentrant_historical_call():
+    original_policy = integration.ORIGINAL_V9_POLICY_APPLY
+    order = ["move_units", "attack_target", "set_stance"]
+    offered = sorted(order)
+
+    nested_legacy = _Legacy(order, offered)
+    nested_hooks = (
+        integration.historical_integration
+        .Pair06V9StrictVisibleContactDecisionHooks(
+            nested_legacy,
+            lambda **kwargs: _result("attack_target"),
+        )
+    )
+    nested_hooks.install()
+
+    outer_legacy = _Legacy(order, offered)
+
+    def outer_decider(**kwargs):
+        assert (
+            integration.historical_integration.strict_policy
+            .apply_pair06_v9_strict_visible_contact_policy
+            is original_policy
+        )
+        with pytest.raises(
+            integration.historical_integration.strict_policy
+            .Pair06V9StrictVisibleContactPolicyHold,
+            match="order or membership disagree",
+        ):
+            nested_legacy.apollyon_decision_typed(
+                _Base(), object(), _state(2, 1), {}, object(), "FEINTER", 1
+            )
+        return _result("attack_target")
+
+    outer_hooks = integration.Pair06V9InputOrderCoherentDecisionHooks(
+        outer_legacy,
+        outer_decider,
+    )
+    outer_hooks.install()
+    try:
+        result = outer_legacy.apollyon_decision_typed(
+            _Base(), object(), _state(2, 1), {}, object(), "FEINTER", 1
+        )
+    finally:
+        outer_hooks.restore()
+        nested_hooks.restore()
+
+    assert result[0] == "attack_target"
+    assert (
+        integration.historical_integration.strict_policy
+        .apply_pair06_v9_strict_visible_contact_policy
+        is original_policy
+    )
+
+
+def test_contract_returns_fresh_dependency_snapshot():
+    first = integration.pair06_v9_input_order_coherence_runtime_integration_contract()
+    first["dependencies"]["repair_review"][
+        "pair06_v9_input_order_coherence_repair_reviewed"
+    ] = False
+
+    second = integration.pair06_v9_input_order_coherence_runtime_integration_contract()
+    assert second["dependencies"]["repair_review"][
+        "pair06_v9_input_order_coherence_repair_reviewed"
+    ] is True
+
+
 def test_contract_preserves_historical_runtime_and_grants_no_retry():
     out = integration.pair06_v9_input_order_coherence_runtime_integration_contract()
 
     assert out["historical_v9_policy_source_modified"] is False
     assert out["historical_v9_runtime_integration_source_modified"] is False
-    assert out["scoped_policy_function_substitution_implemented"] is True
-    assert out["policy_function_restored_in_finally"] is True
+    assert out["historical_adapted_decision_code_reused"] is True
+    assert out["call_scoped_policy_binding_implemented"] is True
+    assert out["process_global_policy_function_mutated"] is False
+    assert out["concurrency_scope_leak_closed"] is True
     assert out["typed_tool_membership_exact_match_required"] is True
     assert out["typed_tool_order_canonicalized_to_offered_order"] is True
     assert out["membership_drift_still_fail_closed"] is True

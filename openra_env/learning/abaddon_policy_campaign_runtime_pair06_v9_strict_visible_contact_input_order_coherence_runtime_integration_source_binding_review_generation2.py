@@ -2,8 +2,9 @@
 
 Pins the scoped runtime-integration wrapper and focused tests. The review
 confirms that the historical V9 runtime integration remains unchanged, the
-reviewed input-order repair is substituted only for one decision call and
-restored in finally, and membership drift remains fail-closed.
+exact historical decision code runs with a call-scoped repair binding without
+mutating the process-global historical policy function, and membership drift
+remains fail-closed.
 
 The consumed V9 attempt remains consumed and non-retryable. This review opens no
 new execution request and grants no runtime activation, execution, replay,
@@ -36,7 +37,7 @@ INTEGRATION_PATH = (
     "strict_visible_contact_input_order_coherence_"
     "runtime_integration_generation2.py"
 )
-INTEGRATION_GIT_BLOB = "569c09ce225741ec2d38c36f8062da0bdbb16c1f"
+INTEGRATION_GIT_BLOB = "166e4e84fd657adcdd752e53c8c6fd8ea555006b"
 
 INTEGRATION_TEST_PATH = (
     "tests/"
@@ -44,7 +45,7 @@ INTEGRATION_TEST_PATH = (
     "strict_visible_contact_input_order_coherence_"
     "runtime_integration_generation2.py"
 )
-INTEGRATION_TEST_GIT_BLOB = "1afcebce2ca5b1196e019dd588cc5a78ca9d568c"
+INTEGRATION_TEST_GIT_BLOB = "32d575df9d20edab0cda4c0bfebe6a8df35c4768"
 
 NEXT_GATE = (
     "PAIR06_V9_STRICT_VISIBLE_CONTACT_INPUT_ORDER_COHERENCE_"
@@ -81,8 +82,9 @@ def _validated() -> dict[str, Any]:
         "V9 order-repair runtime integration scope drift",
     )
     for field in (
-        "scoped_policy_function_substitution_implemented",
-        "policy_function_restored_in_finally",
+        "historical_adapted_decision_code_reused",
+        "call_scoped_policy_binding_implemented",
+        "concurrency_scope_leak_closed",
         "typed_tool_membership_exact_match_required",
         "typed_tool_order_canonicalized_to_offered_order",
         "membership_drift_still_fail_closed",
@@ -102,8 +104,9 @@ def _validated() -> dict[str, Any]:
     _require(
         out.get("historical_v9_policy_source_modified") is False
         and out.get("historical_v9_runtime_integration_source_modified")
-        is False,
-        "historical V9 runtime source unexpectedly modified",
+        is False
+        and out.get("process_global_policy_function_mutated") is False,
+        "historical V9 runtime source/global policy unexpectedly modified",
     )
 
     for field in (
@@ -142,7 +145,7 @@ def _validated() -> dict[str, Any]:
 
 
 def pair06_v9_input_order_coherence_runtime_integration_review_contract() -> dict[str, Any]:
-    validated = _validated()
+    validated = deepcopy(_validated())
     return {
         "schema": CONTRACT_SCHEMA,
         "accepted_base_main_head": ACCEPTED_BASE_MAIN_HEAD,
@@ -154,8 +157,10 @@ def pair06_v9_input_order_coherence_runtime_integration_review_contract() -> dic
         "policy_id": validated["policy_id"],
         "historical_v9_policy_source_modified": False,
         "historical_v9_runtime_integration_source_modified": False,
-        "scoped_policy_function_substitution_reviewed": True,
-        "policy_function_restored_in_finally_reviewed": True,
+        "historical_adapted_decision_code_reused_reviewed": True,
+        "call_scoped_policy_binding_reviewed": True,
+        "process_global_policy_function_mutated": False,
+        "concurrency_scope_leak_closed_reviewed": True,
         "typed_tool_membership_exact_match_required": True,
         "typed_tool_order_canonicalized_to_offered_order": True,
         "membership_drift_still_fail_closed": True,

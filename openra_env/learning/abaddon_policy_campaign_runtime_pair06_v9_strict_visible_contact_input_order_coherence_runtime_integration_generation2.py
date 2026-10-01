@@ -2,8 +2,9 @@
 
 The historical V9 runtime integration remains byte-for-byte unchanged. This
 module subclasses its reviewed decision hook and, for exactly one decision call,
-temporarily substitutes only the V9 policy apply function with the reviewed
-input-order coherence repair.
+executes the exact reviewed historical decision code with a call-scoped
+strict-policy binding to the reviewed input-order coherence repair. The
+historical module-global policy function is never mutated.
 
 The repair canonicalizes typed-tool order to offered_tool_names only when exact
 membership already matches. Membership drift and duplicates remain fail-closed.
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import lru_cache
+from types import FunctionType, SimpleNamespace
 from typing import Any, Mapping
 
 from openra_env.learning import (
@@ -58,6 +60,10 @@ HISTORICAL_RUNTIME_INTEGRATION_REVIEW_GIT_BLOB = (
 ORIGINAL_V9_POLICY_APPLY = (
     historical_integration.strict_policy
     .apply_pair06_v9_strict_visible_contact_policy
+)
+ORIGINAL_V9_ADAPTED_DECISION = (
+    historical_integration.Pair06V9StrictVisibleContactDecisionHooks
+    ._adapted_decision
 )
 
 NEXT_GATE = (
@@ -161,38 +167,62 @@ class Pair06V9InputOrderCoherentDecisionHooks(
     ):
         _dependencies()
 
-        current = (
+        current_policy = (
             historical_integration.strict_policy
             .apply_pair06_v9_strict_visible_contact_policy
+        )
+        current_method = (
+            historical_integration.Pair06V9StrictVisibleContactDecisionHooks
+            ._adapted_decision
         )
         _require(
-            current is ORIGINAL_V9_POLICY_APPLY,
-            "historical V9 policy function drift before scoped substitution",
+            current_policy is ORIGINAL_V9_POLICY_APPLY,
+            "historical V9 policy function drift before scoped binding",
+        )
+        _require(
+            current_method is ORIGINAL_V9_ADAPTED_DECISION,
+            "historical V9 adapted-decision function drift",
         )
 
-        (
-            historical_integration.strict_policy
-            .apply_pair06_v9_strict_visible_contact_policy
-        ) = repair.apply_pair06_v9_input_order_coherence_repair
-        try:
-            return super()._adapted_decision(
-                base,
-                helper,
-                state,
-                pending,
-                pb2,
-                doctrine,
-                round_no,
+        scoped_globals = dict(ORIGINAL_V9_ADAPTED_DECISION.__globals__)
+        scoped_globals["strict_policy"] = SimpleNamespace(
+            apply_pair06_v9_strict_visible_contact_policy=(
+                repair.apply_pair06_v9_input_order_coherence_repair
             )
-        finally:
+        )
+        scoped_decision = FunctionType(
+            ORIGINAL_V9_ADAPTED_DECISION.__code__,
+            scoped_globals,
+            ORIGINAL_V9_ADAPTED_DECISION.__name__,
+            ORIGINAL_V9_ADAPTED_DECISION.__defaults__,
+            ORIGINAL_V9_ADAPTED_DECISION.__closure__,
+        )
+        scoped_decision.__kwdefaults__ = ORIGINAL_V9_ADAPTED_DECISION.__kwdefaults__
+
+        result = scoped_decision(
+            self,
+            base,
+            helper,
+            state,
+            pending,
+            pb2,
+            doctrine,
+            round_no,
+        )
+
+        _require(
             (
                 historical_integration.strict_policy
                 .apply_pair06_v9_strict_visible_contact_policy
-            ) = ORIGINAL_V9_POLICY_APPLY
+            )
+            is ORIGINAL_V9_POLICY_APPLY,
+            "historical V9 policy function mutated during scoped binding",
+        )
+        return result
 
 
 def pair06_v9_input_order_coherence_runtime_integration_contract() -> dict[str, Any]:
-    dependencies = _dependencies()
+    dependencies = deepcopy(_dependencies())
     return {
         "schema": CONTRACT_SCHEMA,
         "repair_git_blob": REPAIR_GIT_BLOB,
@@ -209,8 +239,10 @@ def pair06_v9_input_order_coherence_runtime_integration_contract() -> dict[str, 
         "input_order_coherence_runtime_integration_implemented": True,
         "historical_v9_policy_source_modified": False,
         "historical_v9_runtime_integration_source_modified": False,
-        "scoped_policy_function_substitution_implemented": True,
-        "policy_function_restored_in_finally": True,
+        "historical_adapted_decision_code_reused": True,
+        "call_scoped_policy_binding_implemented": True,
+        "process_global_policy_function_mutated": False,
+        "concurrency_scope_leak_closed": True,
         "typed_tool_membership_exact_match_required": True,
         "typed_tool_order_canonicalized_to_offered_order": True,
         "membership_drift_still_fail_closed": True,
