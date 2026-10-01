@@ -94,7 +94,7 @@ def _dependencies() -> dict[str, Any]:
     )
     order = (
         order_parent_review
-        .pair06_v9_input_order_coherence_parent_supervisor_wiring_review_contract()
+        .pair06_v9_input_order_coherence_parent_wiring_review_contract()
     )
     adapter = (
         adapter_response_review
