@@ -452,6 +452,7 @@ def pair06_v9_input_order_execution_authorization_request_contract() -> dict[str
         "v9_execution_authorized": False,
         "v9_policy_activation_authorized": False,
         "v9_order_coherence_activation_authorized": False,
+        "attempt_consumed": False,
         "attempt_marker_creation_authorized": False,
         "runtime_load_authorized": False,
         "model_inference_authorized": False,
