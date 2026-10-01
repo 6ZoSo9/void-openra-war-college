@@ -39,7 +39,7 @@ INTEGRATION_PATH = (
     "strict_visible_contact_input_order_coherence_"
     "adapter_rejection_parent_integration_generation2.py"
 )
-INTEGRATION_GIT_BLOB = "8413a2c773f7e5df22f4874157d5e1d6f151a18c"
+INTEGRATION_GIT_BLOB = "381f30278f58ebfd66348807f56251bd16a9ce92"
 
 INTEGRATION_TEST_PATH = (
     "tests/"
