@@ -87,7 +87,7 @@ RESULT_NAME = (
 CLOSEOUT_NAME = (
     "pair06-v9-strict-visible-contact-input-order-coherence-baseline-game-closeout-v1.json"
 )
-REVOCATION_NAME = "REVOKE_PAIR06_V9_INPUT_ORDER_INPUT_ORDER_COHERENCE_GAME"
+REVOCATION_NAME = "REVOKE_PAIR06_V9_INPUT_ORDER_COHERENCE_GAME"
 
 SELF_PATH = (
     "openra_env/learning/"
@@ -99,7 +99,7 @@ SELF_PATH = (
 V8_PYTHON = Path(base_invocation.V8_PYTHON)
 
 EXECUTION_CONFIRM_TOKEN = (
-    "VOID_PAIR06_V9_INPUT_ORDER_INPUT_ORDER_COHERENCE_RECEIPT_BOUND_NO_OFFLOAD_"
+    "VOID_PAIR06_V9_INPUT_ORDER_COHERENCE_RECEIPT_BOUND_NO_OFFLOAD_"
     "PRECLAIM_GPU_EXECUTE_ONCE"
 )
 POLICY_CONFIRM_TOKEN = order_child_entry.POLICY_CONFIRM_TOKEN
@@ -114,7 +114,7 @@ PRIOR_V8_SUCCESS_REVIEW_GIT_BLOB = (
 )
 
 NEXT_GATE = (
-    "PAIR06_V9_STRICT_VISIBLE_CONTACT_INPUT_ORDER_COHERENCE_INPUT_ORDER_COHERENCE_"
+    "PAIR06_V9_STRICT_VISIBLE_CONTACT_INPUT_ORDER_COHERENCE_"
     "OPERATOR_ENTRYPOINT_SOURCE_BINDING_REVIEW_REQUIRED"
 )
 NEXT_CHANGE_CLASS = (
@@ -238,7 +238,7 @@ def _dependency_contracts() -> dict[str, Any]:
     )
 
     return {
-        "v9_parent_wiring_review": deepcopy(parent),
+        "order_parent_wiring_review": deepcopy(parent),
         "base_preclaim_gpu_invocation_review": deepcopy(base),
         "prior_v8_v2_success_review": deepcopy(prior),
     }
@@ -611,6 +611,8 @@ def pair06_v9_input_order_coherence_operator_contract() -> dict[str, Any]:
         "maximum_automatic_retries": 0,
         "v9_evidence_namespace_distinct_from_v8": True,
         "order_evidence_namespace_distinct_from_historical_v9": True,
+        "historical_v9_attempt_reusable": False,
+        "historical_v9_authorization_reusable": False,
         "order_runs_root": str(RUNS_ROOT),
         "order_marker_name": MARKER_NAME,
         "order_result_name": RESULT_NAME,
