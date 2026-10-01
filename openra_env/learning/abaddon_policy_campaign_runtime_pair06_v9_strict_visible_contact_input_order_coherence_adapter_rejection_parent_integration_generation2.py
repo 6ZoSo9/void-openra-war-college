@@ -117,23 +117,29 @@ def _dependencies() -> dict[str, Any]:
     )
 
     _require(
-        order.get(
-            "pair06_v9_input_order_coherence_parent_supervisor_wiring_reviewed"
-        )
-        is True,
+        order.get("pair06_v9_input_order_coherence_parent_wiring_reviewed")
+        is True
+        and order.get("input_order_child_entrypoint_reviewed") is True,
         "input-order parent wiring review missing",
     )
     _require(
-        order.get("pair_slot") == PAIR_SLOT
-        and order.get("arm") == ARM
-        and order.get("policy_id") == POLICY_ID,
-        "input-order parent wiring scope drift",
+        order.get("historical_parent_run_code_reused_reviewed") is True
+        and order.get("call_scoped_child_command_binding_reviewed") is True
+        and order.get("durable_attempt_claim_prerequisite_preserved") is True
+        and order.get("no_offload_cuda0_parent_path_preserved") is True,
+        "input-order parent reviewed runtime boundary drift",
     )
     _require(
-        order.get("call_scoped_child_command_binding_implemented") is True
-        and order.get("process_global_child_command_builder_mutated") is False
-        and order.get("process_global_parent_run_function_mutated") is False,
-        "input-order parent scoped-binding drift",
+        order.get("process_global_child_command_builder_mutated") is False
+        and order.get("process_global_parent_run_function_mutated") is False
+        and order.get("new_concurrency_scope_leak_introduced") is False
+        and order.get("consumed_v9_attempt_retry_authorized") is False
+        and order.get("execution_request_created") is False
+        and order.get("attempt_claim_created") is False
+        and order.get("attempt_created") is False
+        and order.get("runtime_execution_authorized") is False
+        and order.get("automatic_retry") is False,
+        "input-order parent reviewed authority boundary drift",
     )
 
     _require(
