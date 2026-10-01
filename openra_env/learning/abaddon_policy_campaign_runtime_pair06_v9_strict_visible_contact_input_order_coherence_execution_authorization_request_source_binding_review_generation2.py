@@ -40,7 +40,7 @@ REQUEST_PATH = (
     "strict_visible_contact_input_order_coherence_"
     "execution_authorization_request_generation2.py"
 )
-REQUEST_GIT_BLOB = "b4dd3286ec327e54356e395da7049131ca4a09dd"
+REQUEST_GIT_BLOB = "1110cd7fc41f390f579e2207ac2fc9d0bfa4adcf"
 
 REQUEST_TEST_PATH = (
     "tests/"
