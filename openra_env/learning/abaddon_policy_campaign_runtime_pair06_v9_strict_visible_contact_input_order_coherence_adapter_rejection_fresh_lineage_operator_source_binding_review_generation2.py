@@ -31,7 +31,7 @@ CONTRACT_SCHEMA = (
     "fresh-lineage-operator-review-contract.v1"
 )
 
-ACCEPTED_BASE_HEAD = "1f6bca6a4dd346f9eda4d36a71157ecb300d2c86"
+ACCEPTED_BASE_HEAD = "87ce99c4968e04c2104fde5413f238477d213c81"
 
 OPERATOR_PATH = (
     "openra_env/learning/"
@@ -39,7 +39,7 @@ OPERATOR_PATH = (
     "strict_visible_contact_input_order_coherence_adapter_rejection_"
     "fresh_lineage_operator_generation2.py"
 )
-OPERATOR_GIT_BLOB = "263b1039f9a75d729e4a249af62fe3712755edc8"
+OPERATOR_GIT_BLOB = "b10730b126fb91bcbf41bf13ca3c07f296711aa3"
 
 OPERATOR_TEST_PATH = (
     "tests/"
