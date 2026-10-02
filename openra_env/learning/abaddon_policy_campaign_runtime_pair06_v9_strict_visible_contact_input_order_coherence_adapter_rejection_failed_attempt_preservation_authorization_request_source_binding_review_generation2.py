@@ -29,7 +29,7 @@ CONTRACT_SCHEMA = (
     "preservation-authorization-request-review-contract.v1"
 )
 
-ACCEPTED_BASE_HEAD = "93944bd42f10b94b4133176e35a482370d1618d5"
+ACCEPTED_BASE_HEAD = "9e6bc5017faf54dc3290a6472a3424278a5f1ac9"
 
 REQUEST_PATH = (
     "openra_env/learning/"
@@ -37,7 +37,7 @@ REQUEST_PATH = (
     "strict_visible_contact_input_order_coherence_adapter_rejection_"
     "failed_attempt_preservation_authorization_request_generation2.py"
 )
-REQUEST_GIT_BLOB = "2af5494e0e1a773e6af38756ed6e6e12ccfedfb9"
+REQUEST_GIT_BLOB = "9a320e0d76e12c215570cb09f0d950589a620fa7"
 
 REQUEST_TEST_PATH = (
     "tests/"
@@ -45,7 +45,7 @@ REQUEST_TEST_PATH = (
     "strict_visible_contact_input_order_coherence_adapter_rejection_"
     "failed_attempt_preservation_authorization_request_generation2.py"
 )
-REQUEST_TEST_GIT_BLOB = "a7aca38876960e9c324702e0d8b0076257bcea40"
+REQUEST_TEST_GIT_BLOB = "362a99e06f7b586c3c3ba08b584e25667e0bf548"
 
 NEXT_GATE = (
     "PAIR06_V9_STRICT_VISIBLE_CONTACT_INPUT_ORDER_COHERENCE_"
@@ -88,7 +88,7 @@ def _validated() -> dict[str, Any]:
         record["source_binding"]["preservation_git_blob"]
         == "342118e0e9edbba7472820ae99ff4c05203143d0"
         and record["source_binding"]["preservation_review_git_blob"]
-        == "6565b7b9c30c6f3d9bf67182bee64e7eae08c41a",
+        == "3913e75e1e2b86407601904f4fc69b6c2de22127",
         "preservation request source binding drift",
     )
     _require(
