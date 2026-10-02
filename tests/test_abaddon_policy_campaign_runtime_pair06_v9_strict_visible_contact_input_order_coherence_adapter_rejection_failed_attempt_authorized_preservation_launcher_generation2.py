@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import pytest
+
+from openra_env.learning import (
+    abaddon_policy_campaign_runtime_pair06_v9_strict_visible_contact_input_order_coherence_adapter_rejection_failed_attempt_authorized_preservation_launcher_generation2
+    as launcher,
+)
+
+
+def test_contract_is_inert_and_runtime_retry_remains_forbidden():
+    out = (
+        launcher
+        .pair06_v9_adapter_rejection_authorized_preservation_launcher_contract()
+    )
+
+    assert out["authorized_preservation_launcher_implemented"] is True
+    assert out["exact_current_main_required"] is True
+    assert out["exact_launcher_source_sha256_required"] is True
+    assert out["explicit_launcher_confirmation_token_required"] is True
+    assert out["reviewed_preservation_authorization_required"] is True
+    assert out["reviewed_preservation_implementation_required"] is True
+    assert out["preservation_delegation_exactly_once"] is True
+    assert out["non_force_worktree_removal_required"] is True
+    assert out["atomic_archive_rename_required"] is True
+    assert out["create_only_preservation_receipt_required"] is True
+
+    assert out["runtime_retry_authorized"] is False
+    assert out["automatic_retry"] is False
+    assert out["execution_request_opened"] is False
+    assert out["runtime_execution_authorized"] is False
+    assert out["game_execution_authorized"] is False
+    assert out["preservation_performed_by_contract_inspection"] is False
+    assert out["host_io_performed_by_contract_inspection"] is False
+
+
+def test_wrong_launcher_confirmation_fails_before_dependency_or_host_work(monkeypatch):
+    called = {"acceptance": 0, "self": 0, "main": 0, "preserve": 0}
+
+    monkeypatch.setattr(
+        launcher,
+        "_acceptance",
+        lambda: called.__setitem__("acceptance", called["acceptance"] + 1),
+    )
+    monkeypatch.setattr(
+        launcher,
+        "_verify_self",
+        lambda value: called.__setitem__("self", called["self"] + 1),
+    )
+    monkeypatch.setattr(
+        launcher.base_invocation,
+        "_current_main",
+        lambda value: called.__setitem__("main", called["main"] + 1),
+    )
+    monkeypatch.setattr(
+        launcher.preservation,
+        "preserve_pair06_v9_input_order_adapter_rejection_failed_attempt",
+        lambda **kwargs: called.__setitem__("preserve", called["preserve"] + 1),
+    )
+
+    with pytest.raises(
+        launcher.Pair06V9AdapterRejectionAuthorizedPreservationLauncherHold,
+        match="AUTHORIZED_PRESERVATION_CONFIRMATION_REQUIRED",
+    ):
+        launcher.execute_authorized_preservation_once(
+            expected_main_head="a" * 40,
+            expected_launcher_source_sha256="b" * 64,
+            launcher_confirm="wrong",
+        )
+
+    assert called == {"acceptance": 0, "self": 0, "main": 0, "preserve": 0}
+
+
+def test_successful_launcher_delegates_preservation_exactly_once(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        launcher,
+        "_acceptance",
+        lambda: {"acceptance_review": {"ok": True}},
+    )
+    monkeypatch.setattr(
+        launcher,
+        "_verify_self",
+        lambda value: "c" * 64,
+    )
+    monkeypatch.setattr(
+        launcher.base_invocation,
+        "_current_main",
+        lambda value: {"head": value, "tree": "d" * 40},
+    )
+
+    def preserve(**kwargs):
+        calls.append(kwargs)
+        return {
+            "attempt_marker_sha256": launcher.ATTEMPT_MARKER_SHA256,
+            "attempt_consumed": True,
+            "source_worktree_removed_non_force": True,
+            "engine_worktree_removed_non_force": True,
+            "archive_atomic_rename_performed": True,
+            "attempt_marker_inode_preserved": True,
+            "warm_start_inode_preserved": True,
+            "trajectory_inode_preserved": True,
+            "automatic_retry": False,
+            "runtime_retry_authorized": False,
+            "new_execution_request_opened": False,
+            "game_execution_performed": False,
+            "void_chain_mutation_performed": False,
+            "wallet_or_funds_action_performed": False,
+            "scheduler_mutation_performed": False,
+            "preservation_receipt": "/tmp/preservation.json",
+            "preservation_receipt_sha256": "e" * 64,
+        }
+
+    monkeypatch.setattr(
+        launcher.preservation,
+        "preserve_pair06_v9_input_order_adapter_rejection_failed_attempt",
+        preserve,
+    )
+
+    out = launcher.execute_authorized_preservation_once(
+        expected_main_head="a" * 40,
+        expected_launcher_source_sha256="b" * 64,
+        launcher_confirm=launcher.LAUNCHER_CONFIRM_TOKEN,
+    )
+
+    assert calls == [
+        {
+            "preservation_authorized": True,
+            "confirm": launcher.preservation.CONFIRM_TOKEN,
+        }
+    ]
+    assert out["launcher_source_sha256"] == "c" * 64
+    assert out["launcher_main"]["head"] == "a" * 40
+    assert out["single_authorized_preservation_consumed"] is True
+    assert out["authorization_reusable_after_preservation"] is False
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "runtime_retry_authorized",
+        "automatic_retry",
+        "execution_request_opened",
+        "runtime_execution_authorized",
+        "game_execution_authorized",
+        "training_authorized",
+        "deployment_authorized",
+        "void_chain_mutation_authorized",
+        "wallet_or_funds_action_authorized",
+        "scheduler_mutation_authorized",
+        "preservation_performed_by_contract_inspection",
+        "host_io_performed_by_contract_inspection",
+        "authorization_reusable_after_preservation",
+    ),
+)
+def test_contract_grants_no_runtime_or_follow_on_authority(field):
+    out = (
+        launcher
+        .pair06_v9_adapter_rejection_authorized_preservation_launcher_contract()
+    )
+    assert out[field] is False
+
+
+def test_contract_advances_only_to_exact_blob_review():
+    out = (
+        launcher
+        .pair06_v9_adapter_rejection_authorized_preservation_launcher_contract()
+    )
+
+    assert out["source_frontier_closed"] is True
+    assert out["next_gate"] == (
+        "PAIR06_V9_STRICT_VISIBLE_CONTACT_INPUT_ORDER_COHERENCE_"
+        "ADAPTER_REJECTION_FAILED_ATTEMPT_AUTHORIZED_PRESERVATION_LAUNCHER_"
+        "SOURCE_BINDING_REVIEW_REQUIRED"
+    )
+
+
+def test_review_or_preserve_holds():
+    with pytest.raises(
+        launcher.Pair06V9AdapterRejectionAuthorizedPreservationLauncherHold,
+        match="AUTHORIZED_PRESERVATION_LAUNCHER_SOURCE_BINDING_REVIEW_REQUIRED",
+    ):
+        launcher.review_or_preserve()
