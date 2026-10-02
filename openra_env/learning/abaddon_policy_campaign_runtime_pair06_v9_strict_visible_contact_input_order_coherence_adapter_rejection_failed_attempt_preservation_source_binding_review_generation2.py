@@ -30,7 +30,7 @@ CONTRACT_SCHEMA = (
     "preservation-review-contract.v1"
 )
 
-ACCEPTED_BASE_HEAD = "3bc454b23abd4cda5c2bc0f8657525525acb38fa"
+ACCEPTED_BASE_HEAD = "ce94ace8f914b505ff74bfc9f7d769aed785c6de"
 
 PRESERVATION_PATH = (
     "openra_env/learning/"
