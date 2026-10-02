@@ -616,6 +616,7 @@ def pair06_v9_input_order_adapter_rejection_fresh_lineage_operator_contract() ->
         "preclaim_worktree_materialization_implemented": True,
         "preclaim_materialization_cleanup_on_hold_implemented": True,
         "fresh_preclaim_gpu_observation_implemented": True,
+        "fresh_preclaim_gpu_observation_required": True,
         "fresh_preclaim_gpu_admission_required": True,
         "fresh_preclaim_gpu_observation_precedes_attempt_marker": True,
         "zero_foreign_cuda0_compute_processes_required": True,
