@@ -38,13 +38,13 @@ def test_request_binds_exact_failed_attempt_and_preservation_source():
     record = out["request"]
 
     assert record["source_binding"]["preservation_stack_head"] == (
-        "4efcb4c4a87aee68758710ce0d064d9d26ad24f7"
+        "93944bd42f10b94b4133176e35a482370d1618d5"
     )
     assert record["source_binding"]["preservation_git_blob"] == (
         "342118e0e9edbba7472820ae99ff4c05203143d0"
     )
     assert record["source_binding"]["preservation_review_git_blob"] == (
-        "fcb0d97852bf0de74d4c3d502a363cc8b9e02687"
+        "6565b7b9c30c6f3d9bf67182bee64e7eae08c41a"
     )
 
     failed = record["failed_attempt"]
