@@ -132,7 +132,10 @@ def _dependencies() -> dict[str, Any]:
         and operator.get("policy_activation_authorization_accepted") is False
         and operator.get("order_coherence_activation_authorization_accepted")
         is False
-        and operator.get("runtime_execution_authorized") is False
+        and operator.get("attempt_marker_creation_authorized") is False
+        and operator.get("runtime_load_authorized") is False
+        and operator.get("model_inference_authorized") is False
+        and operator.get("game_execution_authorized") is False
         and operator.get("execution_request_created") is False,
         "historical input-order operator authority drift",
     )
