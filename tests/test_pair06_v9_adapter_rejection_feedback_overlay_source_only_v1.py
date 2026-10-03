@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import ast
+import hashlib
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+RUNTIME = ROOT / (
+    "openra_env/learning/"
+    "abaddon_policy_campaign_runtime_pair06_v9_strict_visible_contact_"
+    "runtime_integration_generation2.py"
+)
+OVERLAY = ROOT / (
+    "openra_env/learning/"
+    "abaddon_policy_campaign_runtime_pair06_v9_strict_visible_contact_"
+    "input_order_coherence_adapter_rejection_feedback_overlay_generation2.py"
+)
+WIRING = ROOT / (
+    "openra_env/learning/"
+    "abaddon_policy_campaign_runtime_pair06_v9_strict_visible_contact_"
+    "input_order_coherence_proto_child_wiring_generation2.py"
+)
+
+SENTINEL = "__v8_adapter_rejected_unit_ids_invalid__"
+
+
+def dotted_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = dotted_name(node.value)
+        return (base + "." if base else "") + node.attr
+    return ""
+
+
+def method_source(text: str, tree: ast.AST, class_name: str) -> str:
+    lines = text.splitlines()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            for child in node.body:
+                if (
+                    isinstance(child, ast.FunctionDef)
+                    and child.name == "_adapted_decision"
+                ):
+                    return "\n".join(
+                        lines[child.lineno - 1 : child.end_lineno]
+                    ) + "\n"
+    raise AssertionError(f"_adapted_decision missing from {class_name}")
+
+
+class AdapterFeedbackOverlaySourceOnlyTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.runtime = RUNTIME.read_text(encoding="utf-8")
+        cls.overlay = OVERLAY.read_text(encoding="utf-8")
+        cls.wiring = WIRING.read_text(encoding="utf-8")
+        cls.runtime_tree = ast.parse(cls.runtime, filename=str(RUNTIME))
+        cls.overlay_tree = ast.parse(cls.overlay, filename=str(OVERLAY))
+        cls.wiring_tree = ast.parse(cls.wiring, filename=str(WIRING))
+
+    def test_exact_sentinel_branch_only(self) -> None:
+        self.assertEqual(
+            self.overlay.count(f'if name == "{SENTINEL}":'),
+            1,
+        )
+        self.assertIn('reason = "unit_ids invalid"', self.overlay)
+        self.assertIn("elif name not in offered:", self.overlay)
+        self.assertIn(
+            'reason = "function_not_offered:" + name',
+            self.overlay,
+        )
+
+    def test_historical_method_otherwise_identical(self) -> None:
+        old = method_source(
+            self.runtime,
+            self.runtime_tree,
+            "Pair06V9StrictVisibleContactDecisionHooks",
+        )
+        new = method_source(
+            self.overlay,
+            self.overlay_tree,
+            "Pair06V9AdapterRejectionFeedbackDecisionHooks",
+        )
+        repair = "\n".join(
+            [
+                f'            if name == "{SENTINEL}":',
+                "                ok = False",
+                '                reason = "unit_ids invalid"',
+                "                commands = []",
+                "            elif name not in offered:",
+            ]
+        ) + "\n"
+        historical = "            if name not in offered:\n"
+        self.assertEqual(new.replace(repair, historical, 1), old)
+
+    def test_fail_closed_contract_flags(self) -> None:
+        for text in (
+            '"sentinel_accepted": False',
+            '"sentinel_host_validation_performed": False',
+            '"sentinel_world_mutation_performed": False',
+            '"consumed_attempt_retry_authorized": False',
+            '"execution_authorized": False',
+            '"automatic_retry": False',
+            '"training_authorized": False',
+            '"deployment_authorized": False',
+            '"void_chain_mutation_authorized": False',
+            '"wallet_or_funds_action_authorized": False',
+        ):
+            self.assertIn(text, self.overlay)
+
+    def test_child_wiring_selects_overlay_once(self) -> None:
+        overlay_calls = []
+        historical_calls = []
+        for node in ast.walk(self.wiring_tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = dotted_name(node.func)
+            if name == (
+                "feedback_overlay."
+                "Pair06V9AdapterRejectionFeedbackDecisionHooks"
+            ):
+                overlay_calls.append(node)
+            if name == (
+                "order_integration."
+                "Pair06V9InputOrderCoherentDecisionHooks"
+            ):
+                historical_calls.append(node)
+
+        self.assertEqual(len(overlay_calls), 1)
+        self.assertEqual(len(historical_calls), 0)
+
+        call = overlay_calls[0]
+        owners = []
+        for node in self.wiring_tree.body:
+            if isinstance(
+                node,
+                (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+            ):
+                end = getattr(node, "end_lineno", node.lineno) or node.lineno
+                if node.lineno <= call.lineno <= end:
+                    owners.append(node)
+
+        self.assertEqual(len(owners), 1)
+        self.assertIsInstance(owners[0], ast.ClassDef)
+        wrapper = owners[0].name
+
+        scoped = None
+        for node in self.wiring_tree.body:
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "_scoped_v8_child_run"
+            ):
+                scoped = node
+                break
+        self.assertIsNotNone(scoped)
+
+        bindings = []
+        for node in ast.walk(scoped):
+            if not (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+            ):
+                continue
+            target = node.targets[0]
+            if not (
+                isinstance(target, ast.Subscript)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "scoped_globals"
+            ):
+                continue
+            key = target.slice
+            if (
+                isinstance(key, ast.Constant)
+                and key.value == "Pair06V8ProtoChildHooks"
+            ):
+                bindings.append(dotted_name(node.value))
+
+        self.assertEqual(bindings, [wrapper])
+
+    def test_overlay_sha_is_expected_candidate(self) -> None:
+        self.assertEqual(
+            hashlib.sha256(OVERLAY.read_bytes()).hexdigest(),
+            "16b28f995943b37a2af60b20a636d7571abad134bbb6c556ea4d874baea19258",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

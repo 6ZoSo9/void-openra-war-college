@@ -46,6 +46,11 @@ from openra_env.learning import (
 )
 
 
+from openra_env.learning import (
+    abaddon_policy_campaign_runtime_pair06_v9_strict_visible_contact_input_order_coherence_adapter_rejection_feedback_overlay_generation2
+    as feedback_overlay,
+)
+
 CONTRACT_SCHEMA = (
     "void.abaddon.generation2."
     "pair06-v9-strict-visible-contact-input-order-coherence-"
@@ -180,7 +185,7 @@ class Pair06V9InputOrderCoherentProtoChildHooks(HISTORICAL_V9_CHILD_HOOKS):
         )
 
         self._decision_hooks = (
-            order_integration.Pair06V9InputOrderCoherentDecisionHooks(
+            feedback_overlay.Pair06V9AdapterRejectionFeedbackDecisionHooks(
                 legacy,
                 self._ipc_decider,
             )
