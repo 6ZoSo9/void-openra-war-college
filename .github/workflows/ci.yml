@@ -69,6 +69,15 @@ jobs:
           test ! -e OpenRA/.git
           git submodule status OpenRA || true
 
+      - name: Fetch pinned exact-source provenance commit
+        env:
+          ACCEPTED_SOURCE_HEAD: 421c99f6962620c854c4671579af1268135eef18
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$ACCEPTED_SOURCE_HEAD"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git cat-file -e "${ACCEPTED_SOURCE_HEAD}^{commit}"
+
       - name: Install dependencies
         run: python -m pip install --disable-pip-version-check -e ".[dev]"
 
