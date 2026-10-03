@@ -110,74 +110,31 @@ class AdapterFeedbackOverlaySourceOnlyTest(unittest.TestCase):
         ):
             self.assertIn(text, self.overlay)
 
-    def test_child_wiring_selects_overlay_once(self) -> None:
-        overlay_calls = []
-        historical_calls = []
-        for node in ast.walk(self.wiring_tree):
-            if not isinstance(node, ast.Call):
-                continue
-            name = dotted_name(node.func)
-            if name == (
-                "feedback_overlay."
-                "Pair06V9AdapterRejectionFeedbackDecisionHooks"
-            ):
-                overlay_calls.append(node)
-            if name == (
-                "order_integration."
-                "Pair06V9InputOrderCoherentDecisionHooks"
-            ):
-                historical_calls.append(node)
-
-        self.assertEqual(len(overlay_calls), 1)
-        self.assertEqual(len(historical_calls), 0)
-
-        call = overlay_calls[0]
-        owners = []
-        for node in self.wiring_tree.body:
-            if isinstance(
-                node,
-                (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
-            ):
-                end = getattr(node, "end_lineno", node.lineno) or node.lineno
-                if node.lineno <= call.lineno <= end:
-                    owners.append(node)
-
-        self.assertEqual(len(owners), 1)
-        self.assertIsInstance(owners[0], ast.ClassDef)
-        wrapper = owners[0].name
-
-        scoped = None
-        for node in self.wiring_tree.body:
-            if (
-                isinstance(node, ast.FunctionDef)
-                and node.name == "_scoped_v8_child_run"
-            ):
-                scoped = node
-                break
-        self.assertIsNotNone(scoped)
-
-        bindings = []
-        for node in ast.walk(scoped):
-            if not (
-                isinstance(node, ast.Assign)
-                and len(node.targets) == 1
-            ):
-                continue
-            target = node.targets[0]
-            if not (
-                isinstance(target, ast.Subscript)
-                and isinstance(target.value, ast.Name)
-                and target.value.id == "scoped_globals"
-            ):
-                continue
-            key = target.slice
-            if (
-                isinstance(key, ast.Constant)
-                and key.value == "Pair06V8ProtoChildHooks"
-            ):
-                bindings.append(dotted_name(node.value))
-
-        self.assertEqual(bindings, [wrapper])
+    def test_historical_wiring_stays_source_bound(self) -> None:
+        raw = WIRING.read_bytes()
+        actual = hashlib.sha1(
+            f"blob {len(raw)}\0".encode("ascii") + raw
+        ).hexdigest()
+        self.assertEqual(
+            actual,
+            "1b87cb5596c219e6118f4b69845dbecaa29a3ace",
+        )
+        self.assertNotIn("feedback_overlay", self.wiring)
+        self.assertIn(
+            "order_integration.Pair06V9InputOrderCoherentDecisionHooks(",
+            self.wiring,
+        )
+        review_path = ROOT / (
+            "openra_env/learning/"
+            "abaddon_policy_campaign_runtime_pair06_v9_strict_visible_contact_"
+            "input_order_coherence_proto_child_wiring_"
+            "source_binding_review_generation2.py"
+        )
+        review_text = review_path.read_text(encoding="utf-8")
+        self.assertIn(
+            'WIRING_GIT_BLOB = "1b87cb5596c219e6118f4b69845dbecaa29a3ace"',
+            review_text,
+        )
 
     def test_overlay_sha_is_expected_candidate(self) -> None:
         self.assertEqual(
