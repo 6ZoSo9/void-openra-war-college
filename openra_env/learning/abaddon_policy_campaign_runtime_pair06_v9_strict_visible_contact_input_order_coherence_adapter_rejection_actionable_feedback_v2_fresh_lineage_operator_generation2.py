@@ -62,13 +62,14 @@ from openra_env.learning import (
 SCHEMA = (
     "void.abaddon.generation2."
     "pair06-v9-strict-visible-contact-input-order-coherence-adapter-rejection-"
-    "fresh-lineage-baseline-game-attempt-invocation-receipt-bound-no-offload-"
+    "actionable-feedback-v2-fresh-lineage-baseline-game-attempt-invocation-"
+    "receipt-bound-no-offload-"
     "preclaim-gpu.v1"
 )
 CONTRACT_SCHEMA = (
     "void.abaddon.generation2."
     "pair06-v9-strict-visible-contact-input-order-coherence-adapter-rejection-"
-    "fresh-lineage-operator-contract.v1"
+    "actionable-feedback-v2-fresh-lineage-operator-contract.v1"
 )
 
 PAIR_SLOT = 6
@@ -118,7 +119,7 @@ SELF_PATH = (
     "openra_env/learning/"
     "abaddon_policy_campaign_runtime_pair06_v9_"
     "strict_visible_contact_input_order_coherence_adapter_rejection_"
-    "fresh_lineage_operator_generation2.py"
+    "actionable_feedback_v2_fresh_lineage_operator_generation2.py"
 )
 
 V8_PYTHON = Path(base_invocation.V8_PYTHON)
@@ -160,19 +161,19 @@ NEXT_CHANGE_CLASS = (
 )
 
 
-class Pair06V9InputOrderAdapterRejectionFreshLineageOperatorHold(RuntimeError):
+class Pair06V9InputOrderAdapterRejectionActionableFeedbackV2FreshLineageOperatorHold(RuntimeError):
     pass
 
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
-        raise Pair06V9InputOrderAdapterRejectionFreshLineageOperatorHold(message)
+        raise Pair06V9InputOrderAdapterRejectionActionableFeedbackV2FreshLineageOperatorHold(message)
 
 
 def _dependency_contracts() -> dict[str, Any]:
     integration = (
         operator_integration_review
-        .pair06_v9_input_order_adapter_rejection_operator_integration_review_contract()
+        .pair06_v9_actionable_feedback_v2_operator_integration_review_contract()
     )
     base = (
         base_invocation_review
@@ -348,7 +349,7 @@ def _cleanup_preclaim(
             run_git=backend.run_git,
         )
     except BaseException as cleanup_error:
-        raise Pair06V9InputOrderAdapterRejectionFreshLineageOperatorHold(
+        raise Pair06V9InputOrderAdapterRejectionActionableFeedbackV2FreshLineageOperatorHold(
             "PAIR06_V9_INPUT_ORDER_PRECLAIM_CLEANUP_FAILED"
         ) from cleanup_error
 
@@ -468,7 +469,8 @@ def execute_pair06_v9_input_order_adapter_rejection_actionable_feedback_v2_fresh
     marker_payload = {
         "schema": (
             "void.abaddon.generation2."
-            "pair06-v9-strict-visible-contact-input-order-coherence-baseline-game-attempt.v1"
+            "pair06-v9-strict-visible-contact-input-order-coherence-"
+            "adapter-rejection-actionable-feedback-v2-baseline-game-attempt.v1"
         ),
         "record_kind": "attempt_consumed_not_execution_evidence",
         "pair_slot": PAIR_SLOT,
@@ -786,4 +788,4 @@ def pair06_v9_input_order_adapter_rejection_actionable_feedback_v2_fresh_lineage
     }
 
 def preserve_review_or_request(*args: Any, **kwargs: Any) -> None:
-    raise Pair06V9InputOrderAdapterRejectionFreshLineageOperatorHold(NEXT_GATE)
+    raise Pair06V9InputOrderAdapterRejectionActionableFeedbackV2FreshLineageOperatorHold(NEXT_GATE)
