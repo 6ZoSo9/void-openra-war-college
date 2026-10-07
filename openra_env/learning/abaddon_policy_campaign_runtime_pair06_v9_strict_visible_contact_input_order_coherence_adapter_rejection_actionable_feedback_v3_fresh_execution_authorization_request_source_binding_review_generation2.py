@@ -36,7 +36,7 @@ REQUEST_PATH = (
     "strict_visible_contact_input_order_coherence_adapter_rejection_"
     "actionable_feedback_v3_fresh_execution_authorization_request_generation2.py"
 )
-REQUEST_GIT_BLOB = "3469917a211ddeff03b5699f8be7c90df1e4fd20"
+REQUEST_GIT_BLOB = "882130abca660fde07e1e870abcf75c9e311d269"
 
 REQUEST_TEST_PATH = (
     "tests/"
