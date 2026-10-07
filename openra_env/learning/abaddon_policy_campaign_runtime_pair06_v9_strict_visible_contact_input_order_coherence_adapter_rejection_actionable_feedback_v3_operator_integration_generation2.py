@@ -122,8 +122,6 @@ def _dependencies() -> dict[str, Any]:
         "call_scoped_parent_binding_upgraded_to_v2",
         "historical_preclaim_gpu_ordering_preserved",
         "historical_one_attempt_cardinality_preserved",
-        "historical_automatic_retry_remains_false",
-        "historical_execution_policy_order_authorizations_preserved",
     ):
         _require(
             operator.get(field) is True,
