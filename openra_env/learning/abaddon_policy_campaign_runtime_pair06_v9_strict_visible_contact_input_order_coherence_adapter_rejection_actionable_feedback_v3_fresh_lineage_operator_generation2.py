@@ -476,7 +476,7 @@ def execute_pair06_v9_input_order_adapter_rejection_actionable_feedback_v3_fresh
 
     prior = dependencies["prior_v8_v2_success_review"]
     failed = dependencies[
-        "adapter_rejection_failed_attempt_preservation_closeout_review"
+        "v2_second_exhaustion_preservation_closeout_review"
     ]
     marker_payload = {
         "schema": (
@@ -681,7 +681,7 @@ def pair06_v9_input_order_adapter_rejection_actionable_feedback_v3_fresh_lineage
     dependencies = _dependency_contracts()
     prior = dependencies["prior_v8_v2_success_review"]
     failed = dependencies[
-        "adapter_rejection_failed_attempt_preservation_closeout_review"
+        "v2_second_exhaustion_preservation_closeout_review"
     ]
 
     return {
@@ -689,7 +689,7 @@ def pair06_v9_input_order_adapter_rejection_actionable_feedback_v3_fresh_lineage
         "pair06_v9_input_order_adapter_rejection_actionable_feedback_v3_fresh_lineage_operator_implemented": True,
         "pair06_v9_input_order_adapter_rejection_actionable_feedback_v3_fresh_lineage_operator_reviewed": False,
         "operator_integration_review_git_blob": OPERATOR_INTEGRATION_REVIEW_GIT_BLOB,
-        "failed_attempt_closeout_review_git_blob": FAILED_ATTEMPT_CLOSEOUT_REVIEW_GIT_BLOB,
+        "v2_second_exhaustion_closeout_review_git_blob": FAILED_ATTEMPT_CLOSEOUT_REVIEW_GIT_BLOB,
         "base_preclaim_gpu_review_git_blob": BASE_PRECLAIM_GPU_REVIEW_GIT_BLOB,
         "prior_v8_success_review_git_blob": PRIOR_V8_SUCCESS_REVIEW_GIT_BLOB,
         "pair_slot": PAIR_SLOT,
