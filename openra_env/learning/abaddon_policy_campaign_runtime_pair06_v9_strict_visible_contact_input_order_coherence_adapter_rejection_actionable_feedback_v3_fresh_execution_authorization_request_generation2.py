@@ -167,7 +167,7 @@ def _dependencies() -> dict[str, Any]:
     _require(
         operator.get("five_explicit_authorizations_required") is True
         and operator.get("five_distinct_confirmation_tokens_required") is True
-        and operator.get("fresh_execution_authorization_required_for_any_future_run") is True
+        and operator.get("fresh_execution_authorization_required") is True
         and operator.get(
             "fresh_actionable_feedback_v3_activation_authorization_required"
         )
