@@ -29,7 +29,7 @@ INTEGRATION_PATH = (
     "strict_visible_contact_input_order_coherence_adapter_rejection_"
     "actionable_feedback_v3_operator_integration_generation2.py"
 )
-INTEGRATION_GIT_BLOB = "d745095f629899914d789c88462190ea66b192b0"
+INTEGRATION_GIT_BLOB = "9d0f3c41b5a56b877391072bd98921b6d156bb7a"
 
 INTEGRATION_TEST_PATH = (
     "tests/"
