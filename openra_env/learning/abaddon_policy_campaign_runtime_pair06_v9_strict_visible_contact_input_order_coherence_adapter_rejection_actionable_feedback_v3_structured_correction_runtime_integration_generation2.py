@@ -441,15 +441,9 @@ def pair06_v9_actionable_feedback_v3_runtime_integration_contract() -> dict[str,
         "scheduler_mutation_authorized": False,
         "dependencies": dependencies,
         "source_frontier_closed": True,
-        "execution_blockers": (
-            "PAIR06_V9_ACTIONABLE_FEEDBACK_V3_PARENT_INTEGRATION_SOURCE_BINDING_REVIEW_REQUIRED",
-        ),
-        "next_gate": (
-            "PAIR06_V9_ACTIONABLE_FEEDBACK_V3_PARENT_INTEGRATION_SOURCE_BINDING_REVIEW_REQUIRED"
-        ),
-        "next_change_class": (
-            "source_only_pair06_v9_actionable_feedback_v3_parent_integration_review"
-        ),
+        "execution_blockers": (NEXT_GATE,),
+        "next_gate": NEXT_GATE,
+        "next_change_class": NEXT_CHANGE_CLASS,
     }
 
 
