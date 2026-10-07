@@ -37,7 +37,7 @@ OPERATOR_PATH = (
     "strict_visible_contact_input_order_coherence_adapter_rejection_"
     "actionable_feedback_v3_fresh_lineage_operator_generation2.py"
 )
-OPERATOR_GIT_BLOB = "6caea84942e94d73272508d48af9a0e3a05a6d27"
+OPERATOR_GIT_BLOB = "deffe1540a75ad8fb1cc0ae0a10e8559ad737a01"
 
 OPERATOR_TEST_PATH = (
     "tests/"
