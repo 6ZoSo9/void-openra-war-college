@@ -688,7 +688,7 @@ def pair06_v9_input_order_adapter_rejection_actionable_feedback_v3_fresh_lineage
         "schema": CONTRACT_SCHEMA,
         "pair06_v9_input_order_adapter_rejection_actionable_feedback_v3_fresh_lineage_operator_implemented": True,
         "pair06_v9_input_order_adapter_rejection_actionable_feedback_v3_fresh_lineage_operator_reviewed": False,
-        "operator_integration_review_git_blob": OPERATOR_INTEGRATION_REVIEW_GIT_BLOB,
+        "v3_operator_integration_review_git_blob": OPERATOR_INTEGRATION_REVIEW_GIT_BLOB,
         "v2_second_exhaustion_closeout_review_git_blob": FAILED_ATTEMPT_CLOSEOUT_REVIEW_GIT_BLOB,
         "base_preclaim_gpu_review_git_blob": BASE_PRECLAIM_GPU_REVIEW_GIT_BLOB,
         "prior_v8_success_review_git_blob": PRIOR_V8_SUCCESS_REVIEW_GIT_BLOB,
