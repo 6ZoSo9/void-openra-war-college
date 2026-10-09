@@ -29,7 +29,7 @@ PREFLIGHT_PATH = (
     "openra_env/learning/"
     "apollyon_xiphos_candidate_training_host_preflight_generation2.py"
 )
-PREFLIGHT_GIT_BLOB = "e83de4916441f125992e1a55b17e357619b8e429"
+PREFLIGHT_GIT_BLOB = "e7adb9ad96fba857bafaf08986d612b7f4129f04"
 
 PREFLIGHT_TEST_PATH = (
     "tests/test_apollyon_xiphos_candidate_training_host_preflight_generation2.py"
