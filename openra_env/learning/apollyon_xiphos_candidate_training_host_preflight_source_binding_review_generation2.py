@@ -29,12 +29,12 @@ PREFLIGHT_PATH = (
     "openra_env/learning/"
     "apollyon_xiphos_candidate_training_host_preflight_generation2.py"
 )
-PREFLIGHT_GIT_BLOB = "edc728ce99ef88614828f5c733607acf5d0ccb3a"
+PREFLIGHT_GIT_BLOB = "fed2354003eae30f5b936a48e6de816f896a40fb"
 
 PREFLIGHT_TEST_PATH = (
     "tests/test_apollyon_xiphos_candidate_training_host_preflight_generation2.py"
 )
-PREFLIGHT_TEST_GIT_BLOB = "b312cec83d9f829067d81a45bea3500ee535d431"
+PREFLIGHT_TEST_GIT_BLOB = "e3d5432d37b60c20525f94d6ca0c55c4e20883f3"
 
 POLICY_REVIEW_GIT_BLOB = "4a4b9123e6cad52fcf2bb8b1f70dde0bba36ce20"
 
@@ -90,6 +90,8 @@ def _validated() -> dict[str, Any]:
     )
     _require(
         out.get("read_only_host_collection_implemented") is True
+        and out.get("venv_python_symlink_to_regular_executable_allowed") is True
+        and out.get("venv_python_broken_symlink_rejected") is True
         and out.get("readonly_subprocess_user_bus_binding_implemented") is True
         and out.get("readonly_subprocess_environment_inherits_shell") is False
         and out.get("external_service_control_query_uses_user_bus_binding") is True
@@ -151,6 +153,8 @@ def apollyon_xiphos_candidate_training_host_preflight_review_contract() -> dict[
         "preferred_candidate_training_host": "Xiphos",
         "expected_host_normalized": "xiphos",
         "read_only_host_collection_reviewed": True,
+        "venv_python_symlink_to_regular_executable_reviewed": True,
+        "venv_python_broken_symlink_rejected": True,
         "readonly_subprocess_user_bus_binding_reviewed": True,
         "readonly_subprocess_environment_inherits_shell": False,
         "external_service_control_query_uses_user_bus_binding": True,
