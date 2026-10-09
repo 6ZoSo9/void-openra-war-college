@@ -57,6 +57,28 @@ def _green_service() -> dict:
     }
 
 
+
+def test_readonly_command_env_binds_external_user_bus_without_inheriting_shell(monkeypatch):
+    monkeypatch.setattr(preflight.os, "geteuid", lambda: 1000)
+    monkeypatch.setenv("VOID_UNTRUSTED_TEST_VALUE", "must-not-leak")
+
+    env = preflight._readonly_command_env()
+
+    assert env["XDG_RUNTIME_DIR"] == "/run/user/1000"
+    assert env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/1000/bus"
+    assert env["PATH"] == "/usr/local/bin:/usr/bin:/bin"
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert "VOID_UNTRUSTED_TEST_VALUE" not in env
+
+
+def test_readonly_command_env_refuses_root(monkeypatch):
+    monkeypatch.setattr(preflight.os, "geteuid", lambda: 0)
+    with pytest.raises(
+        preflight.ApollyonXiphosCandidateTrainingHostPreflightHold,
+        match="UNPRIVILEGED_USER_REQUIRED",
+    ):
+        preflight._readonly_command_env()
+
 def test_contract_is_read_only_and_grants_no_training_authority():
     out = preflight.apollyon_xiphos_candidate_training_host_preflight_contract()
     assert out["read_only_host_collection_implemented"] is True
