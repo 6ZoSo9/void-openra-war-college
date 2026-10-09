@@ -118,6 +118,26 @@ def _real_file(path: Path) -> bool:
     return stat.S_ISREG(observed.st_mode) and not stat.S_ISLNK(observed.st_mode)
 
 
+def _readonly_command_env() -> dict[str, str]:
+    """Return the fixed read-only subprocess environment, including user D-Bus."""
+    uid = os.geteuid()
+    _require(uid > 0, "XIPHOS_PREFLIGHT_UNPRIVILEGED_USER_REQUIRED")
+    runtime_dir = f"/run/user/{uid}"
+    return {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "XDG_RUNTIME_DIR": runtime_dir,
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime_dir}/bus",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_OPTIONAL_LOCKS": "0",
+    }
+
+
 def _run_readonly(argv: list[str]) -> subprocess.CompletedProcess[str]:
     _require(
         isinstance(argv, list)
@@ -133,17 +153,7 @@ def _run_readonly(argv: list[str]) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
         timeout=COMMAND_TIMEOUT_SECONDS,
-        env={
-            "PATH": "/usr/local/bin:/usr/bin:/bin",
-            "LANG": "C.UTF-8",
-            "LC_ALL": "C.UTF-8",
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_NO_LAZY_FETCH": "1",
-            "GIT_TERMINAL_PROMPT": "0",
-            "GIT_OPTIONAL_LOCKS": "0",
-        },
+        env=_readonly_command_env(),
     )
     _require(
         len(proc.stdout.encode("utf-8")) + len(proc.stderr.encode("utf-8"))
