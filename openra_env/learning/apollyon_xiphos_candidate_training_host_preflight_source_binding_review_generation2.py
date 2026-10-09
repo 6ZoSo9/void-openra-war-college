@@ -34,7 +34,7 @@ PREFLIGHT_GIT_BLOB = "fed2354003eae30f5b936a48e6de816f896a40fb"
 PREFLIGHT_TEST_PATH = (
     "tests/test_apollyon_xiphos_candidate_training_host_preflight_generation2.py"
 )
-PREFLIGHT_TEST_GIT_BLOB = "e3d5432d37b60c20525f94d6ca0c55c4e20883f3"
+PREFLIGHT_TEST_GIT_BLOB = "75c475c73d043f2a99a6db93f995c719391c6289"
 
 POLICY_REVIEW_GIT_BLOB = "4a4b9123e6cad52fcf2bb8b1f70dde0bba36ce20"
 
