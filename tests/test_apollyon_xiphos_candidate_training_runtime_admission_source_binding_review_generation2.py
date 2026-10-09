@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+from importlib import import_module
 from pathlib import Path
 
 import pytest
 
-from openra_env.learning import (
-    apollyon_xiphos_candidate_training_runtime_admission_source_binding_review_generation2
-)
-from openra_env.learning import (
-    apollyon_xiphos_candidate_training_runtime_admission_source_binding_review_generation2
-    as review,
+
+review = import_module(
+    "openra_env.learning."
+    "apollyon_xiphos_candidate_training_runtime_admission_"
+    "source_binding_review_generation2"
 )
 
 
