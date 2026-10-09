@@ -38,6 +38,9 @@ def test_review_requires_live_xiphos_observation_before_qualification():
     assert out["preferred_candidate_training_host"] == "Xiphos"
     assert out["expected_host_normalized"] == "xiphos"
     assert out["read_only_host_collection_reviewed"] is True
+    assert out["readonly_subprocess_user_bus_binding_reviewed"] is True
+    assert out["readonly_subprocess_environment_inherits_shell"] is False
+    assert out["external_service_control_query_uses_user_bus_binding"] is True
     assert out[
         "candidate_training_host_qualification_requires_live_observation"
     ] is True
