@@ -183,6 +183,8 @@ def canonicalize_move_units_unit_ids(
     *,
     raw_model_output: str,
     state: Mapping[str, Any],
+    runtime_tools: Sequence[Mapping[str, Any]],
+    tool_contract: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Canonically repair only unambiguous owned move_units ids.
 
@@ -252,17 +254,8 @@ def canonicalize_move_units_unit_ids(
     # repair produces only a value the existing V8 boundary already accepts.
     translated = v8_runtime.translate_v8_output_to_campaign(
         text=canonical,
-        runtime_tools=[
-            tool
-            for tool in v8_runtime._ACCEPTED_TOOLS
-            if tool.get("function", {}).get("name") == "move_units"
-        ],
-        tool_contract={
-            "offered_tool_names": ["move_units"],
-            "production_functions": {},
-            "legal_buildings": [],
-            "legal_units": [],
-        },
+        runtime_tools=runtime_tools,
+        tool_contract=tool_contract,
     )
     _require(
         translated.get("tool") == "move_units",
