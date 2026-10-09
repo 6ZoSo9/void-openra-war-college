@@ -166,7 +166,8 @@ def test_contract_advances_only_to_source_binding_review():
     out = admission.apollyon_xiphos_candidate_training_runtime_admission_contract()
     assert out["source_frontier_closed"] is True
     assert out["execution_blockers"] == (
-        "APOLLYON_XIPHOS_CANDIDATE_TRAINING_RUNTIME_ADMISSION_SOURCE_BINDING_REVIEW_REQUIRED",
+        "APOLLYON_XIPHOS_CANDIDATE_TRAINING_RUNTIME_ADMISSION_"
+        "SOURCE_BINDING_REVIEW_REQUIRED",
     )
 
 
