@@ -110,6 +110,7 @@ def test_usable_venv_python_rejects_broken_or_nonexecutable_target(tmp_path):
 
     assert preflight._usable_venv_python(python) is False
 
+
 def test_contract_is_read_only_and_grants_no_training_authority():
     out = preflight.apollyon_xiphos_candidate_training_host_preflight_contract()
     assert out["read_only_host_collection_implemented"] is True
