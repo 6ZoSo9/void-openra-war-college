@@ -118,6 +118,41 @@ def _real_file(path: Path) -> bool:
     return stat.S_ISREG(observed.st_mode) and not stat.S_ISLNK(observed.st_mode)
 
 
+def _usable_venv_python(path: Path) -> bool:
+    """Accept a real executable or a venv-style symlink to one."""
+    if not _real_directory(path.parent) or not _real_directory(path.parent.parent):
+        return False
+    try:
+        observed = path.lstat()
+        resolved = path.resolve(strict=True)
+        target = resolved.stat()
+    except (FileNotFoundError, OSError, RuntimeError):
+        return False
+    if not (stat.S_ISREG(observed.st_mode) or stat.S_ISLNK(observed.st_mode)):
+        return False
+    return stat.S_ISREG(target.st_mode) and os.access(path, os.X_OK)
+
+
+def _readonly_command_env() -> dict[str, str]:
+    """Return the fixed read-only subprocess environment, including user D-Bus."""
+    uid = os.geteuid()
+    _require(uid > 0, "XIPHOS_PREFLIGHT_UNPRIVILEGED_USER_REQUIRED")
+    runtime_dir = f"/run/user/{uid}"
+    return {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "XDG_RUNTIME_DIR": runtime_dir,
+        "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime_dir}/bus",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_OPTIONAL_LOCKS": "0",
+    }
+
+
 def _run_readonly(argv: list[str]) -> subprocess.CompletedProcess[str]:
     _require(
         isinstance(argv, list)
@@ -133,17 +168,7 @@ def _run_readonly(argv: list[str]) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
         timeout=COMMAND_TIMEOUT_SECONDS,
-        env={
-            "PATH": "/usr/local/bin:/usr/bin:/bin",
-            "LANG": "C.UTF-8",
-            "LC_ALL": "C.UTF-8",
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_NO_LAZY_FETCH": "1",
-            "GIT_TERMINAL_PROMPT": "0",
-            "GIT_OPTIONAL_LOCKS": "0",
-        },
+        env=_readonly_command_env(),
     )
     _require(
         len(proc.stdout.encode("utf-8")) + len(proc.stderr.encode("utf-8"))
@@ -335,6 +360,8 @@ def apollyon_xiphos_candidate_training_host_preflight_contract() -> dict[str, An
         "source_root": str(SOURCE_ROOT),
         "model_root": str(MODEL_ROOT),
         "venv_python": str(VENV_PYTHON),
+        "venv_python_symlink_to_regular_executable_allowed": True,
+        "venv_python_broken_symlink_rejected": True,
         "minimum_cuda0_free_fraction_numerator": (
             MINIMUM_CUDA0_FREE_FRACTION_NUMERATOR
         ),
@@ -342,6 +369,9 @@ def apollyon_xiphos_candidate_training_host_preflight_contract() -> dict[str, An
             MINIMUM_CUDA0_FREE_FRACTION_DENOMINATOR
         ),
         "read_only_host_collection_implemented": True,
+        "readonly_subprocess_user_bus_binding_implemented": True,
+        "readonly_subprocess_environment_inherits_shell": False,
+        "external_service_control_query_uses_user_bus_binding": True,
         "network_access_by_collection": False,
         "git_fetch_by_collection": False,
         "git_checkout_by_collection": False,
@@ -405,7 +435,7 @@ def collect_xiphos_candidate_training_host_preflight(
     service = _service_control_snapshot()
 
     model_root_present = _real_directory(MODEL_ROOT)
-    venv_python_present = _real_file(VENV_PYTHON)
+    venv_python_present = _usable_venv_python(VENV_PYTHON)
 
     holds = []
     if normalized != EXPECTED_HOST_NORMALIZED:

@@ -57,9 +57,68 @@ def _green_service() -> dict:
     }
 
 
+
+def test_readonly_command_env_binds_external_user_bus_without_inheriting_shell(monkeypatch):
+    monkeypatch.setattr(preflight.os, "geteuid", lambda: 1000)
+    monkeypatch.setenv("VOID_UNTRUSTED_TEST_VALUE", "must-not-leak")
+
+    env = preflight._readonly_command_env()
+
+    assert env["XDG_RUNTIME_DIR"] == "/run/user/1000"
+    assert env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/1000/bus"
+    assert env["PATH"] == "/usr/local/bin:/usr/bin:/bin"
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert "VOID_UNTRUSTED_TEST_VALUE" not in env
+
+
+def test_readonly_command_env_refuses_root(monkeypatch):
+    monkeypatch.setattr(preflight.os, "geteuid", lambda: 0)
+    with pytest.raises(
+        preflight.ApollyonXiphosCandidateTrainingHostPreflightHold,
+        match="UNPRIVILEGED_USER_REQUIRED",
+    ):
+        preflight._readonly_command_env()
+
+
+def test_usable_venv_python_accepts_executable_symlink_to_regular_file(tmp_path):
+    venv = tmp_path / "venv"
+    bindir = venv / "bin"
+    bindir.mkdir(parents=True)
+    target = tmp_path / "python3.12-real"
+    target.write_text("#!/bin/sh\n", encoding="utf-8")
+    target.chmod(0o755)
+    python = bindir / "python3.12"
+    python.symlink_to(target)
+
+    assert preflight._usable_venv_python(python) is True
+
+
+def test_usable_venv_python_rejects_broken_or_nonexecutable_target(tmp_path):
+    venv = tmp_path / "venv"
+    bindir = venv / "bin"
+    bindir.mkdir(parents=True)
+    python = bindir / "python3.12"
+    python.symlink_to(tmp_path / "missing-python")
+
+    assert preflight._usable_venv_python(python) is False
+
+    python.unlink()
+    target = tmp_path / "python3.12-real"
+    target.write_text("#!/bin/sh\n", encoding="utf-8")
+    target.chmod(0o644)
+    python.symlink_to(target)
+
+    assert preflight._usable_venv_python(python) is False
+
+
 def test_contract_is_read_only_and_grants_no_training_authority():
     out = preflight.apollyon_xiphos_candidate_training_host_preflight_contract()
     assert out["read_only_host_collection_implemented"] is True
+    assert out["readonly_subprocess_user_bus_binding_implemented"] is True
+    assert out["readonly_subprocess_environment_inherits_shell"] is False
+    assert out["external_service_control_query_uses_user_bus_binding"] is True
+    assert out["venv_python_symlink_to_regular_executable_allowed"] is True
+    assert out["venv_python_broken_symlink_rejected"] is True
     assert out["preferred_candidate_training_host"] == "Xiphos"
     assert out["expected_host_normalized"] == "xiphos"
     assert out["shutdown_control_external_to_trainable_model"] is True
@@ -116,7 +175,7 @@ def test_green_snapshot_requires_xiphos_source_gpu_runtime_and_external_control(
     )
     monkeypatch.setattr(
         preflight,
-        "_real_file",
+        "_usable_venv_python",
         lambda path: path == preflight.VENV_PYTHON,
     )
 
@@ -192,7 +251,7 @@ def test_each_host_gap_fails_closed(monkeypatch, mutation, expected_hold):
     )
     monkeypatch.setattr(
         preflight,
-        "_real_file",
+        "_usable_venv_python",
         lambda path: venv_present if path == preflight.VENV_PYTHON else False,
     )
 
@@ -216,7 +275,7 @@ def test_collection_receipt_is_explicitly_nonmutating(monkeypatch):
     monkeypatch.setattr(preflight, "_disk_snapshot", _green_disk)
     monkeypatch.setattr(preflight, "_service_control_snapshot", _green_service)
     monkeypatch.setattr(preflight, "_real_directory", lambda path: True)
-    monkeypatch.setattr(preflight, "_real_file", lambda path: True)
+    monkeypatch.setattr(preflight, "_usable_venv_python", lambda path: True)
 
     out = preflight.collect_xiphos_candidate_training_host_preflight(
         expected_main_head=expected,
