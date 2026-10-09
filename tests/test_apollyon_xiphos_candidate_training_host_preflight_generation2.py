@@ -82,6 +82,9 @@ def test_readonly_command_env_refuses_root(monkeypatch):
 def test_contract_is_read_only_and_grants_no_training_authority():
     out = preflight.apollyon_xiphos_candidate_training_host_preflight_contract()
     assert out["read_only_host_collection_implemented"] is True
+    assert out["readonly_subprocess_user_bus_binding_implemented"] is True
+    assert out["readonly_subprocess_environment_inherits_shell"] is False
+    assert out["external_service_control_query_uses_user_bus_binding"] is True
     assert out["preferred_candidate_training_host"] == "Xiphos"
     assert out["expected_host_normalized"] == "xiphos"
     assert out["shutdown_control_external_to_trainable_model"] is True
