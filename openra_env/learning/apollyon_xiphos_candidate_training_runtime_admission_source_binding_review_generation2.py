@@ -29,12 +29,12 @@ ADMISSION_PATH = (
     "openra_env/learning/"
     "apollyon_xiphos_candidate_training_runtime_admission_generation2.py"
 )
-ADMISSION_GIT_BLOB = "ec0bfd7d4d9452bbf2cd1f329050d8e800436831"
+ADMISSION_GIT_BLOB = "ad0f3300ef0f58713c5cb307fc282fd0323fc87e"
 
 ADMISSION_TEST_PATH = (
     "tests/test_apollyon_xiphos_candidate_training_runtime_admission_generation2.py"
 )
-ADMISSION_TEST_GIT_BLOB = "6339c12b3a02765a4579d748624e7f937d5975c7"
+ADMISSION_TEST_GIT_BLOB = "1759c0ee6ca2ce7ef08f589983e37e87e2466486"
 
 NEXT_GATE = (
     "APOLLYON_XIPHOS_CANDIDATE_TRAINING_RUNTIME_READONLY_OBSERVATION_REQUIRED"
@@ -137,7 +137,8 @@ def _validated() -> dict[str, Any]:
     return deepcopy(out)
 
 
-def apollyon_xiphos_candidate_training_runtime_admission_review_contract() -> dict[str, Any]:
+def apollyon_xiphos_candidate_training_runtime_admission_review_contract(
+) -> dict[str, Any]:
     validated = deepcopy(_validated())
     return {
         "schema": CONTRACT_SCHEMA,
