@@ -352,6 +352,9 @@ def apollyon_xiphos_candidate_training_host_preflight_contract() -> dict[str, An
             MINIMUM_CUDA0_FREE_FRACTION_DENOMINATOR
         ),
         "read_only_host_collection_implemented": True,
+        "readonly_subprocess_user_bus_binding_implemented": True,
+        "readonly_subprocess_environment_inherits_shell": False,
+        "external_service_control_query_uses_user_bus_binding": True,
         "network_access_by_collection": False,
         "git_fetch_by_collection": False,
         "git_checkout_by_collection": False,
