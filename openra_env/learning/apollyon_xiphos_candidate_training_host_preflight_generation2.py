@@ -118,6 +118,21 @@ def _real_file(path: Path) -> bool:
     return stat.S_ISREG(observed.st_mode) and not stat.S_ISLNK(observed.st_mode)
 
 
+def _usable_venv_python(path: Path) -> bool:
+    """Accept a real executable or a venv-style symlink to one."""
+    if not _real_directory(path.parent) or not _real_directory(path.parent.parent):
+        return False
+    try:
+        observed = path.lstat()
+        resolved = path.resolve(strict=True)
+        target = resolved.stat()
+    except (FileNotFoundError, OSError, RuntimeError):
+        return False
+    if not (stat.S_ISREG(observed.st_mode) or stat.S_ISLNK(observed.st_mode)):
+        return False
+    return stat.S_ISREG(target.st_mode) and os.access(path, os.X_OK)
+
+
 def _readonly_command_env() -> dict[str, str]:
     """Return the fixed read-only subprocess environment, including user D-Bus."""
     uid = os.geteuid()
@@ -345,6 +360,8 @@ def apollyon_xiphos_candidate_training_host_preflight_contract() -> dict[str, An
         "source_root": str(SOURCE_ROOT),
         "model_root": str(MODEL_ROOT),
         "venv_python": str(VENV_PYTHON),
+        "venv_python_symlink_to_regular_executable_allowed": True,
+        "venv_python_broken_symlink_rejected": True,
         "minimum_cuda0_free_fraction_numerator": (
             MINIMUM_CUDA0_FREE_FRACTION_NUMERATOR
         ),
@@ -418,7 +435,7 @@ def collect_xiphos_candidate_training_host_preflight(
     service = _service_control_snapshot()
 
     model_root_present = _real_directory(MODEL_ROOT)
-    venv_python_present = _real_file(VENV_PYTHON)
+    venv_python_present = _usable_venv_python(VENV_PYTHON)
 
     holds = []
     if normalized != EXPECTED_HOST_NORMALIZED:
