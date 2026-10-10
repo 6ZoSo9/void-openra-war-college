@@ -1,0 +1,73 @@
+{
+  "bounded_training_recipe": {
+    "basis": "latest successful v9 continuation schedule",
+    "candidate_output_create_only": true,
+    "epochs": 1.0,
+    "gradient_accumulation_steps": 8,
+    "incumbent_weight_mutation": false,
+    "learning_rate": 1.5e-06,
+    "max_length": 1024,
+    "maximum_optimizer_steps": 5,
+    "merged_model_export": false,
+    "parent_adapter_mutation": false,
+    "vision_layer_training": false
+  },
+  "canonical_source_head": "f3c4aab5e861275d3efd93761be1a6eaa2a97110",
+  "execution_boundary": {
+    "authorization_single_use": true,
+    "automatic_promotion_authorized": false,
+    "candidate_weight_mutation_authorized_now": false,
+    "deployment_authorized": false,
+    "exact_corpus_record_count_required": true,
+    "exact_corpus_sha256_required": true,
+    "exact_source_head_and_tree_binding_required": true,
+    "exact_user_authorization_text_binding_required": true,
+    "external_revocation_check_required_immediately_before_execution": true,
+    "fresh_gpu_admission_required_immediately_before_execution": true,
+    "maximum_attempts": 1,
+    "maximum_automatic_retries": 0,
+    "training_execution_authorized": false
+  },
+  "fresh_corpus": {
+    "authority_or_control_text_forbidden": true,
+    "create_only": true,
+    "credentials_or_secrets_forbidden": true,
+    "external_api_or_network_authority_forbidden": true,
+    "held_out_or_eval_rows_forbidden": true,
+    "proposed_path": "/home/zoso/Downloads/void-apollyon-v3-candidate-training-v1/corpus-v1.jsonl",
+    "record_count_binding_required_before_authorization": true,
+    "required": true,
+    "sha256_binding_required_before_authorization": true,
+    "tactical_competence_only": true,
+    "void_chain_or_funds_authority_forbidden": true
+  },
+  "host": "Xiphos",
+  "legacy_lineage": {
+    "legacy_dataset_present": false,
+    "legacy_dataset_reconstruction_authorized": false,
+    "legacy_dataset_sha256": "3f5c54f011a98fe9df8ca6761d5c504ef85dea0aaf258b40c2e83df43a068824",
+    "v8_output_adapter_sha256": "ba792bd9472b0f9ee8e7acb5b40115a41c4def378fe74438b2f33d43b742b0e6",
+    "v8_parent_adapter_sha256": "3d35068ce4e3bfcbbd29bb950f2143f3162308442e6b424208972c7bab1fc2db",
+    "v9_output_adapter_sha256": "167ed610a8f047670ebe7688ccb5c6cdd310bbe6212f150a04d02ccff155111e",
+    "v9_output_is_promoted_parent": false,
+    "v9_parent_adapter_sha256": "ba792bd9472b0f9ee8e7acb5b40115a41c4def378fe74438b2f33d43b742b0e6"
+  },
+  "next_gate": "fresh_candidate_corpus_manifest_then_explicit_one_shot_training_authorization",
+  "parent_adapter": {
+    "adapter_config_sha256": "a294abd44f7db7c1ba2c6362c5f5f99bbaa94b63eaa50401776a571025c2aacc",
+    "adapter_model_sha256": "ba792bd9472b0f9ee8e7acb5b40115a41c4def378fe74438b2f33d43b742b0e6",
+    "copy_on_train_required": true,
+    "immutable_parent_required": true,
+    "inherit_lora_geometry_from_parent_config": true,
+    "path": "/home/zoso/Downloads/void-apollyon-v3-qwen35-4b-lora-v1/adapter-v8",
+    "recreate_lora_geometry_from_guessed_parameters": false
+  },
+  "record_kind": "source_only_plan_not_execution_authorization",
+  "runtime": {
+    "base_model_revision": "3764fa359b9082ea5a1e4a5e3ac3aaf6e9671636",
+    "pip_freeze_sha256": "7799387d3ef2780f8d25b93169297d73984d44b1d8264566bd238ee6fdfc3f77",
+    "runtime_admission_green": true,
+    "runtime_manifest_sha256": "13914628fb815d81e5d2cb005868f1c04f55c70e604d59a388a729723c2152a7"
+  },
+  "schema": "void.apollyon.generation2.xiphos-candidate-training-plan.v1"
+}
