@@ -132,6 +132,9 @@ def evaluate_xiphos_candidate_training_runtime_observation(
         "schema",
         "host",
         "source_head",
+        "source_main_branch",
+        "source_tracked_clean",
+        "qualified_main_ancestor_verified",
         "candidate_training_host_qualified",
         "holds",
         "gpu_name",
@@ -170,9 +173,18 @@ def evaluate_xiphos_candidate_training_runtime_observation(
         supplied.get("host") == EXPECTED_HOST,
         "XIPHOS_TRAINING_RUNTIME_HOST_HOLD",
     )
+    source_head = supplied.get("source_head")
     _require(
-        supplied.get("source_head") == QUALIFIED_MAIN_HEAD,
+        type(source_head) is str
+        and len(source_head) == 40
+        and all(ch in "0123456789abcdef" for ch in source_head),
         "XIPHOS_TRAINING_RUNTIME_SOURCE_HEAD_HOLD",
+    )
+    _require(
+        supplied.get("source_main_branch") is True
+        and supplied.get("source_tracked_clean") is True
+        and supplied.get("qualified_main_ancestor_verified") is True,
+        "XIPHOS_TRAINING_RUNTIME_SOURCE_LINEAGE_HOLD",
     )
     _require(
         supplied.get("candidate_training_host_qualified") is True
@@ -252,7 +264,11 @@ def evaluate_xiphos_candidate_training_runtime_observation(
     return {
         "schema": ADMISSION_SCHEMA,
         "host": EXPECTED_HOST,
-        "source_head": QUALIFIED_MAIN_HEAD,
+        "source_head": source_head,
+        "qualified_main_head": QUALIFIED_MAIN_HEAD,
+        "source_main_branch": True,
+        "source_tracked_clean": True,
+        "qualified_main_ancestor_verified": True,
         "xiphos_candidate_training_runtime_admitted": True,
         "runtime_manifest_sha256": RUNTIME_MANIFEST_SHA256,
         "pip_freeze_sha256": PIP_FREEZE_SHA256,
@@ -281,6 +297,9 @@ def apollyon_xiphos_candidate_training_runtime_admission_contract() -> dict[str,
     return {
         "schema": CONTRACT_SCHEMA,
         "qualified_main_head": QUALIFIED_MAIN_HEAD,
+        "current_source_must_descend_from_qualified_main": True,
+        "current_source_main_branch_required": True,
+        "current_source_tracked_clean_required": True,
         "expected_host": EXPECTED_HOST,
         "expected_gpu_name": EXPECTED_GPU_NAME,
         "model_root": MODEL_ROOT,
