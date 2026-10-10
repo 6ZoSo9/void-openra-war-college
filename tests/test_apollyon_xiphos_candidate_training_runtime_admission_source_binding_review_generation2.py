@@ -60,6 +60,9 @@ def test_review_requires_fresh_observation_and_one_shot_training_gate():
         .apollyon_xiphos_candidate_training_runtime_admission_review_contract()
     )
     assert out["candidate_output_create_only_required"] is True
+    assert out["current_source_must_descend_from_qualified_main"] is True
+    assert out["current_source_main_branch_required"] is True
+    assert out["current_source_tracked_clean_required"] is True
     assert out["fresh_readonly_observation_required"] is True
     assert out["cuda0_idle_required"] is True
     assert out["external_service_control_required"] is True
