@@ -29,12 +29,12 @@ ADMISSION_PATH = (
     "openra_env/learning/"
     "apollyon_xiphos_candidate_training_runtime_admission_generation2.py"
 )
-ADMISSION_GIT_BLOB = "ad0f3300ef0f58713c5cb307fc282fd0323fc87e"
+ADMISSION_GIT_BLOB = "d139abd4aebfa3f3fa342f5515c9303bb44749de"
 
 ADMISSION_TEST_PATH = (
     "tests/test_apollyon_xiphos_candidate_training_runtime_admission_generation2.py"
 )
-ADMISSION_TEST_GIT_BLOB = "1759c0ee6ca2ce7ef08f589983e37e87e2466486"
+ADMISSION_TEST_GIT_BLOB = "617c004370cd99e626eba95861198cc906e4975f"
 
 NEXT_GATE = (
     "APOLLYON_XIPHOS_CANDIDATE_TRAINING_RUNTIME_READONLY_OBSERVATION_REQUIRED"
@@ -82,6 +82,9 @@ def _validated() -> dict[str, Any]:
     )
     _require(
         out.get("candidate_output_create_only_required") is True
+        and out.get("current_source_must_descend_from_qualified_main") is True
+        and out.get("current_source_main_branch_required") is True
+        and out.get("current_source_tracked_clean_required") is True
         and out.get("fresh_readonly_observation_required") is True
         and out.get("host_qualification_required") is True
         and out.get("cuda0_idle_required") is True
@@ -154,6 +157,9 @@ def apollyon_xiphos_candidate_training_runtime_admission_review_contract(
         "runtime_manifest_sha256": validated["runtime_manifest_sha256"],
         "pip_freeze_sha256": validated["pip_freeze_sha256"],
         "candidate_output_create_only_required": True,
+        "current_source_must_descend_from_qualified_main": True,
+        "current_source_main_branch_required": True,
+        "current_source_tracked_clean_required": True,
         "fresh_readonly_observation_required": True,
         "cuda0_idle_required": True,
         "external_service_control_required": True,
