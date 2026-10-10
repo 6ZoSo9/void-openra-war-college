@@ -11,7 +11,10 @@ def clean_observation() -> dict:
     return {
         "schema": admission.OBSERVATION_SCHEMA,
         "host": "Xiphos",
-        "source_head": admission.QUALIFIED_MAIN_HEAD,
+        "source_head": "f" * 40,
+        "source_main_branch": True,
+        "source_tracked_clean": True,
+        "qualified_main_ancestor_verified": True,
         "candidate_training_host_qualified": True,
         "holds": [],
         "gpu_name": "NVIDIA GeForce RTX 5070",
@@ -45,6 +48,11 @@ def test_clean_runtime_observation_is_admissible_but_not_authorized_to_train():
         clean_observation()
     )
     assert out["xiphos_candidate_training_runtime_admitted"] is True
+    assert out["source_head"] == "f" * 40
+    assert out["qualified_main_head"] == admission.QUALIFIED_MAIN_HEAD
+    assert out["source_main_branch"] is True
+    assert out["source_tracked_clean"] is True
+    assert out["qualified_main_ancestor_verified"] is True
     assert out["training_execution_authorized"] is False
     assert out["candidate_weight_mutation_authorized_now"] is False
     assert out["incumbent_weight_mutation_authorized"] is False
@@ -53,6 +61,27 @@ def test_clean_runtime_observation_is_admissible_but_not_authorized_to_train():
     assert out[
         "external_revocation_check_immediately_before_execution_required"
     ] is True
+
+
+
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "source_main_branch",
+        "source_tracked_clean",
+        "qualified_main_ancestor_verified",
+    ),
+)
+def test_source_lineage_must_remain_clean_main_descendant(field):
+    evidence = clean_observation()
+    evidence[field] = False
+    with pytest.raises(
+        admission.ApollyonXiphosCandidateTrainingRuntimeAdmissionHold,
+        match="SOURCE_LINEAGE_HOLD",
+    ):
+        admission.evaluate_xiphos_candidate_training_runtime_observation(evidence)
 
 
 def test_runtime_asset_hash_drift_fails_closed():
@@ -151,6 +180,9 @@ def test_contract_binds_exact_v14_runtime_surface():
     assert out["qualified_main_head"] == (
         "426cd18aa1d66df0658cd38f88feb7f7ea25cfed"
     )
+    assert out["current_source_must_descend_from_qualified_main"] is True
+    assert out["current_source_main_branch_required"] is True
+    assert out["current_source_tracked_clean_required"] is True
     assert out["runtime_manifest_sha256"] == (
         "13914628fb815d81e5d2cb005868f1c04f55c70e604d59a388a729723c2152a7"
     )
