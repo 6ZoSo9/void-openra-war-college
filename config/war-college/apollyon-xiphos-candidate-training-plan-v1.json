@@ -1,18 +1,18 @@
 {
   "bounded_training_recipe": {
-    "basis": "latest successful v9 continuation schedule",
+    "basis": "latest successful v9 continuation schedule, with max_length corrected from measured runtime-shaped candidate corpus",
     "candidate_output_create_only": true,
     "epochs": 1.0,
     "gradient_accumulation_steps": 8,
     "incumbent_weight_mutation": false,
     "learning_rate": 1.5e-06,
-    "max_length": 1024,
+    "max_length": 3072,
     "maximum_optimizer_steps": 5,
     "merged_model_export": false,
     "parent_adapter_mutation": false,
     "vision_layer_training": false
   },
-  "canonical_source_head": "f3c4aab5e861275d3efd93761be1a6eaa2a97110",
+  "canonical_source_head": "a7ce17e97fbb7652a3454650b8c62c088dca33a5",
   "execution_boundary": {
     "authorization_single_use": true,
     "automatic_promotion_authorized": false,
@@ -26,7 +26,9 @@
     "fresh_gpu_admission_required_immediately_before_execution": true,
     "maximum_attempts": 1,
     "maximum_automatic_retries": 0,
-    "training_execution_authorized": false
+    "training_execution_authorized": false,
+    "previous_1024_authorization_must_be_superseded": true,
+    "fresh_authorization_required_after_max_length_correction": true
   },
   "fresh_corpus": {
     "authority_or_control_text_forbidden": true,
@@ -69,5 +71,19 @@
     "runtime_admission_green": true,
     "runtime_manifest_sha256": "13914628fb815d81e5d2cb005868f1c04f55c70e604d59a388a729723c2152a7"
   },
-  "schema": "void.apollyon.generation2.xiphos-candidate-training-plan.v1"
+  "schema": "void.apollyon.generation2.xiphos-candidate-training-plan.v1",
+  "runtime_shaped_corpus_token_census": {
+    "corpus_sha256": "2441f914edc765282db7774f704781f68e2275148f0078a9af573f454e514346",
+    "corpus_record_count": 36,
+    "tokenizer_source": "adapter-v8",
+    "chat_template_sha256": "8452ca85cb1e0ff04304c02f417a53305d5ba17f6eb9d5693343ad8355f985a8",
+    "doctrine_binding": "FEINTER",
+    "minimum_total_tokens": 1281,
+    "maximum_total_tokens": 2812,
+    "configured_max_length": 3072,
+    "headroom_tokens": 260,
+    "truncation_required": false,
+    "original_1024_plan_admitted": false,
+    "model_text_max_position_embeddings": 262144
+  }
 }
