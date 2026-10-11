@@ -144,9 +144,15 @@ ALLOWED_IMPORT_ROOTS = {
     "__future__",
     "copy",
     "functools",
-    "json",
     "openra_env",
     "typing",
+}
+
+ALLOWED_STDLIB_FROM_IMPORTS = {
+    "__future__": frozenset({"annotations"}),
+    "copy": frozenset({"deepcopy"}),
+    "functools": frozenset({"lru_cache"}),
+    "typing": frozenset({"Any"}),
 }
 
 FORBIDDEN_IMPORT_ROOTS = {
@@ -346,6 +352,10 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
                     root in ALLOWED_IMPORT_ROOTS and root not in FORBIDDEN_IMPORT_ROOTS,
                     f"{label}: forbidden import root {root}",
                 )
+                _require(
+                    root == "openra_env",
+                    f"{label}: forbidden module import form {alias.name}",
+                )
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 _require(
@@ -358,6 +368,15 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
                 root in ALLOWED_IMPORT_ROOTS and root not in FORBIDDEN_IMPORT_ROOTS,
                 f"{label}: forbidden import root {root}",
             )
+            if root != "openra_env":
+                allowed_names = ALLOWED_STDLIB_FROM_IMPORTS.get(
+                    node.module or "", frozenset()
+                )
+                for alias in node.names:
+                    _require(
+                        alias.name in allowed_names,
+                        f"{label}: forbidden import member {(node.module or '')}.{alias.name}",
+                    )
         elif isinstance(node, ast.Name):
             _require(
                 node.id not in FORBIDDEN_NAME_REFERENCES,

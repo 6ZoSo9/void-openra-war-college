@@ -205,9 +205,21 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             with self.subTest(statement=statement):
                 source = statement.encode() + b"\n" + _source()
                 spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden"):
+                    audit_source(source, spec)
+
+    def test_rejects_allowed_module_namespace_capability_escapes(self):
+        for statement in (
+            "import typing\ntyping.sys.modules['builtins'].open('x')",
+            "from typing import sys\nsys.modules['builtins'].open('x')",
+            "import copy\ncopy.dispatch_table.clear()",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
                 with self.assertRaisesRegex(
                     CapabilityGuardError,
-                    "forbidden introspection attribute",
+                    "forbidden module import form|forbidden import member",
                 ):
                     audit_source(source, spec)
 
