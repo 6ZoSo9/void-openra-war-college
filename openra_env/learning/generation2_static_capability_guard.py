@@ -30,6 +30,8 @@ class TargetSpec:
     protected_false_fields: tuple[str, ...]
     held_entrypoints: tuple[str, ...]
     dependency_blobs: tuple[tuple[str, str], ...] = ()
+    dependency_import_graph_sha256: str = ""
+    allowed_local_module_attributes: tuple[tuple[str, str], ...] = ()
 
 
 PROTECTED_FALSE_FIELDS = (
@@ -137,6 +139,19 @@ TARGETS = (
         protected_false_fields=PROTECTED_FALSE_FIELDS,
         held_entrypoints=HELD_ENTRYPOINTS,
         dependency_blobs=DEPENDENCY_BLOBS,
+        dependency_import_graph_sha256=(
+            "9235be8a3cd67690d87a7d72604cc2f84c9a55a79099bf14ab630614778f6e15"
+        ),
+        allowed_local_module_attributes=(
+            ("allocator", "COMMAND_MATERIALIZER_GIT_BLOB"),
+            ("allocator", "COMMAND_MATERIALIZER_SOURCE_SHA256"),
+            ("allocator", "MATERIALIZER_REVIEW_GIT_BLOB"),
+            ("allocator", "MATERIALIZER_REVIEW_SOURCE_SHA256"),
+            ("allocator", "POST_ALLOCATOR_BLOCKERS"),
+            ("allocator", "POST_ALLOCATOR_SOURCE_BLOCKERS"),
+            ("allocator", "all_isolated_workdir_allocations"),
+            ("allocator", "isolated_workdir_allocator_contract"),
+        ),
     ),
 )
 
@@ -144,9 +159,15 @@ ALLOWED_IMPORT_ROOTS = {
     "__future__",
     "copy",
     "functools",
-    "json",
     "openra_env",
     "typing",
+}
+
+ALLOWED_STDLIB_FROM_IMPORTS = {
+    "__future__": frozenset({"annotations"}),
+    "copy": frozenset({"deepcopy"}),
+    "functools": frozenset({"lru_cache"}),
+    "typing": frozenset({"Any"}),
 }
 
 FORBIDDEN_IMPORT_ROOTS = {
@@ -337,7 +358,40 @@ def _contract_mapping(
     return mapping
 
 
-def _verify_static_surface(tree: ast.Module, label: str) -> None:
+def _local_module_aliases(tree: ast.Module) -> frozenset[str]:
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".", 1)[0] == "openra_env":
+                    aliases.add(alias.asname or alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom):
+            root = (node.module or "").split(".", 1)[0]
+            if node.level or root == "openra_env":
+                for alias in node.names:
+                    if alias.name != "*":
+                        aliases.add(alias.asname or alias.name)
+    return frozenset(aliases)
+
+
+def _verify_static_surface(
+    tree: ast.Module,
+    label: str,
+    allowed_local_module_attributes: tuple[tuple[str, str], ...],
+) -> None:
+    allowed_attributes = frozenset(allowed_local_module_attributes)
+    _require(
+        len(allowed_attributes) == len(allowed_local_module_attributes),
+        f"{label}: duplicate allowed local module attribute",
+    )
+    local_aliases = _local_module_aliases(tree)
+    parent_by_node = {
+        child: parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+    observed_attributes: set[tuple[str, str]] = set()
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -345,6 +399,10 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
                 _require(
                     root in ALLOWED_IMPORT_ROOTS and root not in FORBIDDEN_IMPORT_ROOTS,
                     f"{label}: forbidden import root {root}",
+                )
+                _require(
+                    root == "openra_env",
+                    f"{label}: forbidden module import form {alias.name}",
                 )
         elif isinstance(node, ast.ImportFrom):
             if node.level:
@@ -358,11 +416,41 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
                 root in ALLOWED_IMPORT_ROOTS and root not in FORBIDDEN_IMPORT_ROOTS,
                 f"{label}: forbidden import root {root}",
             )
+            if root != "openra_env":
+                allowed_names = ALLOWED_STDLIB_FROM_IMPORTS.get(
+                    node.module or "", frozenset()
+                )
+                for alias in node.names:
+                    _require(
+                        alias.name in allowed_names,
+                        f"{label}: forbidden import member {(node.module or '')}.{alias.name}",
+                    )
         elif isinstance(node, ast.Name):
             _require(
                 node.id not in FORBIDDEN_NAME_REFERENCES,
                 f"{label}: forbidden builtin capability reference {node.id}",
             )
+            if node.id in local_aliases and isinstance(node.ctx, ast.Load):
+                parent = parent_by_node.get(node)
+                _require(
+                    isinstance(parent, ast.Attribute) and parent.value is node,
+                    f"{label}: forbidden local module alias use {node.id}",
+                )
+                assert isinstance(parent, ast.Attribute)
+                grandparent = parent_by_node.get(parent)
+                _require(
+                    not (
+                        isinstance(grandparent, ast.Attribute)
+                        and grandparent.value is parent
+                    ),
+                    f"{label}: forbidden local module attribute traversal {node.id}.{parent.attr}",
+                )
+                attribute = (node.id, parent.attr)
+                _require(
+                    attribute in allowed_attributes,
+                    f"{label}: forbidden local module attribute {node.id}.{parent.attr}",
+                )
+                observed_attributes.add(attribute)
         elif isinstance(node, ast.Attribute):
             _require(
                 node.attr not in FORBIDDEN_INTROSPECTION_ATTRIBUTES,
@@ -373,6 +461,12 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
                 node.func.id not in FORBIDDEN_DIRECT_CALLS | FORBIDDEN_DYNAMIC_CALLS,
                 f"{label}: forbidden direct or dynamic call {node.func.id}",
             )
+
+    unused_attributes = sorted(allowed_attributes - observed_attributes)
+    _require(
+        not unused_attributes,
+        f"{label}: unused allowed local module attribute {unused_attributes[0] if unused_attributes else ''}",
+    )
 
 
 def _verify_held_entrypoint(
@@ -404,13 +498,15 @@ def _git_blob_oid(source: bytes) -> str:
     return hashlib.sha1(header + source).hexdigest()
 
 
-def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
+def _local_import_edges(
+    source: bytes, label: str
+) -> tuple[tuple[str, str, str, str, str, str], ...]:
     try:
         tree = ast.parse(source, filename=label)
     except (SyntaxError, UnicodeDecodeError) as exc:
         raise CapabilityGuardError(f"{label}: unreadable Python source: {exc}") from exc
 
-    paths: set[str] = set()
+    edges: list[tuple[str, str, str, str, str, str]] = []
     prefix = "openra_env.learning"
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
@@ -421,13 +517,34 @@ def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
                 )
                 module = node.module or ""
                 if module:
-                    paths.add(
+                    dependency = (
                         "openra_env/learning/" + module.replace(".", "/") + ".py"
                     )
+                    for alias in node.names:
+                        _require(alias.name != "*", f"{label}: wildcard local import")
+                        edges.append(
+                            (
+                                label,
+                                dependency,
+                                "from",
+                                module,
+                                alias.name,
+                                alias.asname or "",
+                            )
+                        )
                 else:
                     for alias in node.names:
                         _require(alias.name != "*", f"{label}: wildcard local import")
-                        paths.add(f"openra_env/learning/{alias.name}.py")
+                        edges.append(
+                            (
+                                label,
+                                f"openra_env/learning/{alias.name}.py",
+                                "from",
+                                "",
+                                alias.name,
+                                alias.asname or "",
+                            )
+                        )
                 continue
             module = node.module or ""
             _require(module != "openra_env", f"{label}: ambiguous local package import")
@@ -442,10 +559,31 @@ def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
             if module == prefix:
                 for alias in node.names:
                     _require(alias.name != "*", f"{label}: wildcard local import")
-                    paths.add(f"openra_env/learning/{alias.name}.py")
+                    edges.append(
+                        (
+                            label,
+                            f"openra_env/learning/{alias.name}.py",
+                            "from",
+                            module,
+                            alias.name,
+                            alias.asname or "",
+                        )
+                    )
             elif module.startswith(prefix + "."):
                 suffix = module[len(prefix) + 1 :].replace(".", "/")
-                paths.add(f"openra_env/learning/{suffix}.py")
+                dependency = f"openra_env/learning/{suffix}.py"
+                for alias in node.names:
+                    _require(alias.name != "*", f"{label}: wildcard local import")
+                    edges.append(
+                        (
+                            label,
+                            dependency,
+                            "from",
+                            module,
+                            alias.name,
+                            alias.asname or "",
+                        )
+                    )
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 _require(
@@ -461,8 +599,30 @@ def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
                 )
                 if alias.name.startswith(prefix + "."):
                     suffix = alias.name[len(prefix) + 1 :].replace(".", "/")
-                    paths.add(f"openra_env/learning/{suffix}.py")
-    return tuple(sorted(paths))
+                    edges.append(
+                        (
+                            label,
+                            f"openra_env/learning/{suffix}.py",
+                            "import",
+                            alias.name,
+                            "",
+                            alias.asname or "",
+                        )
+                    )
+    return tuple(sorted(edges))
+
+
+def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
+    return tuple(sorted({edge[1] for edge in _local_import_edges(source, label)}))
+
+
+def _import_graph_sha256(
+    edges: Sequence[tuple[str, str, str, str, str, str]],
+) -> str:
+    payload = json.dumps(
+        sorted(edges), ensure_ascii=True, separators=(",", ":")
+    ).encode("ascii")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _read_repository_source(repository_root: Path, path: str) -> bytes:
@@ -485,7 +645,7 @@ def audit_source(source: bytes, spec: TargetSpec, *, label: str | None = None) -
     except (SyntaxError, UnicodeDecodeError) as exc:
         raise CapabilityGuardError(f"{target}: unreadable Python source: {exc}") from exc
 
-    _verify_static_surface(tree, target)
+    _verify_static_surface(tree, target, spec.allowed_local_module_attributes)
     constants = _string_constants(tree)
     _require(constants.get(spec.gate_name) == spec.gate_value, f"{target}: next gate drift")
 
@@ -532,7 +692,8 @@ def audit_repository(root: Path, targets: Sequence[TargetSpec] = TARGETS) -> dic
         )
         visited = {spec.path}
         discovered: set[str] = set()
-        pending = list(_local_dependency_paths(source, spec.path))
+        import_edges = list(_local_import_edges(source, spec.path))
+        pending = [edge[1] for edge in import_edges]
 
         while pending:
             dependency = pending.pop()
@@ -550,14 +711,26 @@ def audit_repository(root: Path, targets: Sequence[TargetSpec] = TARGETS) -> dic
                 f"{spec.path}: dependency blob drift: {dependency}: {actual_blob}",
             )
             discovered.add(dependency)
-            pending.extend(_local_dependency_paths(dependency_source, dependency))
+            dependency_edges = _local_import_edges(dependency_source, dependency)
+            import_edges.extend(dependency_edges)
+            pending.extend(edge[1] for edge in dependency_edges)
 
         unused = sorted(set(expected) - discovered)
         if unused:
             raise CapabilityGuardError(
                 f"{spec.path}: unused dependency binding: {unused[0]}"
             )
+        actual_import_graph_sha256 = _import_graph_sha256(import_edges)
+        _require(
+            actual_import_graph_sha256 == spec.dependency_import_graph_sha256,
+            (
+                f"{spec.path}: dependency import graph drift: "
+                f"{actual_import_graph_sha256}"
+            ),
+        )
         receipt["dependency_count"] = len(discovered)
+        receipt["dependency_import_edge_count"] = len(import_edges)
+        receipt["dependency_import_graph_sha256"] = actual_import_graph_sha256
         receipt["dependencies"] = [
             {"path": path, "git_blob": expected[path]} for path in sorted(discovered)
         ]

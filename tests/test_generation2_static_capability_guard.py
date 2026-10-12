@@ -10,7 +10,10 @@ from openra_env.learning.generation2_static_capability_guard import (
     CapabilityGuardError,
     HELD_ENTRYPOINTS,
     PROTECTED_FALSE_FIELDS,
+    TARGETS,
     TargetSpec,
+    _import_graph_sha256,
+    _local_import_edges,
     audit_repository,
     audit_source,
 )
@@ -52,6 +55,13 @@ def _git_blob_oid(source: bytes) -> str:
     return hashlib.sha1(header + source).hexdigest()
 
 
+def _fixture_import_graph_sha256(*sources: tuple[str, bytes]) -> str:
+    edges = []
+    for path, source in sources:
+        edges.extend(_local_import_edges(source, path))
+    return _import_graph_sha256(edges)
+
+
 class StaticCapabilityGuardTests(unittest.TestCase):
     def test_current_repository_contract(self):
         repository_root = Path(__file__).resolve().parents[1]
@@ -63,6 +73,11 @@ class StaticCapabilityGuardTests(unittest.TestCase):
         )
         self.assertEqual(receipt["target_count"], 1)
         self.assertEqual(receipt["dependency_count"], 48)
+        self.assertEqual(receipt["targets"][0]["dependency_import_edge_count"], 216)
+        self.assertEqual(
+            receipt["targets"][0]["dependency_import_graph_sha256"],
+            "9235be8a3cd67690d87a7d72604cc2f84c9a55a79099bf14ab630614778f6e15",
+        )
         self.assertEqual(
             receipt["targets"][0]["path"],
             (
@@ -78,6 +93,33 @@ class StaticCapabilityGuardTests(unittest.TestCase):
         self.assertIs(receipt["source_only"], True)
         self.assertIs(receipt["runtime_execution"], False)
         self.assertIs(receipt["wallet_or_funds_action"], False)
+
+    def test_rejects_existing_alias_attribute_traversal_without_import_drift(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        spec = TARGETS[0]
+        source = (repository_root / spec.path).read_bytes()
+        changed = source.replace(
+            b"CONTRACT_SCHEMA = (",
+            (
+                b"allocator.command_materializer.selector.materializer_review."
+                b"activation_review.ollama_binding.runtime_image_binding."
+                b"docker_backend.host_readonly_command_runner("
+                b"allocator.command_materializer.selector.materializer_review."
+                b"activation_review.ollama_binding.runtime_image_binding."
+                b"docker_backend.INFO_COMMAND)\n\nCONTRACT_SCHEMA = ("
+            ),
+            1,
+        )
+        self.assertEqual(
+            _local_import_edges(changed, spec.path),
+            _local_import_edges(source, spec.path),
+        )
+        changed_spec = replace(spec, sha256=hashlib.sha256(changed).hexdigest())
+        with self.assertRaisesRegex(
+            CapabilityGuardError,
+            "forbidden local module attribute traversal",
+        ):
+            audit_source(changed, changed_spec)
 
     def test_accepts_literal_false_flags_and_held_entrypoints(self):
         source = _source()
@@ -205,9 +247,21 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             with self.subTest(statement=statement):
                 source = statement.encode() + b"\n" + _source()
                 spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
+                with self.assertRaisesRegex(CapabilityGuardError, "forbidden"):
+                    audit_source(source, spec)
+
+    def test_rejects_allowed_module_namespace_capability_escapes(self):
+        for statement in (
+            "import typing\ntyping.sys.modules['builtins'].open('x')",
+            "from typing import sys\nsys.modules['builtins'].open('x')",
+            "import copy\ncopy.dispatch_table.clear()",
+        ):
+            with self.subTest(statement=statement):
+                source = statement.encode() + b"\n" + _source()
+                spec = replace(_spec(source), sha256=hashlib.sha256(source).hexdigest())
                 with self.assertRaisesRegex(
                     CapabilityGuardError,
-                    "forbidden introspection attribute",
+                    "forbidden module import form|forbidden import member",
                 ):
                     audit_source(source, spec)
 
@@ -409,6 +463,10 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             _spec(target_source),
             path=target_path,
             dependency_blobs=((dependency_path, _git_blob_oid(dependency_source)),),
+            dependency_import_graph_sha256=_fixture_import_graph_sha256(
+                (target_path, target_source),
+                (dependency_path, dependency_source),
+            ),
         )
 
         with TemporaryDirectory() as temporary:
@@ -440,6 +498,65 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             dependency.write_bytes(b"VALUE = 2\n")
             with self.assertRaisesRegex(CapabilityGuardError, "dependency blob drift"):
                 audit_repository(root, (spec,))
+
+    def test_rejects_direct_edge_to_already_transitive_local_dependency(self):
+        target_path = "openra_env/learning/fixture_target.py"
+        adapter_path = "openra_env/learning/fixture_adapter.py"
+        backend_path = "openra_env/learning/fixture_host_backend.py"
+        backend_source = b"def host_command():\n    return 'held'\n"
+        adapter_source = (
+            b"from openra_env.learning import fixture_host_backend as backend\n"
+            b"VALUE = backend.host_command\n"
+        )
+        target_source = (
+            b"from openra_env.learning import fixture_adapter as adapter\n"
+            + _source()
+        )
+        dependency_blobs = (
+            (adapter_path, _git_blob_oid(adapter_source)),
+            (backend_path, _git_blob_oid(backend_source)),
+        )
+        spec = replace(
+            _spec(target_source),
+            path=target_path,
+            dependency_blobs=dependency_blobs,
+            dependency_import_graph_sha256=_fixture_import_graph_sha256(
+                (target_path, target_source),
+                (adapter_path, adapter_source),
+                (backend_path, backend_source),
+            ),
+        )
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / target_path
+            adapter = root / adapter_path
+            backend = root / backend_path
+            target.parent.mkdir(parents=True)
+            target.write_bytes(target_source)
+            adapter.write_bytes(adapter_source)
+            backend.write_bytes(backend_source)
+
+            receipt = audit_repository(root, (spec,))
+            self.assertEqual(receipt["dependency_count"], 2)
+
+            changed_target_source = (
+                b"from openra_env.learning import fixture_adapter as adapter\n"
+                b"from openra_env.learning import fixture_host_backend as backend\n"
+                b"backend.host_command()\n"
+                + _source()
+            )
+            target.write_bytes(changed_target_source)
+            changed_spec = replace(
+                spec,
+                sha256=hashlib.sha256(changed_target_source).hexdigest(),
+                allowed_local_module_attributes=(("backend", "host_command"),),
+            )
+            with self.assertRaisesRegex(
+                CapabilityGuardError,
+                "dependency import graph drift",
+            ):
+                audit_repository(root, (changed_spec,))
 
 
     def test_rejects_local_imports_outside_reviewed_namespace(self):
@@ -474,6 +591,10 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             _spec(target_source),
             path=target_path,
             dependency_blobs=((dependency_path, _git_blob_oid(dependency_source)),),
+            dependency_import_graph_sha256=_fixture_import_graph_sha256(
+                (target_path, target_source),
+                (dependency_path, dependency_source),
+            ),
         )
 
         with TemporaryDirectory() as temporary:
