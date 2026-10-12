@@ -31,6 +31,7 @@ class TargetSpec:
     held_entrypoints: tuple[str, ...]
     dependency_blobs: tuple[tuple[str, str], ...] = ()
     dependency_import_graph_sha256: str = ""
+    allowed_local_module_attributes: tuple[tuple[str, str], ...] = ()
 
 
 PROTECTED_FALSE_FIELDS = (
@@ -140,6 +141,16 @@ TARGETS = (
         dependency_blobs=DEPENDENCY_BLOBS,
         dependency_import_graph_sha256=(
             "9235be8a3cd67690d87a7d72604cc2f84c9a55a79099bf14ab630614778f6e15"
+        ),
+        allowed_local_module_attributes=(
+            ("allocator", "COMMAND_MATERIALIZER_GIT_BLOB"),
+            ("allocator", "COMMAND_MATERIALIZER_SOURCE_SHA256"),
+            ("allocator", "MATERIALIZER_REVIEW_GIT_BLOB"),
+            ("allocator", "MATERIALIZER_REVIEW_SOURCE_SHA256"),
+            ("allocator", "POST_ALLOCATOR_BLOCKERS"),
+            ("allocator", "POST_ALLOCATOR_SOURCE_BLOCKERS"),
+            ("allocator", "all_isolated_workdir_allocations"),
+            ("allocator", "isolated_workdir_allocator_contract"),
         ),
     ),
 )
@@ -347,7 +358,40 @@ def _contract_mapping(
     return mapping
 
 
-def _verify_static_surface(tree: ast.Module, label: str) -> None:
+def _local_module_aliases(tree: ast.Module) -> frozenset[str]:
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".", 1)[0] == "openra_env":
+                    aliases.add(alias.asname or alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom):
+            root = (node.module or "").split(".", 1)[0]
+            if node.level or root == "openra_env":
+                for alias in node.names:
+                    if alias.name != "*":
+                        aliases.add(alias.asname or alias.name)
+    return frozenset(aliases)
+
+
+def _verify_static_surface(
+    tree: ast.Module,
+    label: str,
+    allowed_local_module_attributes: tuple[tuple[str, str], ...],
+) -> None:
+    allowed_attributes = frozenset(allowed_local_module_attributes)
+    _require(
+        len(allowed_attributes) == len(allowed_local_module_attributes),
+        f"{label}: duplicate allowed local module attribute",
+    )
+    local_aliases = _local_module_aliases(tree)
+    parent_by_node = {
+        child: parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+    observed_attributes: set[tuple[str, str]] = set()
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -386,6 +430,27 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
                 node.id not in FORBIDDEN_NAME_REFERENCES,
                 f"{label}: forbidden builtin capability reference {node.id}",
             )
+            if node.id in local_aliases and isinstance(node.ctx, ast.Load):
+                parent = parent_by_node.get(node)
+                _require(
+                    isinstance(parent, ast.Attribute) and parent.value is node,
+                    f"{label}: forbidden local module alias use {node.id}",
+                )
+                assert isinstance(parent, ast.Attribute)
+                grandparent = parent_by_node.get(parent)
+                _require(
+                    not (
+                        isinstance(grandparent, ast.Attribute)
+                        and grandparent.value is parent
+                    ),
+                    f"{label}: forbidden local module attribute traversal {node.id}.{parent.attr}",
+                )
+                attribute = (node.id, parent.attr)
+                _require(
+                    attribute in allowed_attributes,
+                    f"{label}: forbidden local module attribute {node.id}.{parent.attr}",
+                )
+                observed_attributes.add(attribute)
         elif isinstance(node, ast.Attribute):
             _require(
                 node.attr not in FORBIDDEN_INTROSPECTION_ATTRIBUTES,
@@ -396,6 +461,12 @@ def _verify_static_surface(tree: ast.Module, label: str) -> None:
                 node.func.id not in FORBIDDEN_DIRECT_CALLS | FORBIDDEN_DYNAMIC_CALLS,
                 f"{label}: forbidden direct or dynamic call {node.func.id}",
             )
+
+    unused_attributes = sorted(allowed_attributes - observed_attributes)
+    _require(
+        not unused_attributes,
+        f"{label}: unused allowed local module attribute {unused_attributes[0] if unused_attributes else ''}",
+    )
 
 
 def _verify_held_entrypoint(
@@ -574,7 +645,7 @@ def audit_source(source: bytes, spec: TargetSpec, *, label: str | None = None) -
     except (SyntaxError, UnicodeDecodeError) as exc:
         raise CapabilityGuardError(f"{target}: unreadable Python source: {exc}") from exc
 
-    _verify_static_surface(tree, target)
+    _verify_static_surface(tree, target, spec.allowed_local_module_attributes)
     constants = _string_constants(tree)
     _require(constants.get(spec.gate_name) == spec.gate_value, f"{target}: next gate drift")
 

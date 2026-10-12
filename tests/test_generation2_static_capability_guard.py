@@ -10,6 +10,7 @@ from openra_env.learning.generation2_static_capability_guard import (
     CapabilityGuardError,
     HELD_ENTRYPOINTS,
     PROTECTED_FALSE_FIELDS,
+    TARGETS,
     TargetSpec,
     _import_graph_sha256,
     _local_import_edges,
@@ -92,6 +93,33 @@ class StaticCapabilityGuardTests(unittest.TestCase):
         self.assertIs(receipt["source_only"], True)
         self.assertIs(receipt["runtime_execution"], False)
         self.assertIs(receipt["wallet_or_funds_action"], False)
+
+    def test_rejects_existing_alias_attribute_traversal_without_import_drift(self):
+        repository_root = Path(__file__).resolve().parents[1]
+        spec = TARGETS[0]
+        source = (repository_root / spec.path).read_bytes()
+        changed = source.replace(
+            b"CONTRACT_SCHEMA = (",
+            (
+                b"allocator.command_materializer.selector.materializer_review."
+                b"activation_review.ollama_binding.runtime_image_binding."
+                b"docker_backend.host_readonly_command_runner("
+                b"allocator.command_materializer.selector.materializer_review."
+                b"activation_review.ollama_binding.runtime_image_binding."
+                b"docker_backend.INFO_COMMAND)\n\nCONTRACT_SCHEMA = ("
+            ),
+            1,
+        )
+        self.assertEqual(
+            _local_import_edges(changed, spec.path),
+            _local_import_edges(source, spec.path),
+        )
+        changed_spec = replace(spec, sha256=hashlib.sha256(changed).hexdigest())
+        with self.assertRaisesRegex(
+            CapabilityGuardError,
+            "forbidden local module attribute traversal",
+        ):
+            audit_source(changed, changed_spec)
 
     def test_accepts_literal_false_flags_and_held_entrypoints(self):
         source = _source()
@@ -522,6 +550,7 @@ class StaticCapabilityGuardTests(unittest.TestCase):
             changed_spec = replace(
                 spec,
                 sha256=hashlib.sha256(changed_target_source).hexdigest(),
+                allowed_local_module_attributes=(("backend", "host_command"),),
             )
             with self.assertRaisesRegex(
                 CapabilityGuardError,
