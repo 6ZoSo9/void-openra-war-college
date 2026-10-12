@@ -30,6 +30,7 @@ class TargetSpec:
     protected_false_fields: tuple[str, ...]
     held_entrypoints: tuple[str, ...]
     dependency_blobs: tuple[tuple[str, str], ...] = ()
+    dependency_import_graph_sha256: str = ""
 
 
 PROTECTED_FALSE_FIELDS = (
@@ -137,6 +138,9 @@ TARGETS = (
         protected_false_fields=PROTECTED_FALSE_FIELDS,
         held_entrypoints=HELD_ENTRYPOINTS,
         dependency_blobs=DEPENDENCY_BLOBS,
+        dependency_import_graph_sha256=(
+            "9235be8a3cd67690d87a7d72604cc2f84c9a55a79099bf14ab630614778f6e15"
+        ),
     ),
 )
 
@@ -423,13 +427,15 @@ def _git_blob_oid(source: bytes) -> str:
     return hashlib.sha1(header + source).hexdigest()
 
 
-def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
+def _local_import_edges(
+    source: bytes, label: str
+) -> tuple[tuple[str, str, str, str, str, str], ...]:
     try:
         tree = ast.parse(source, filename=label)
     except (SyntaxError, UnicodeDecodeError) as exc:
         raise CapabilityGuardError(f"{label}: unreadable Python source: {exc}") from exc
 
-    paths: set[str] = set()
+    edges: list[tuple[str, str, str, str, str, str]] = []
     prefix = "openra_env.learning"
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
@@ -440,13 +446,34 @@ def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
                 )
                 module = node.module or ""
                 if module:
-                    paths.add(
+                    dependency = (
                         "openra_env/learning/" + module.replace(".", "/") + ".py"
                     )
+                    for alias in node.names:
+                        _require(alias.name != "*", f"{label}: wildcard local import")
+                        edges.append(
+                            (
+                                label,
+                                dependency,
+                                "from",
+                                module,
+                                alias.name,
+                                alias.asname or "",
+                            )
+                        )
                 else:
                     for alias in node.names:
                         _require(alias.name != "*", f"{label}: wildcard local import")
-                        paths.add(f"openra_env/learning/{alias.name}.py")
+                        edges.append(
+                            (
+                                label,
+                                f"openra_env/learning/{alias.name}.py",
+                                "from",
+                                "",
+                                alias.name,
+                                alias.asname or "",
+                            )
+                        )
                 continue
             module = node.module or ""
             _require(module != "openra_env", f"{label}: ambiguous local package import")
@@ -461,10 +488,31 @@ def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
             if module == prefix:
                 for alias in node.names:
                     _require(alias.name != "*", f"{label}: wildcard local import")
-                    paths.add(f"openra_env/learning/{alias.name}.py")
+                    edges.append(
+                        (
+                            label,
+                            f"openra_env/learning/{alias.name}.py",
+                            "from",
+                            module,
+                            alias.name,
+                            alias.asname or "",
+                        )
+                    )
             elif module.startswith(prefix + "."):
                 suffix = module[len(prefix) + 1 :].replace(".", "/")
-                paths.add(f"openra_env/learning/{suffix}.py")
+                dependency = f"openra_env/learning/{suffix}.py"
+                for alias in node.names:
+                    _require(alias.name != "*", f"{label}: wildcard local import")
+                    edges.append(
+                        (
+                            label,
+                            dependency,
+                            "from",
+                            module,
+                            alias.name,
+                            alias.asname or "",
+                        )
+                    )
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 _require(
@@ -480,8 +528,30 @@ def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
                 )
                 if alias.name.startswith(prefix + "."):
                     suffix = alias.name[len(prefix) + 1 :].replace(".", "/")
-                    paths.add(f"openra_env/learning/{suffix}.py")
-    return tuple(sorted(paths))
+                    edges.append(
+                        (
+                            label,
+                            f"openra_env/learning/{suffix}.py",
+                            "import",
+                            alias.name,
+                            "",
+                            alias.asname or "",
+                        )
+                    )
+    return tuple(sorted(edges))
+
+
+def _local_dependency_paths(source: bytes, label: str) -> tuple[str, ...]:
+    return tuple(sorted({edge[1] for edge in _local_import_edges(source, label)}))
+
+
+def _import_graph_sha256(
+    edges: Sequence[tuple[str, str, str, str, str, str]],
+) -> str:
+    payload = json.dumps(
+        sorted(edges), ensure_ascii=True, separators=(",", ":")
+    ).encode("ascii")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _read_repository_source(repository_root: Path, path: str) -> bytes:
@@ -551,7 +621,8 @@ def audit_repository(root: Path, targets: Sequence[TargetSpec] = TARGETS) -> dic
         )
         visited = {spec.path}
         discovered: set[str] = set()
-        pending = list(_local_dependency_paths(source, spec.path))
+        import_edges = list(_local_import_edges(source, spec.path))
+        pending = [edge[1] for edge in import_edges]
 
         while pending:
             dependency = pending.pop()
@@ -569,14 +640,26 @@ def audit_repository(root: Path, targets: Sequence[TargetSpec] = TARGETS) -> dic
                 f"{spec.path}: dependency blob drift: {dependency}: {actual_blob}",
             )
             discovered.add(dependency)
-            pending.extend(_local_dependency_paths(dependency_source, dependency))
+            dependency_edges = _local_import_edges(dependency_source, dependency)
+            import_edges.extend(dependency_edges)
+            pending.extend(edge[1] for edge in dependency_edges)
 
         unused = sorted(set(expected) - discovered)
         if unused:
             raise CapabilityGuardError(
                 f"{spec.path}: unused dependency binding: {unused[0]}"
             )
+        actual_import_graph_sha256 = _import_graph_sha256(import_edges)
+        _require(
+            actual_import_graph_sha256 == spec.dependency_import_graph_sha256,
+            (
+                f"{spec.path}: dependency import graph drift: "
+                f"{actual_import_graph_sha256}"
+            ),
+        )
         receipt["dependency_count"] = len(discovered)
+        receipt["dependency_import_edge_count"] = len(import_edges)
+        receipt["dependency_import_graph_sha256"] = actual_import_graph_sha256
         receipt["dependencies"] = [
             {"path": path, "git_blob": expected[path]} for path in sorted(discovered)
         ]
